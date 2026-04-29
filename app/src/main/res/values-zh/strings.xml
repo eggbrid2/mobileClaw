@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MobileClaw</string>
+    <string name="accessibility_service_label">MobileClaw 智能代理</string>
+    <string name="accessibility_service_description">允许 MobileClaw AI 代理读取屏幕内容并代您执行操作。</string>
+    <string name="ime_label">MobileClaw 输入法</string>
+
+    <!-- 顶部状态栏 -->
+    <string name="status_ready">就绪</string>
+    <string name="status_running">执行中…</string>
+    <string name="status_not_configured">未配置</string>
+
+    <!-- 空状态 -->
+    <string name="app_tagline">Android 自主 AI 代理</string>
+    <string name="app_description">我可以搜索网页、读取屏幕、\n点击按钮、输入文字并运行代码。</string>
+    <string name="try_these">试试这些</string>
+
+    <!-- 输入栏 -->
+    <string name="input_placeholder">描述一个任务…</string>
+    <string name="input_placeholder_running">代理正在工作中…</string>
+
+    <!-- 配置提示 -->
+    <string name="setup_prompt">请配置您的 LLM 以开始使用</string>
+    <string name="setup_action">配置</string>
+
+    <!-- 代理消息气泡 -->
+    <string name="agent_label">MobileClaw</string>
+    <string name="steps_label">%d 步骤</string>
+    <string name="technical_hidden">▸ 已隐藏 %d 个技术步骤</string>
+    <string name="technical_hide">▸ 隐藏技术详情</string>
+    <string name="details_show">详情</string>
+    <string name="details_hide">收起</string>
+
+    <!-- 设置页面 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_subtitle">LLM 连接与偏好设置</string>
+    <string name="section_preset">服务商预设</string>
+    <string name="section_connection">连接配置</string>
+    <string name="section_models">模型配置</string>
+    <string name="section_language">语言设置</string>
+    <string name="section_theme">主题外观</string>
+    <string name="section_virtual_display">虚拟屏幕</string>
+    <string name="field_endpoint">API 地址</string>
+    <string name="field_api_key">API 密钥</string>
+    <string name="field_chat_model">对话模型</string>
+    <string name="field_embed_model">向量嵌入模型</string>
+    <string name="embed_hint">用于情景记忆搜索，留空则禁用。</string>
+    <string name="status_configured">已准备好连接</string>
+    <string name="status_not_ready">请配置地址和密钥</string>
+    <string name="btn_save">保存</string>
+    <string name="btn_cancel">取消</string>
+    <string name="lang_auto">自动（跟随系统）</string>
+    <string name="lang_zh">中文</string>
+    <string name="lang_en">英文</string>
+    <string name="lang_ja">日语</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_accent">主题色</string>
+    <string name="vd_status_running">● 运行中（显示屏 #%d）</string>
+    <string name="vd_status_stopped">○ 未启动</string>
+    <string name="vd_test">测试虚拟屏幕</string>
+    <string name="vd_test_ok">虚拟屏幕正常（ID: %s）</string>
+    <string name="vd_test_fail">失败：%s</string>
+    <string name="vd_hint">用于后台应用执行。部分 ROM 定制（MIUI、EMUI）可能会阻止此功能，如需使用请开启开发者选项。</string>
+
+    <!-- 技能页面 -->
+    <string name="skills_title">技能</string>
+    <string name="skills_loaded">已加载 %d 个技能</string>
+    <string name="skills_group_core">始终激活</string>
+    <string name="skills_group_core_sub">注入到每个任务中</string>
+    <string name="skills_group_auto">自动注入</string>
+    <string name="skills_group_auto_sub">根据任务上下文自动包含</string>
+    <string name="skills_group_ondemand">按需加载</string>
+    <string name="skills_group_ondemand_sub">由代理根据需要请求加载</string>
+    <string name="skills_promote">↑ 提升为始终激活</string>
+    <string name="skills_promote_title">提升技能？</string>
+    <string name="skills_promote_body">"%s" 将被注入到所有未来任务中（级别 1）。</string>
+    <string name="skills_promote_confirm">提升到级别 1</string>
+    <string name="btn_close">关闭</string>
+    <string name="btn_back">返回</string>
+
+    <!-- 权限引导 -->
+    <string name="perm_title">MobileClaw</string>
+    <string name="perm_subtitle">需要以下权限才能运行</string>
+    <string name="perm_subtitle2">这些权限让代理可以看到并控制您的屏幕。</string>
+    <string name="perm_required">必须授权</string>
+    <string name="perm_recommended">建议授权</string>
+    <string name="perm_grant">授权</string>
+    <string name="perm_open">打开</string>
+    <string name="perm_privacy">您的数据保留在设备上。MobileClaw 从不\n在没有您任务授权的情况下上传屏幕内容。</string>
+</resources>

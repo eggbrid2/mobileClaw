@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MobileClaw</string>
+    <string name="accessibility_service_label">MobileClaw Agent</string>
+    <string name="accessibility_service_description">Allows MobileClaw AI Agent to read screen content and perform actions on your behalf.</string>
+    <string name="ime_label">MobileClaw IME</string>
+
+    <!-- Top Bar -->
+    <string name="status_ready">Ready</string>
+    <string name="status_running">Executing…</string>
+    <string name="status_not_configured">Not configured</string>
+
+    <!-- Empty state -->
+    <string name="app_tagline">Autonomous AI Agent for Android</string>
+    <string name="app_description">I can search the web, read your screen,\ntap buttons, type text, and run code.</string>
+    <string name="try_these">TRY THESE</string>
+
+    <!-- Input bar -->
+    <string name="input_placeholder">Describe a task…</string>
+    <string name="input_placeholder_running">Agent is working…</string>
+
+    <!-- Setup banner -->
+    <string name="setup_prompt">Configure your LLM to get started</string>
+    <string name="setup_action">Setup</string>
+
+    <!-- Agent bubble -->
+    <string name="agent_label">MobileClaw</string>
+    <string name="steps_label">%d steps</string>
+    <string name="technical_hidden">▸ %d technical steps hidden</string>
+    <string name="technical_hide">▸ Hide technical details</string>
+    <string name="details_show">details</string>
+    <string name="details_hide">less</string>
+
+    <!-- Settings page -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">LLM connection &amp; preferences</string>
+    <string name="section_preset">PROVIDER PRESET</string>
+    <string name="section_connection">CONNECTION</string>
+    <string name="section_models">MODELS</string>
+    <string name="section_language">LANGUAGE</string>
+    <string name="section_theme">THEME</string>
+    <string name="section_virtual_display">VIRTUAL DISPLAY</string>
+    <string name="field_endpoint">API Endpoint</string>
+    <string name="field_api_key">API Key</string>
+    <string name="field_chat_model">Chat Model</string>
+    <string name="field_embed_model">Embedding Model</string>
+    <string name="embed_hint">Used for episodic memory search. Leave blank to disable.</string>
+    <string name="status_configured">Ready to connect</string>
+    <string name="status_not_ready">Configure endpoint and API key</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="lang_auto">Auto (System)</string>
+    <string name="lang_zh">中文</string>
+    <string name="lang_en">English</string>
+    <string name="lang_ja">日本語</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_accent">Accent Color</string>
+    <string name="vd_status_running">● Running (display #%d)</string>
+    <string name="vd_status_stopped">○ Not started</string>
+    <string name="vd_test">Test Virtual Display</string>
+    <string name="vd_test_ok">Virtual display works (ID: %s)</string>
+    <string name="vd_test_fail">Failed: %s</string>
+    <string name="vd_hint">Used for background app execution. Some ROM customizations (MIUI, EMUI) may block this. Enable Developer Options if needed.</string>
+
+    <!-- Skills page -->
+    <string name="skills_title">Skills</string>
+    <string name="skills_loaded">%d skills loaded</string>
+    <string name="skills_group_core">Always Active</string>
+    <string name="skills_group_core_sub">Injected into every task</string>
+    <string name="skills_group_auto">Auto-Inject</string>
+    <string name="skills_group_auto_sub">Included based on task context</string>
+    <string name="skills_group_ondemand">On-Demand</string>
+    <string name="skills_group_ondemand_sub">Loaded when requested by agent</string>
+    <string name="skills_promote">↑ Promote to Always-Inject</string>
+    <string name="skills_promote_title">Promote Skill?</string>
+    <string name="skills_promote_body">\"%s\" will be injected into all future tasks (Level 1).</string>
+    <string name="skills_promote_confirm">Promote to Level 1</string>
+    <string name="btn_close">Close</string>
+    <string name="btn_back">Back</string>
+
+    <!-- Permissions -->
+    <string name="perm_title">MobileClaw</string>
+    <string name="perm_subtitle">Needs a few permissions to operate</string>
+    <string name="perm_subtitle2">These let the agent see and control your screen.</string>
+    <string name="perm_required">REQUIRED</string>
+    <string name="perm_recommended">RECOMMENDED</string>
+    <string name="perm_grant">Grant</string>
+    <string name="perm_open">Open</string>
+    <string name="perm_privacy">Your data stays on-device. MobileClaw never\nuploads your screen content without your task.</string>
+</resources>

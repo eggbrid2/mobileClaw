@@ -1,0 +1,2 @@
+com/mobileclaw/server/PrivilegedServer.class
+com/mobileclaw/server/PrivilegedServer$Companion.class

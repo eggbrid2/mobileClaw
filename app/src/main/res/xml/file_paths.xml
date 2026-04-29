@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Internal files dir: context.filesDir -->
+    <files-path name="files" path="." />
+    <!-- Internal cache dir -->
+    <cache-path name="cache" path="." />
+    <!-- External files dir: context.getExternalFilesDir(null) -->
+    <external-files-path name="external_files" path="." />
+    <!-- External cache dir -->
+    <external-cache-path name="external_cache" path="." />
+</paths>
