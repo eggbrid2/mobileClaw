@@ -23,18 +23,26 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: echo "y" | sdkmanager "ndk;25.1.8937393" --sdk_root=$ANDROID_SDK_ROOT
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug --no-daemon
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.1.8937393
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: mobileclaw-debug
+          name: mobileclaw-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          retention-days: 14
 
   release:
     runs-on: ubuntu-latest
@@ -52,14 +60,23 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: echo "y" | sdkmanager "ndk;25.1.8937393" --sdk_root=$ANDROID_SDK_ROOT
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:assembleRelease --no-daemon
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.1.8937393
 
       - name: Sign APK
         if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        id: sign
         uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: app/build/outputs/apk/release
