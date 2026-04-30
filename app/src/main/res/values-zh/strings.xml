@@ -79,6 +79,61 @@
     <string name="btn_close">关闭</string>
     <string name="btn_back">返回</string>
 
+    <!-- 抽屉 -->
+    <string name="drawer_new_session">新建对话</string>
+    <string name="drawer_recent">最近对话</string>
+    <string name="drawer_groups">群组</string>
+    <string name="drawer_apps">应用</string>
+    <string name="drawer_console">控制台</string>
+    <string name="drawer_roles">角色</string>
+    <string name="drawer_skills">技能</string>
+    <string name="drawer_profile">用户画像</string>
+    <string name="drawer_user_config">用户配置</string>
+    <string name="drawer_settings">设置</string>
+    <string name="drawer_just_now">刚刚</string>
+    <string name="drawer_minutes_ago">%d 分钟前</string>
+    <string name="drawer_yesterday">昨天</string>
+
+    <!-- 群组页面 -->
+    <string name="groups_title">群组</string>
+    <string name="groups_empty_hint">创建一个群组，邀请多个 AI 角色一起讨论和执行任务</string>
+    <string name="groups_empty">暂无群组</string>
+    <string name="groups_you">👤 你</string>
+    <string name="group_new_title">新建群组</string>
+    <string name="group_field_name">群组名称</string>
+    <string name="group_field_name_hint">输入群组名称…</string>
+    <string name="group_field_icon">选择图标</string>
+    <string name="group_field_members">选择成员（至少 1 个）</string>
+    <string name="group_create">创建</string>
+
+    <!-- 群聊 -->
+    <string name="group_chat_hint">发消息，可 @成员…</string>
+    <string name="group_mention_label">@提及成员</string>
+
+    <!-- 浏览器页面 -->
+    <string name="browser_address_hint">搜索或输入网址…</string>
+    <string name="browser_send_agent">发给 Agent</string>
+    <string name="browser_send_agent_message">帮我分析这个页面的内容：%s</string>
+
+    <!-- 角色页面 -->
+    <string name="role_create_title">创建角色</string>
+    <string name="role_edit_title">编辑角色</string>
+    <string name="role_field_avatar">头像</string>
+    <string name="role_field_name">名称</string>
+    <string name="role_field_description">描述</string>
+    <string name="role_field_system_prompt">系统提示词附加（可选）</string>
+    <string name="role_field_skills">强制注入技能（逗号分隔 ID，可选）</string>
+    <string name="role_field_model">模型覆盖（可选，如 gpt-4o）</string>
+    <string name="role_model_label">模型: %s</string>
+    <string name="role_save">保存</string>
+
+    <!-- 技能页面补充 -->
+    <string name="skills_demote">↓ 降级为按需加载</string>
+    <string name="skills_delete">删除技能</string>
+    <string name="skills_delete_title">删除技能？</string>
+    <string name="skills_delete_body">"%s" 将被永久删除。</string>
+    <string name="skills_delete_confirm">删除</string>
+
     <!-- 权限引导 -->
     <string name="perm_title">MobileClaw</string>
     <string name="perm_subtitle">需要以下权限才能运行</string>

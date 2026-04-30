@@ -25,6 +25,9 @@ class MemorySkill(private val memory: SemanticMemory) : Skill {
             SkillParam("value", "string", "Value to store (required for action=set)", required = false),
         ),
         injectionLevel = 0,
+        nameZh = "语义记忆",
+        descriptionZh = "读写用户的键值对形式长期记忆。",
+        tags = listOf("记忆"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {

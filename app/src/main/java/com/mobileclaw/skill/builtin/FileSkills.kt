@@ -26,6 +26,9 @@ class CreateFileSkill(private val context: Context) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "创建文件",
+        descriptionZh = "在本地存储中创建或覆盖文件。",
+        tags = listOf("文件"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {
@@ -77,6 +80,9 @@ class CreateHtmlSkill(private val context: Context) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "创建 HTML 页面",
+        descriptionZh = "生成 HTML 文件并在内置浏览器中打开。",
+        tags = listOf("文件"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {

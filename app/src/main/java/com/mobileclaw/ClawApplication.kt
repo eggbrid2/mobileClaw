@@ -2,6 +2,7 @@ package com.mobileclaw
 
 import android.app.Application
 import com.mobileclaw.agent.RoleManager
+import kotlinx.coroutines.flow.MutableSharedFlow
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.AgentConfig
 import com.mobileclaw.config.SkillNotesStore
@@ -74,6 +75,9 @@ class ClawApplication : Application() {
     lateinit var userStorageManager: com.mobileclaw.config.UserStorageManager
         private set
 
+    lateinit var groupManager: com.mobileclaw.agent.GroupManager
+        private set
+
     lateinit var consoleServer: ConsoleServer
         private set
 
@@ -103,6 +107,7 @@ class ClawApplication : Application() {
         miniAppStore = MiniAppStore(this)
         skillNotesStore = SkillNotesStore(this)
         userStorageManager = com.mobileclaw.config.UserStorageManager(this)
+        groupManager = com.mobileclaw.agent.GroupManager(this)
         consoleServer = ConsoleServer(filesDir = filesDir, database = database)
         consoleServer.start()
     }
@@ -112,6 +117,9 @@ class ClawApplication : Application() {
         localApiServer.stop()
         consoleServer.stop()
     }
+
+    /** Tasks submitted from MiniAppActivity to the main agent. */
+    val pendingAgentTask = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     companion object {
         lateinit var instance: ClawApplication

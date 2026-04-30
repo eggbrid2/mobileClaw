@@ -12,6 +12,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import android.widget.Toast
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
@@ -26,6 +27,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.lang.ref.WeakReference
+import java.net.URLEncoder
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /** Native bridge exposed to mini-app HTML as `window.Android`. */
@@ -37,6 +41,7 @@ class AppJsBridge(
     private val semanticMemory: SemanticMemory,
     private val onAskAgent: (String) -> Unit,
     private val onClose: () -> Unit,
+    private val onSetTitle: (String) -> Unit = {},
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
@@ -46,6 +51,51 @@ class AppJsBridge(
         .build()
     private var pythonNamespace: PyObject? = null
     private var sqliteDb: SQLiteDatabase? = null
+
+    // ── Async callback infrastructure ──────────────────────────────────────────
+    @Volatile private var _webView: WeakReference<WebView>? = null
+    private val bgExecutor = Executors.newCachedThreadPool()
+
+    /** Bind a WebView so async methods can fire JS callbacks on it. */
+    fun bindWebView(wv: WebView) { _webView = WeakReference(wv) }
+
+    private fun fireCallback(callbackId: String, json: String) {
+        val enc = URLEncoder.encode(json, "UTF-8")
+        mainHandler.post {
+            _webView?.get()?.evaluateJavascript("window._clawCb('$callbackId','$enc')", null)
+        }
+    }
+
+    @JavascriptInterface
+    fun httpFetchAsync(url: String, method: String, headersJson: String, body: String, callbackId: String) {
+        bgExecutor.submit { fireCallback(callbackId, httpFetch(url, method, headersJson, body)) }
+    }
+
+    @JavascriptInterface
+    fun sqliteAsync(sql: String, paramsJson: String, callbackId: String) {
+        bgExecutor.submit { fireCallback(callbackId, sqlite(sql, paramsJson)) }
+    }
+
+    @JavascriptInterface
+    fun callPythonAsync(inputJson: String, callbackId: String) {
+        bgExecutor.submit { fireCallback(callbackId, callPython(inputJson)) }
+    }
+
+    @JavascriptInterface
+    fun shellExec(cmd: String): String = runCatching {
+        val process = ProcessBuilder("sh", "-c", cmd)
+            .redirectErrorStream(true)
+            .start()
+        val done = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+        val out = process.inputStream.bufferedReader().readText().take(8192)
+        val code = if (done) process.exitValue() else { process.destroyForcibly(); -1 }
+        gson.toJson(mapOf("stdout" to out, "exitCode" to code, "ok" to (code == 0)))
+    }.getOrElse { e -> gson.toJson(mapOf("error" to (e.message ?: "shell error"), "exitCode" to -1, "ok" to false)) }
+
+    @JavascriptInterface
+    fun shellExecAsync(cmd: String, callbackId: String) {
+        bgExecutor.submit { fireCallback(callbackId, shellExec(cmd)) }
+    }
 
     // ── Config / Memory ────────────────────────────────────────────────────────
 
@@ -245,14 +295,14 @@ class AppJsBridge(
             }
             val py = Python.getInstance()
             val ns = ensurePythonNamespace(py)
-                ?: return gson.toJson(mapOf("error" to "未配置 Python 后端。请先调用 setPythonBackend() 设置代码。"))
+                ?: return gson.toJson(mapOf("error" to "No Python backend set. Call setPythonBackend(code) first."))
             val handleFn = ns.callAttr("get", "handle")
             if (handleFn == null || handleFn.toString() == "None") {
-                return gson.toJson(mapOf("error" to "Python 后端缺少 handle(input) 函数"))
+                return gson.toJson(mapOf("error" to "Python backend must define a handle(input_json) function."))
             }
             handleFn.call(inputJson).toString()
         }.getOrElse { e ->
-            gson.toJson(mapOf("error" to (e.message?.take(400) ?: "Python 执行错误")))
+            gson.toJson(mapOf("error" to (e.message?.take(400) ?: "Python execution error")))
         }
     }
 
@@ -287,6 +337,9 @@ class AppJsBridge(
 
     @JavascriptInterface
     fun close() = mainHandler.post { onClose() }
+
+    @JavascriptInterface
+    fun setTitle(title: String) = mainHandler.post { onSetTitle(title) }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 

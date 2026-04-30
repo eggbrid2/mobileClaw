@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -128,7 +128,7 @@ fun DimensionDetailPage(
                     modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
                 }
                 Text(dimension.emoji, fontSize = 18.sp, modifier = Modifier.padding(start = 4.dp))
                 Spacer(Modifier.width(6.dp))

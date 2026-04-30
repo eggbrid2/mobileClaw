@@ -41,6 +41,9 @@ class SkillCheckSkill(private val registry: SkillRegistry) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "查看技能库",
+        descriptionZh = "列出当前已有的技能及其状态。",
+        tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -130,6 +133,9 @@ class QuickSkillSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "快速生成技能",
+        descriptionZh = "根据描述自动生成新技能。",
+        tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -215,105 +221,216 @@ class QuickSkillSkill(
 
 // ── skill_market ──────────────────────────────────────────────────────────────
 
-private const val DEFAULT_MARKET_URL =
-    "https://raw.githubusercontent.com/mobileclaw/skill-market/main/index.json"
-
 /**
- * JSON entry in the market index file.
- * Each entry points to a downloadable SkillDefinition JSON file.
- */
-private data class MarketEntry(
-    val id: String,
-    val name: String,
-    val description: String,
-    val tags: List<String> = emptyList(),
-    val url: String,
-)
-
-/**
- * Searches, lists, and installs skills from a community marketplace hosted on GitHub.
- * The market is a JSON array of MarketEntry objects; each entry has a `url` field
- * pointing to a complete SkillDefinition JSON.
+ * Searches and installs skills from multiple real skill markets:
+ * - clawhub: https://clawhub.ai — official OpenClaw registry (13k+ skills, no auth needed for search)
+ * - skillsmp: https://skillsmp.com — aggregator (270k+ skills)
+ * - local: bundled catalog in SkillMarket.kt
+ *
+ * ClawHub/SkillsMP skills are SKILL.md (markdown prompt-injection). On install,
+ * the content is stored as a Python skill that returns the full SKILL.md when invoked.
+ * Set injectionLevel=0 or 1 after install to auto-inject into the system prompt.
  */
 class SkillMarketSkill(
     private val loader: SkillLoader,
-    private val marketUrl: String = DEFAULT_MARKET_URL,
 ) : Skill {
 
     private val gson = Gson()
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
     override val meta = SkillMeta(
         id = "skill_market",
         name = "Skill Marketplace",
-        description = "Searches and installs skills from the MobileClaw community marketplace. " +
-            "Actions: 'search' (find skills by keyword), 'install' (download and install by id), 'list' (show all available).",
+        description = "Search and install skills from real skill markets.\n" +
+            "market= 'clawhub' (OpenClaw官方, 13k+ skills) | 'skillsmp' (聚合270k+) | 'local' (内置推荐)\n" +
+            "Actions: 'search' (find by keyword), 'install' (download+install by slug), 'list' (browse local)",
         parameters = listOf(
             SkillParam("action", "string", "'search' | 'install' | 'list'"),
-            SkillParam("query", "string", "Search keyword (required for action=search)", required = false),
-            SkillParam("id", "string", "Skill ID to install (required for action=install)", required = false),
+            SkillParam("market", "string", "'clawhub' | 'skillsmp' | 'local' (default: clawhub)", required = false),
+            SkillParam("query", "string", "Search keyword (for action=search)", required = false),
+            SkillParam("slug", "string", "Skill slug to install, e.g. 'username/skill-name' (for action=install)", required = false),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "技能市场",
+        descriptionZh = "从 ClawHub、SkillsMP 等真实技能市场搜索并安装技能。",
+        tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         val action = params["action"] as? String ?: return SkillResult(false, "action is required: search | install | list")
+        val market = (params["market"] as? String)?.lowercase() ?: "clawhub"
+
         return when (action) {
-            "list", "search" -> {
-                val query = (params["query"] as? String)?.lowercase() ?: ""
-                val entries = fetchIndex()
-                val filtered = if (query.isBlank()) entries
-                else entries.filter {
-                    it.id.contains(query) || it.name.lowercase().contains(query) ||
-                        it.description.lowercase().contains(query) ||
-                        it.tags.any { t -> t.lowercase().contains(query) }
+            "search" -> {
+                val query = params["query"] as? String ?: return SkillResult(false, "query is required for search")
+                when (market) {
+                    "clawhub"  -> searchClawHub(query)
+                    "skillsmp" -> searchSkillsMP(query)
+                    "local"    -> searchLocal(query)
+                    else -> SkillResult(false, "Unknown market: $market. Use clawhub, skillsmp, or local.")
                 }
-                if (filtered.isEmpty()) return SkillResult(true, "No skills found for '$query'.")
-                val lines = filtered.joinToString("\n") { e ->
-                    "- **${e.id}**: ${e.description.take(100)}" +
-                        if (e.tags.isNotEmpty()) " [${e.tags.joinToString(", ")}]" else ""
-                }
-                SkillResult(true, "Found ${filtered.size} skill(s):\n$lines\n\nUse skill_market(action=install, id=<id>) to install.")
             }
+            "list" -> searchLocal("")
             "install" -> {
-                val id = params["id"] as? String ?: return SkillResult(false, "id is required for install")
-                val entries = fetchIndex()
-                val entry = entries.find { it.id == id }
-                    ?: return SkillResult(false, "Skill '$id' not found in marketplace. Use action=list to browse.")
-                val defJson = fetchUrl(entry.url)
-                val def = runCatching { gson.fromJson(defJson, SkillDefinition::class.java) }
-                    .getOrElse { return SkillResult(false, "Invalid skill definition at ${entry.url}: ${it.message}") }
-                runCatching { loader.persist(def) }
-                    .getOrElse { return SkillResult(false, "Install failed: ${it.message}") }
-                SkillResult(true, "Skill '${def.meta.id}' installed from marketplace (level ${def.meta.injectionLevel}).")
+                val slug = params["slug"] as? String ?: return SkillResult(false, "slug is required for install (e.g. 'username/skill-name')")
+                when (market) {
+                    "clawhub"  -> installFromClawHub(slug)
+                    "local"    -> installLocal(slug)
+                    else -> SkillResult(false, "Install from '$market' not yet supported. Use clawhub or local.")
+                }
             }
             else -> SkillResult(false, "Unknown action: $action. Use search, install, or list.")
         }
     }
 
-    private suspend fun fetchIndex(): List<MarketEntry> = withContext(Dispatchers.IO) {
-        val json = fetchUrl(marketUrl)
+    // ── ClawHub ───────────────────────────────────────────────────────────────
+
+    private suspend fun searchClawHub(query: String): SkillResult = withContext(Dispatchers.IO) {
+        val url = "https://clawhub.ai/api/v1/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&limit=12"
+        val json = runCatching { fetchUrl(url) }.getOrElse {
+            return@withContext SkillResult(false, "ClawHub search failed: ${it.message}")
+        }
         runCatching {
-            gson.fromJson(json, Array<MarketEntry>::class.java).toList()
-        }.getOrElse { throw RuntimeException("Failed to parse market index: ${it.message}") }
+            val obj = JsonParser.parseString(json).asJsonObject
+            val items = obj.getAsJsonArray("items") ?: obj.getAsJsonArray("results")
+                ?: return@withContext SkillResult(false, "Unexpected response: ${json.take(200)}")
+            if (items.size() == 0) return@withContext SkillResult(true, "No ClawHub skills found for '$query'.")
+            val lines = mutableListOf("ClawHub results for '$query' (${items.size()} found):\n")
+            items.forEach { el ->
+                val o = el.asJsonObject
+                val slug = o["slug"]?.asString ?: o["name"]?.asString ?: "unknown"
+                val desc = o["description"]?.asString?.take(100) ?: ""
+                val stars = o["stars"]?.asInt ?: o["stargazers"]?.asInt ?: 0
+                lines += "• **$slug**${if (stars > 0) " ⭐$stars" else ""}: $desc"
+            }
+            lines += "\nInstall: skill_market(action=install, market=clawhub, slug='username/skill-name')"
+            SkillResult(true, lines.joinToString("\n"))
+        }.getOrElse { SkillResult(false, "Parse error: ${it.message}\nRaw: ${json.take(300)}") }
     }
+
+    private suspend fun installFromClawHub(slug: String): SkillResult = withContext(Dispatchers.IO) {
+        // Try multiple sources: ClawHub API, then GitHub raw
+        val content = runCatching {
+            val url = "https://clawhub.ai/api/v1/skills/$slug"
+            val json = fetchUrl(url)
+            val obj = JsonParser.parseString(json).asJsonObject
+            obj["content"]?.asString ?: obj["readme"]?.asString ?: json
+        }.getOrElse {
+            runCatching {
+                fetchUrl("https://raw.githubusercontent.com/openclaw/skills/main/skills/$slug/SKILL.md")
+            }.getOrElse {
+                return@withContext SkillResult(false, "Cannot fetch skill '$slug' from ClawHub or GitHub: ${it.message}")
+            }
+        }
+
+        val skillId = slug.replace("/", "_").replace("-", "_").replace(Regex("[^a-z0-9_]"), "")
+        val firstLine = content.lines().firstOrNull { it.startsWith("#") }?.removePrefix("#")?.trim() ?: slug
+        val desc = content.lines().firstOrNull { it.isNotBlank() && !it.startsWith("#") } ?: firstLine
+
+        val contentEscaped = content.replace("\\", "\\\\").replace("\"\"\"", "\\\"\\\"\\\"")
+        val script = "print(\"\"\"$contentEscaped\"\"\")"
+
+        val def = SkillDefinition(
+            meta = SkillMeta(
+                id = "ch_$skillId".take(64),
+                name = firstLine.take(60),
+                description = "ClawHub: $slug\n$desc",
+                type = SkillType.PYTHON,
+                injectionLevel = 2,
+                isBuiltin = false,
+                nameZh = firstLine.take(60),
+                tags = listOf("技能"),
+            ),
+            script = script,
+        )
+        runCatching { loader.persist(def) }.getOrElse {
+            return@withContext SkillResult(false, "Install failed: ${it.message}")
+        }
+        SkillResult(true, "Installed ClawHub skill '${def.meta.id}' (level 2, on-demand). Promote to level 0 or 1 to auto-inject into prompts.")
+    }
+
+    // ── SkillsMP ──────────────────────────────────────────────────────────────
+
+    private suspend fun searchSkillsMP(query: String): SkillResult = withContext(Dispatchers.IO) {
+        // SkillsMP public search (no key needed for read)
+        val url = "https://skillsmp.com/api/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}&limit=10"
+        val json = runCatching { fetchUrl(url) }.getOrElse {
+            return@withContext SkillResult(false, "SkillsMP search failed: ${it.message}. Try market=clawhub instead.")
+        }
+        runCatching {
+            val obj = JsonParser.parseString(json).asJsonObject
+            val items = obj.getAsJsonArray("skills") ?: obj.getAsJsonArray("items")
+                ?: return@withContext SkillResult(false, "Unexpected SkillsMP response: ${json.take(200)}")
+            if (items.size() == 0) return@withContext SkillResult(true, "No SkillsMP skills found for '$query'.")
+            val lines = mutableListOf("SkillsMP results for '$query':\n")
+            items.forEach { el ->
+                val o = el.asJsonObject
+                val name = o["name"]?.asString ?: o["slug"]?.asString ?: "unknown"
+                val desc = o["description"]?.asString?.take(100) ?: ""
+                lines += "• **$name**: $desc"
+            }
+            SkillResult(true, lines.joinToString("\n"))
+        }.getOrElse { SkillResult(false, "SkillsMP parse error: ${it.message}") }
+    }
+
+    // ── Local bundled catalog ─────────────────────────────────────────────────
+
+    private fun searchLocal(query: String): SkillResult {
+        val q = query.lowercase()
+        val entries = com.mobileclaw.skill.SkillMarket.catalog.filter { entry ->
+            q.isBlank() ||
+                entry.def.meta.id.contains(q) ||
+                (entry.def.meta.nameZh ?: "").contains(q) ||
+                entry.def.meta.name.lowercase().contains(q) ||
+                entry.category.contains(q)
+        }
+        if (entries.isEmpty()) return SkillResult(true, "No local market skills found for '$query'.")
+        val lines = mutableListOf("Local bundled skills${if (q.isNotBlank()) " matching '$q'" else ""}:\n")
+        entries.groupBy { it.category }.forEach { (cat, catEntries) ->
+            lines += "【$cat】"
+            catEntries.forEach { e ->
+                val installed = runCatching { loader.isInstalled(e.def.meta.id) }.getOrDefault(false)
+                val tag = if (installed) " ✓已安装" else ""
+                lines += "  ${e.emoji} ${e.def.meta.nameZh ?: e.def.meta.name}$tag — ${e.def.meta.descriptionZh ?: e.def.meta.description.take(60)}"
+                lines += "    → install: skill_market(action=install, market=local, slug='${e.def.meta.id}')"
+            }
+        }
+        return SkillResult(true, lines.joinToString("\n"))
+    }
+
+    private fun installLocal(slug: String): SkillResult {
+        val entry = com.mobileclaw.skill.SkillMarket.catalog.find { it.def.meta.id == slug }
+            ?: return SkillResult(false, "Local skill '$slug' not found. Use action=list to browse.")
+        return runCatching {
+            loader.persist(entry.def)
+            SkillResult(true, "Installed local skill '${entry.def.meta.nameZh ?: entry.def.meta.name}' (${slug}).")
+        }.getOrElse { SkillResult(false, "Install failed: ${it.message}") }
+    }
+
+    // ── Shared HTTP ───────────────────────────────────────────────────────────
 
     private suspend fun fetchUrl(url: String): String = withContext(Dispatchers.IO) {
         suspendCancellableCoroutine { cont ->
             val req = Request.Builder().url(url)
-                .header("User-Agent", "MobileClaw/1.0")
+                .header("User-Agent", "MobileClaw/1.0 (Android; OpenClaw-compatible)")
+                .header("Accept", "application/json")
                 .get().build()
             httpClient.newCall(req).enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: java.io.IOException) =
                     cont.resumeWithException(e)
                 override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                    val body = response.body?.string()
-                    if (body != null) cont.resume(body)
-                    else cont.resumeWithException(RuntimeException("Empty response from $url"))
+                    val body = response.body?.string() ?: ""
+                    if (!response.isSuccessful) {
+                        cont.resumeWithException(RuntimeException("HTTP ${response.code}: ${body.take(200)}"))
+                    } else if (body.isBlank()) {
+                        cont.resumeWithException(RuntimeException("Empty response from $url"))
+                    } else {
+                        cont.resume(body)
+                    }
                 }
             })
         }

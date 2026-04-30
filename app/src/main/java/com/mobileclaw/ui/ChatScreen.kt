@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,6 +41,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +69,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,6 +77,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
+import com.mobileclaw.agent.Role
 import com.mobileclaw.skill.SkillAttachment
 import java.io.ByteArrayOutputStream
 import kotlin.math.PI
@@ -109,12 +114,23 @@ fun ChatScreen(
     onFetchModels: () -> Unit = {},
     onOpenHelp: () -> Unit = {},
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {},
+    onRenameSession: (sessionId: String, title: String) -> Unit = { _, _ -> },
+    onOpenDesktop: () -> Unit = {},
+    onSwitchRole: () -> Unit = {},
+    onOpenAccessibilitySettings: () -> Unit = {},
 ) {
     val c = LocalClawColors.current
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val itemCount = uiState.messages.size + if (uiState.isRunning) 1 else 0
     val context = LocalContext.current
+    val sessionTitle = remember(uiState.currentSessionId, uiState.sessions) {
+        uiState.sessions.find { it.id == uiState.currentSessionId }?.title ?: "MobileClaw"
+    }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameText by remember(sessionTitle) { mutableStateOf(sessionTitle) }
+    var showModelPicker by remember { mutableStateOf(false) }
 
     val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -155,45 +171,74 @@ fun ChatScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
-            isRunning = uiState.isRunning,
-            isConfigured = uiState.isConfigured,
-            promotableCount = uiState.promotableSkills.size,
-            currentModel = uiState.currentModel,
-            currentRoleAvatar = uiState.currentRole.avatar,
-            availableModels = uiState.availableModels,
+            sessionTitle = sessionTitle,
             onOpenDrawer = onOpenDrawer,
-            onModelChange = onModelChange,
-            onFetchModels = onFetchModels,
+            onRenameSession = { showRenameDialog = true },
+            onOpenDesktop = onOpenDesktop,
         )
 
         if (!uiState.isConfigured && uiState.messages.isEmpty()) {
             SetupBanner(onOpenSettings)
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (uiState.messages.isEmpty() && !uiState.isRunning) {
-                item {
-                    EmptyState(
-                        recommendations = uiState.recommendations,
-                        onTaskSelected = { task -> onSendGoal(task.substringAfter(" ")) },
-                        onOpenHelp = onOpenHelp,
-                    )
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (uiState.messages.isEmpty() && !uiState.isRunning) {
+                    item {
+                        EmptyState(
+                            recommendations = uiState.recommendations,
+                            onTaskSelected = { task -> onSendGoal(task.substringAfter(" ")) },
+                            onOpenHelp = onOpenHelp,
+                        )
+                    }
+                }
+                items(uiState.messages) { msg ->
+                    when (msg.role) {
+                        MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
+                        MessageRole.AGENT -> AgentBubble(
+                            summary = msg.text,
+                            logLines = msg.logLines,
+                            attachments = msg.attachments,
+                            currentRole = uiState.currentRole,
+                            currentModel = uiState.currentModel,
+                            onSwitchRole = onSwitchRole,
+                            onPickModel = { showModelPicker = true },
+                            onOpenHtmlViewer = onOpenHtmlViewer,
+                            onOpenBrowser = onOpenBrowser,
+                            onSendGoal = onSendGoal,
+                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                        )
+                    }
+                }
+                if (uiState.isRunning) {
+                    item {
+                        ActiveTaskBubble(
+                            logLines = uiState.activeLogLines,
+                            streamingToken = uiState.streamingToken,
+                            streamingThought = uiState.streamingThought,
+                            activeAttachments = uiState.activeAttachments,
+                            currentRole = uiState.currentRole,
+                            currentModel = uiState.currentModel,
+                            onPickModel = { showModelPicker = true },
+                            onOpenHtmlViewer = onOpenHtmlViewer,
+                            onOpenBrowser = onOpenBrowser,
+                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                        )
+                    }
                 }
             }
-            items(uiState.messages) { msg ->
-                when (msg.role) {
-                    MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
-                    MessageRole.AGENT -> AgentBubble(msg.text, msg.logLines, msg.attachments, onOpenHtmlViewer)
-                }
-            }
-            if (uiState.isRunning) {
-                item { ActiveTaskBubble(uiState.activeLogLines, uiState.streamingToken, uiState.streamingThought, uiState.activeAttachments, onOpenHtmlViewer) }
-            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp)
+                    .align(Alignment.TopCenter)
+                    .background(Brush.verticalGradient(listOf(c.surface.copy(alpha = 0.85f), Color.Transparent))),
+            )
         }
 
         InputBar(
@@ -207,31 +252,52 @@ fun ChatScreen(
             onRemoveImage = { onAttachImage(null) },
         )
     }
+
+    if (showModelPicker) {
+        ModelPickerDialog(
+            currentModel = uiState.currentModel,
+            availableModels = uiState.availableModels.ifEmpty { CommonModels },
+            onSelect = { onModelChange(it); showModelPicker = false },
+            onFetch = onFetchModels,
+            onDismiss = { showModelPicker = false },
+        )
+    }
+
+    if (showRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("重命名会话") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) {
+                        onRenameSession(uiState.currentSessionId, renameText.trim())
+                    }
+                    showRenameDialog = false
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRenameDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
+            },
+        )
+    }
 }
 
 // ── Top Bar ──────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
-    isRunning: Boolean,
-    isConfigured: Boolean,
-    promotableCount: Int,
-    currentModel: String,
-    currentRoleAvatar: String,
-    availableModels: List<String>,
+    sessionTitle: String,
     onOpenDrawer: () -> Unit,
-    onModelChange: (String) -> Unit,
-    onFetchModels: () -> Unit,
+    onRenameSession: () -> Unit,
+    onOpenDesktop: () -> Unit,
 ) {
     val c = LocalClawColors.current
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
-        label = "pulse",
-    )
-    var showModelPicker by remember { mutableStateOf(false) }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -241,124 +307,31 @@ private fun TopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Hamburger menu button
             IconButton(onClick = onOpenDrawer) {
-                Icon(Icons.Default.Menu, contentDescription = "Open drawer", tint = c.subtext)
+                Icon(Icons.Default.Menu, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
             }
-
             Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Brush.linearGradient(listOf(c.accent.copy(alpha = 0.3f), c.accent.copy(alpha = 0.1f))))
-                    .border(1.dp, c.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                modifier = Modifier.weight(1f).clickable(onClick = onRenameSession),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(currentRoleAvatar, fontSize = 17.sp)
-            }
-
-            Spacer(Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "MobileClaw",
-                    color = c.text,
-                    fontWeight = FontWeight.Bold,
+                    sessionTitle,
                     fontSize = 16.sp,
-                    letterSpacing = 0.2.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    // Status dot + text
-                    val dotColor = when {
-                        isRunning    -> c.accent.copy(alpha = pulseAlpha)
-                        isConfigured -> c.green
-                        else         -> c.red
-                    }
-                    Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(dotColor))
-                    Text(
-                        when {
-                            isRunning    -> stringResource(R.string.status_running)
-                            isConfigured -> stringResource(R.string.status_ready)
-                            else         -> stringResource(R.string.status_not_configured)
-                        },
-                        color = dotColor.copy(alpha = 0.85f),
-                        fontSize = 10.sp,
-                        letterSpacing = 0.4.sp,
-                    )
-                    // Divider
-                    Box(
-                        modifier = Modifier
-                            .width(0.5.dp)
-                            .height(10.dp)
-                            .background(c.border),
-                    )
-                    // Model chip
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { showModelPicker = true }
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(
-                            currentModel.let { m ->
-                                // Abbreviate long model names
-                                when {
-                                    m.length > 14 -> m.take(12) + "…"
-                                    else -> m
-                                }
-                            },
-                            color = c.accent.copy(alpha = 0.85f),
-                            fontSize = 10.sp,
-                            letterSpacing = 0.2.sp,
-                        )
-                        Icon(
-                            Icons.Default.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = c.accent.copy(alpha = 0.7f),
-                            modifier = Modifier.size(11.dp),
-                        )
-                    }
-                }
             }
-
-            // Badge for promotable skills
-            if (promotableCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(c.accent),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (promotableCount > 9) "9+" else promotableCount.toString(),
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+            IconButton(onClick = onOpenDesktop) {
+                Icon(Icons.Outlined.GridView, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
             }
         }
-
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
-    }
-
-    if (showModelPicker) {
-        ModelPickerDialog(
-            currentModel = currentModel,
-            availableModels = availableModels.ifEmpty { CommonModels },
-            onSelect = { onModelChange(it); showModelPicker = false },
-            onFetch = onFetchModels,
-            onDismiss = { showModelPicker = false },
-        )
     }
 }
 
@@ -608,38 +581,103 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
 }
 
 // ── Agent Bubble ──────────────────────────────────────────────────────────────
+private val quickReplyPattern = Regex("""\[\[(.+?)]]""")
+
+private fun parseQuickReplies(text: String): Pair<String, List<String>> {
+    val options = quickReplyPattern.findAll(text).flatMap { it.groupValues[1].split("|").map(String::trim) }.toList()
+    val clean = text.replace(quickReplyPattern, "").trimEnd()
+    return clean to options
+}
+
 @Composable
 private fun AgentBubble(
     summary: String,
     logLines: List<LogLine>,
     attachments: List<SkillAttachment> = emptyList(),
+    currentRole: Role = Role.DEFAULT,
+    currentModel: String = "",
+    onSwitchRole: () -> Unit = {},
+    onPickModel: () -> Unit = {},
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {},
+    onSendGoal: (String) -> Unit = {},
+    onOpenAccessibilitySettings: () -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val context = LocalContext.current
     var stepsExpanded by remember { mutableStateOf(false) }
     val isSuccess = logLines.none { it.type == LogType.ERROR }
-    // Filter out SUCCESS lines — they duplicate the summary text already shown above the steps panel
     val steps = logLines.filter { it.type != LogType.SUCCESS && (it.text.isNotBlank() || it.imageBase64 != null) }
+    val (cleanSummary, quickReplies) = remember(summary) { parseQuickReplies(summary) }
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
-            Text("🦀", fontSize = 11.sp)
-            Spacer(Modifier.width(5.dp))
-            Text(stringResource(R.string.agent_label), color = c.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-            if (!isSuccess) { Spacer(Modifier.width(6.dp)); Text("✗", color = c.red, fontSize = 10.sp) }
+        // Role header: avatar + name + model chip
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp),
+        ) {
+            GradientAvatar(
+                emoji = currentRole.avatar,
+                size = 38.dp,
+                color = c.accent,
+                modifier = Modifier.clickable { onSwitchRole() },
+            )
+            Spacer(Modifier.width(9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = currentRole.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.text,
+                )
+                if (!isSuccess) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("✗", color = c.red, fontSize = 11.sp)
+                }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = currentModel.substringAfterLast("/").take(20) + " ▾",
+                    fontSize = 10.sp,
+                    color = c.subtext,
+                    modifier = Modifier.clickable { onPickModel() },
+                )
+            }
         }
 
-        MarkdownText(summary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp)
+        MarkdownText(cleanSummary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp)
+
+        if (quickReplies.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                quickReplies.forEach { reply ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(c.accent.copy(alpha = 0.12f))
+                            .border(0.5.dp, c.accent.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                            .clickable { onSendGoal(reply) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(reply, fontSize = 13.sp, color = c.accent, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
 
         if (attachments.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 attachments.forEach { attachment ->
                     when (attachment) {
-                        is SkillAttachment.ImageData -> GeneratedImageCard(attachment)
-                        is SkillAttachment.FileData  -> FileAttachmentCard(attachment, context)
-                        is SkillAttachment.HtmlData  -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
+                        is SkillAttachment.ImageData            -> GeneratedImageCard(attachment)
+                        is SkillAttachment.FileData             -> FileAttachmentCard(attachment, context)
+                        is SkillAttachment.HtmlData             -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
+                        is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
+                        is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
+                        is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
                     }
                 }
             }
@@ -717,7 +755,12 @@ private fun ActiveTaskBubble(
     streamingToken: String,
     streamingThought: String = "",
     activeAttachments: List<SkillAttachment> = emptyList(),
+    currentRole: Role = Role.DEFAULT,
+    currentModel: String = "",
+    onPickModel: () -> Unit = {},
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {},
+    onOpenAccessibilitySettings: () -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val context = LocalContext.current
@@ -739,6 +782,25 @@ private fun ActiveTaskBubble(
     }
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
+        // Role header
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp),
+        ) {
+            GradientAvatar(emoji = currentRole.avatar, size = 38.dp, color = c.accent)
+            Spacer(Modifier.width(9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(currentRole.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = currentModel.substringAfterLast("/").take(20) + " ▾",
+                    fontSize = 10.sp,
+                    color = c.subtext,
+                    modifier = Modifier.clickable { onPickModel() },
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -881,9 +943,12 @@ private fun ActiveTaskBubble(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     activeAttachments.forEach { attachment ->
                         when (attachment) {
-                            is SkillAttachment.ImageData -> GeneratedImageCard(attachment)
-                            is SkillAttachment.FileData  -> FileAttachmentCard(attachment, context)
-                            is SkillAttachment.HtmlData  -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
+                            is SkillAttachment.ImageData            -> GeneratedImageCard(attachment)
+                            is SkillAttachment.FileData             -> FileAttachmentCard(attachment, context)
+                            is SkillAttachment.HtmlData             -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
+                            is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
+                            is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
+                            is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
                         }
                     }
                 }
@@ -1264,33 +1329,102 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
 @Composable
 private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: android.content.Context) {
     val c = LocalClawColors.current
-    Row(
+    val isImage = attachment.mimeType.startsWith("image/") ||
+        attachment.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic")
+
+    if (isImage) {
+        ImageAttachmentCard(attachment, context, c)
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                .background(c.card)
+                .clickable { openFileAttachment(context, attachment) }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(c.blue.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) { Text(mimeTypeEmoji(attachment.mimeType), fontSize = 18.sp) }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(attachment.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "${formatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}",
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                )
+            }
+            Text("打开", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun ImageAttachmentCard(
+    attachment: SkillAttachment.FileData,
+    context: android.content.Context,
+    c: ClawColors,
+) {
+    // Load thumbnail on IO thread
+    val bitmap by produceState<android.graphics.ImageDecoder.Source?>(null, attachment.path) { }
+    val thumbnail by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, attachment.path) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val opts = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                    BitmapFactory.decodeFile(attachment.path, this)
+                    val maxPx = 480
+                    inSampleSize = maxOf(1, maxOf(outWidth / maxPx, outHeight / maxPx))
+                    inJustDecodeBounds = false
+                }
+                BitmapFactory.decodeFile(attachment.path, opts)?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .border(1.dp, c.border, RoundedCornerShape(10.dp))
             .background(c.card)
-            .clickable { openFileAttachment(context, attachment) }
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+            .clickable { openFileAttachment(context, attachment) },
     ) {
         Box(
             modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(c.blue.copy(alpha = 0.12f)),
+                .fillMaxWidth()
+                .heightIn(min = 80.dp, max = 240.dp)
+                .background(c.cardAlt),
             contentAlignment = Alignment.Center,
-        ) { Text(mimeTypeEmoji(attachment.mimeType), fontSize = 18.sp) }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(attachment.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(
-                "${formatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}",
-                color = c.subtext,
-                fontSize = 11.sp,
-            )
+        ) {
+            if (thumbnail != null) {
+                Image(
+                    bitmap = thumbnail!!,
+                    contentDescription = attachment.name,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentScale = ContentScale.FillWidth,
+                )
+            } else {
+                Text("🖼️", fontSize = 36.sp)
+            }
         }
-        Text("打开", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(attachment.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(formatFileSize(attachment.sizeBytes), color = c.subtext, fontSize = 11.sp)
+            }
+            Text("查看", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 
@@ -1395,6 +1529,163 @@ private fun HtmlAttachmentCard(
             Text("HTML 页面 · 点击查看", color = c.subtext, fontSize = 11.sp)
         }
         Text("查看", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun SearchResultsCard(
+    attachment: SkillAttachment.SearchResults,
+    onOpenBrowser: (String) -> Unit = {},
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .background(c.card),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("🔍", fontSize = 13.sp)
+            Text(
+                attachment.query,
+                color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${attachment.engine} · ${attachment.pages.size}",
+                color = c.subtext, fontSize = 10.sp,
+            )
+        }
+        HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        attachment.pages.forEachIndexed { index, page ->
+            val domain = runCatching { java.net.URI(page.url).host ?: page.url }.getOrDefault(page.url)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenBrowser(page.url) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    "${index + 1}",
+                    color = c.subtext, fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        page.title.ifBlank { domain },
+                        color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(domain, color = c.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (page.excerpt.isNotBlank()) {
+                        Text(
+                            page.excerpt,
+                            color = c.subtext, fontSize = 11.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, lineHeight = 15.sp,
+                        )
+                    }
+                }
+            }
+            if (index < attachment.pages.lastIndex) {
+                HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(start = 28.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessibilityCard(
+    attachment: SkillAttachment.AccessibilityRequest,
+    onOpenSettings: () -> Unit = {},
+) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .background(c.card)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(c.accent.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) { Text("♿", fontSize = 18.sp) }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "${attachment.skillName} 需要无障碍服务",
+                color = c.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text("请开启无障碍服务以使用此功能", color = c.subtext, fontSize = 11.sp)
+        }
+        TextButton(onClick = onOpenSettings) {
+            Text("开启", color = c.accent, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun WebPageCard(
+    attachment: SkillAttachment.WebPage,
+    onOpenBrowser: (String) -> Unit = {},
+) {
+    val c = LocalClawColors.current
+    val domain = runCatching { java.net.URI(attachment.url).host ?: attachment.url }.getOrDefault(attachment.url)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .background(c.card)
+            .clickable { onOpenBrowser(attachment.url) }
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(c.accent.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) { Text("🔗", fontSize = 18.sp) }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                attachment.title.ifBlank { domain },
+                color = c.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(domain, color = c.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (attachment.excerpt.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    attachment.excerpt,
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 15.sp,
+                )
+            }
+        }
     }
 }
 

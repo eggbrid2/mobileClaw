@@ -79,6 +79,61 @@
     <string name="btn_close">Close</string>
     <string name="btn_back">Back</string>
 
+    <!-- Drawer -->
+    <string name="drawer_new_session">New Chat</string>
+    <string name="drawer_recent">Recent</string>
+    <string name="drawer_groups">Groups</string>
+    <string name="drawer_apps">Apps</string>
+    <string name="drawer_console">Console</string>
+    <string name="drawer_roles">Roles</string>
+    <string name="drawer_skills">Skills</string>
+    <string name="drawer_profile">User Profile</string>
+    <string name="drawer_user_config">User Config</string>
+    <string name="drawer_settings">Settings</string>
+    <string name="drawer_just_now">Just now</string>
+    <string name="drawer_minutes_ago">%d min ago</string>
+    <string name="drawer_yesterday">Yesterday</string>
+
+    <!-- Groups page -->
+    <string name="groups_title">Groups</string>
+    <string name="groups_empty_hint">Create a group and invite multiple AI roles to discuss and execute tasks together</string>
+    <string name="groups_empty">No groups yet</string>
+    <string name="groups_you">👤 You</string>
+    <string name="group_new_title">New Group</string>
+    <string name="group_field_name">Group Name</string>
+    <string name="group_field_name_hint">Enter group name…</string>
+    <string name="group_field_icon">Choose Icon</string>
+    <string name="group_field_members">Choose Members (at least 1)</string>
+    <string name="group_create">Create</string>
+
+    <!-- Group chat -->
+    <string name="group_chat_hint">Send a message, @mention members…</string>
+    <string name="group_mention_label">@mention members</string>
+
+    <!-- Browser page -->
+    <string name="browser_address_hint">Search or enter URL…</string>
+    <string name="browser_send_agent">Send to Agent</string>
+    <string name="browser_send_agent_message">Please analyze the content of this page: %s</string>
+
+    <!-- Roles page -->
+    <string name="role_create_title">Create Role</string>
+    <string name="role_edit_title">Edit Role</string>
+    <string name="role_field_avatar">Avatar</string>
+    <string name="role_field_name">Name</string>
+    <string name="role_field_description">Description</string>
+    <string name="role_field_system_prompt">System Prompt Append (optional)</string>
+    <string name="role_field_skills">Force-Inject Skills (comma-separated IDs, optional)</string>
+    <string name="role_field_model">Model Override (optional, e.g. gpt-4o)</string>
+    <string name="role_model_label">Model: %s</string>
+    <string name="role_save">Save</string>
+
+    <!-- Skills page additions -->
+    <string name="skills_demote">↓ Move to On-Demand</string>
+    <string name="skills_delete">Delete Skill</string>
+    <string name="skills_delete_title">Delete Skill?</string>
+    <string name="skills_delete_body">\"%s\" will be permanently removed.</string>
+    <string name="skills_delete_confirm">Delete</string>
+
     <!-- Permissions -->
     <string name="perm_title">MobileClaw</string>
     <string name="perm_subtitle">Needs a few permissions to operate</string>

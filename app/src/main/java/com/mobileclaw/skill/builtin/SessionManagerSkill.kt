@@ -38,6 +38,9 @@ class SessionManagerSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "会话管理",
+        descriptionZh = "创建、切换和删除对话会话。",
+        tags = listOf("会话"),
     )
 
     private val dateFmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())

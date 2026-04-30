@@ -24,6 +24,9 @@ class SkillNotesSkill(private val store: SkillNotesStore) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 2,
+        nameZh = "技能备注",
+        descriptionZh = "为技能添加注释和使用说明。",
+        tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {

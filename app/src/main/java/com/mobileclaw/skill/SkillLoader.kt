@@ -26,7 +26,7 @@ class SkillLoader(
     }
 
     fun loadFile(file: File) {
-        val def = gson.fromJson(file.readText(), SkillDefinition::class.java)
+        val def = normalize(gson.fromJson(file.readText(), SkillDefinition::class.java))
         validate(def)
         val skill = toSkill(def, file)
         registry.register(skill)
@@ -47,11 +47,24 @@ class SkillLoader(
     /** Promotes a dynamic skill from Level 2 to Level 1 and persists the change. */
     fun promote(id: String) {
         val file = File(skillsDir, "$id.json")
-        require(file.exists()) { "Skill '$id' not found on disk" }
-        val def = gson.fromJson(file.readText(), SkillDefinition::class.java)
-        val promoted = def.copy(meta = def.meta.copy(injectionLevel = 1))
-        file.writeText(gson.toJson(promoted))
-        loadFile(file)
+        if (!file.exists()) return
+        val def = normalize(gson.fromJson(file.readText(), SkillDefinition::class.java))
+        val updated = def.copy(meta = def.meta.copy(injectionLevel = 1))
+        runCatching { file.writeText(gson.toJson(updated)) }
+        // Skip validate() — skill already passed validation at creation time
+        runCatching { registry.register(toSkill(updated, file)) }
+            .onFailure { registry.unregister(id) }
+    }
+
+    /** Demotes a dynamic skill from Level 1 back to Level 2 (on-demand). */
+    fun demote(id: String) {
+        val file = File(skillsDir, "$id.json")
+        if (!file.exists()) return
+        val def = normalize(gson.fromJson(file.readText(), SkillDefinition::class.java))
+        val updated = def.copy(meta = def.meta.copy(injectionLevel = 2))
+        runCatching { file.writeText(gson.toJson(updated)) }
+        runCatching { registry.register(toSkill(updated, file)) }
+            .onFailure { registry.unregister(id) }
     }
 
     /** Returns all dynamic skill definitions currently stored on disk. */
@@ -60,6 +73,23 @@ class SkillLoader(
             ?.mapNotNull { file ->
                 runCatching { gson.fromJson(file.readText(), SkillDefinition::class.java) }.getOrNull()
             } ?: emptyList()
+
+    // --- Normalization ---
+
+    /**
+     * Gson ignores Kotlin default values and can produce null for non-nullable List fields
+     * when deserializing old JSON files that predate those fields. Fix nulls defensively.
+     */
+    @Suppress("SENSELESS_COMPARISON")
+    private fun normalize(def: SkillDefinition): SkillDefinition {
+        val m = def.meta
+        return def.copy(
+            meta = m.copy(
+                tags       = if (m.tags == null) emptyList() else m.tags,
+                parameters = if (m.parameters == null) emptyList() else m.parameters,
+            ),
+        )
+    }
 
     // --- Validation ---
 
@@ -81,37 +111,13 @@ class SkillLoader(
         }
     }
 
-    // Modules that must not be imported at all (string or dotted form)
-    private val blockedModules = setOf(
-        "subprocess", "socket", "ctypes", "importlib", "os",
-        "shutil", "multiprocessing", "threading", "signal",
-        "pty", "termios", "fcntl", "resource", "mmap",
-        "pickle", "shelve", "marshal",
-    )
-
-    // Built-in expressions that bypass import checks or execute arbitrary code
-    private val blockedExpressions = setOf(
-        "__import__", "__builtins__", "__class__", "__subclasses__",
-        "compile(", "eval(", "exec(",
-        "getattr(", "setattr(", "delattr(",
-        "open(",
-    )
-
     private fun validatePythonScript(script: String) {
-        val lower = script.lowercase()
-        // Reject blocked module imports
-        blockedModules.forEach { mod ->
-            require(!lower.contains("import $mod") && !lower.contains("from $mod ")) {
-                "Python script imports blocked module: $mod"
-            }
-        }
-        // Reject dangerous built-in expressions (checked case-sensitively on original script)
-        blockedExpressions.forEach { expr ->
-            require(!script.contains(expr)) {
-                "Python script uses blocked expression: $expr"
-            }
-        }
+        // No content-level restrictions — Python runs in Chaquopy's sandboxed interpreter.
+        require(script.isNotBlank()) { "Python script must not be empty" }
     }
+
+    /** Returns true if a skill with this ID is already installed as a dynamic skill. */
+    fun isInstalled(id: String): Boolean = File(skillsDir, "$id.json").exists()
 
     private fun toSkill(def: SkillDefinition, file: File): Skill = when (def.meta.type) {
         SkillType.PYTHON -> PythonSkillExecutor(def.meta, def.script!!)

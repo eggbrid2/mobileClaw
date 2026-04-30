@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -157,23 +156,27 @@ fun ProfilePage(
     dimensionQuizzes: Map<String, List<AiQuizQuestion>> = emptyMap(),
     dimensionQuizLoading: String? = null,
     onGenerateDimensionQuiz: (dimensionId: String, title: String) -> Unit = { _, _ -> },
+    onPrewarmQuizzes: (List<ProfileDimension>) -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val dimensions = remember(facts) { buildDimensions(facts) }
-    var selectedDimIdx by remember { mutableStateOf<Int?>(null) }
     var section by remember { mutableStateOf(ProfileSection.PORTRAIT) }
 
-    // Auto-generate personality summary when profile page opens with facts
+    // Auto-generate personality summary when page opens with facts
     LaunchedEffect(facts.isNotEmpty()) {
         if (facts.isNotEmpty() && personalitySummary.isEmpty() && !personalitySummaryLoading) {
             onGenerateSummary()
         }
     }
 
-    // Sub-page navigation
-    var openDimension by remember { mutableStateOf<ProfileDimension?>(null) }
+    // Pre-warm all dimension quizzes in background so they're ready when user opens a dimension
+    LaunchedEffect(facts.isNotEmpty()) {
+        if (facts.isNotEmpty()) {
+            onPrewarmQuizzes(dimensions)
+        }
+    }
 
-    // When a dimension sub-page is open, show it on top
+    var openDimension by remember { mutableStateOf<ProfileDimension?>(null) }
     openDimension?.let { dim ->
         androidx.activity.compose.BackHandler { openDimension = null }
         DimensionDetailPage(
@@ -189,126 +192,68 @@ fun ProfilePage(
     }
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
-        // TopBar
-        Column(Modifier.fillMaxWidth().background(c.surface).statusBarsPadding()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
-                }
-                Text("用户画像", color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 4.dp))
-                if (isLoading || isExtracting) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = c.accent, strokeWidth = 1.5.dp)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Box(
-                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
-                        .clickable(enabled = !isExtracting, onClick = onRefreshExtraction),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = if (isExtracting) c.subtext.copy(alpha = 0.3f) else c.subtext, modifier = Modifier.size(18.dp))
-                }
+        // ── Title bar ────────────────────────────────────────────────────────
+        ClawPageHeader(title = "了解自己", onBack = onBack) {
+            if (isLoading || isExtracting) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = c.accent, strokeWidth = 1.5.dp)
+                Spacer(Modifier.width(8.dp))
             }
-            HorizontalDivider(color = c.border, thickness = 0.5.dp)
-        }
-
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-
-            // ── Radar card ────────────────────────────────────────────────────
-            item {
-                RadarCard(
-                    dimensions = dimensions,
-                    selectedIdx = selectedDimIdx,
-                    onSelectDim = { i ->
-                        // Single-tap selects, double-tap (or tap again) opens detail page
-                        if (selectedDimIdx == i) {
-                            openDimension = dimensions[i]
-                        } else {
-                            selectedDimIdx = i
-                        }
-                    },
-                    conversationCount = conversationCount,
-                    episodeCount = episodes.size,
-                    isExtracting = isExtracting,
+            Box(
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = !isExtracting, onClick = onRefreshExtraction),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = if (isExtracting) c.subtext.copy(alpha = 0.3f) else c.subtext,
+                    modifier = Modifier.size(18.dp),
                 )
             }
+        }
 
-            // ── Dimension detail panel (tap hint + quick open) ────────────────
-            item {
-                AnimatedVisibility(
-                    visible = selectedDimIdx != null,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                ) {
-                    val idx = selectedDimIdx
-                    if (idx != null) {
-                        val dim = dimensions[idx]
-                        Column(
-                            modifier = androidx.compose.ui.Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(bottom = 8.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(dim.color.copy(alpha = 0.06f))
-                                .border(1.dp, dim.color.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                                .clickable { openDimension = dim }
-                                .padding(14.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(dim.emoji, fontSize = 16.sp)
-                                Text(dim.title, color = dim.color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = androidx.compose.ui.Modifier.weight(1f))
-                                val known = dim.aspects.count { facts[it.key] != null }
-                                Text("$known/${dim.aspects.size} 已知", color = dim.color.copy(alpha = 0.7f), fontSize = 10.sp)
-                                Text("→", color = dim.color.copy(alpha = 0.6f), fontSize = 12.sp)
-                            }
-                            Spacer(androidx.compose.ui.Modifier.height(6.dp))
-                            Text("点击查看详情、自我评估和指标编辑", color = LocalClawColors.current.subtext.copy(alpha = 0.6f), fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
+        // ── Tab row ──────────────────────────────────────────────────────────
+        SectionTabRow(section) { section = it }
 
-            // ── Section tabs ──────────────────────────────────────────────────
-            item {
-                SectionTabRow(section) { section = it }
-            }
-
-            // ── Section content ───────────────────────────────────────────────
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             when (section) {
                 ProfileSection.PORTRAIT -> {
+                    item { Spacer(Modifier.height(4.dp)) }
                     item {
                         PersonalitySummaryCard(
                             summary = personalitySummary,
                             isLoading = personalitySummaryLoading,
                             onRefresh = onGenerateSummary,
+                            conversationCount = conversationCount,
                         )
                     }
-                    item { TaskInsightsCard(episodes) }
-                    item { Spacer(Modifier.height(8.dp)) }
-                    item { DimensionsListSection(dimensions = dimensions, onOpenDimension = { openDimension = it }) }
+                    item { Spacer(Modifier.height(4.dp)) }
+                    item {
+                        DimensionsListSection(
+                            dimensions = dimensions,
+                            facts = facts,
+                            onOpenDimension = { openDimension = it },
+                        )
+                    }
                 }
                 ProfileSection.MEMORY -> {
+                    item { Spacer(Modifier.height(4.dp)) }
                     item { MemoryBrowserCard(facts) }
                 }
                 ProfileSection.HISTORY -> {
                     if (episodes.isEmpty()) {
                         item {
                             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                Text("尚未完成任何任务", color = c.subtext, fontSize = 13.sp, fontStyle = FontStyle.Italic)
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("📚", fontSize = 32.sp)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("还没有对话记录", color = c.subtext, fontSize = 13.sp)
+                                }
                             }
                         }
                     } else {
-                        items(episodes.size) { i ->
-                            EpisodeCard(episodes[i])
-                        }
+                        item { Spacer(Modifier.height(4.dp)) }
+                        items(episodes.size) { i -> EpisodeCard(episodes[i]) }
                     }
                 }
             }
@@ -323,72 +268,100 @@ private fun PersonalitySummaryCard(
     summary: String,
     isLoading: Boolean,
     onRefresh: () -> Unit,
+    conversationCount: Int = 0,
 ) {
     val c = LocalClawColors.current
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(18.dp))
             .background(
                 brush = Brush.linearGradient(
-                    listOf(
-                        c.accent.copy(alpha = 0.10f),
-                        Color(0xFF9C27B0).copy(alpha = 0.08f),
-                    )
+                    listOf(c.accent.copy(alpha = 0.13f), c.purple.copy(alpha = 0.07f))
                 )
             )
-            .border(1.dp, c.accent.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
-            .padding(16.dp),
+            .border(1.dp, c.accent.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
+            .padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🧠", fontSize = 16.sp)
-            Spacer(Modifier.width(6.dp))
+            Text("✨", fontSize = 18.sp)
+            Spacer(Modifier.width(8.dp))
             Text(
-                "AI 人格分析",
+                "AI 眼中的你",
                 color = c.accent,
-                fontSize = 13.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), color = c.accent, strokeWidth = 1.5.dp)
-            } else {
+            } else if (summary.isNotBlank()) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable(onClick = onRefresh),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = c.subtext.copy(alpha = 0.6f), modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = c.subtext.copy(alpha = 0.5f), modifier = Modifier.size(15.dp))
                 }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
 
         when {
             isLoading -> {
-                Text("正在分析你的人格特征…", color = c.subtext, fontSize = 12.sp, fontStyle = FontStyle.Italic)
+                Text(
+                    "AI 正在认识你…",
+                    color = c.subtext,
+                    fontSize = 14.sp,
+                    fontStyle = FontStyle.Italic,
+                    lineHeight = 21.sp,
+                )
             }
             summary.isNotBlank() -> {
                 Text(
                     summary,
                     color = c.text,
-                    fontSize = 13.sp,
-                    lineHeight = 21.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
                 )
             }
             else -> {
-                Text(
-                    "完成更多对话或填写维度信息后，AI 将为你生成专属人格分析，包含 MBTI 推断、性格特质、沟通风格等。",
-                    color = c.subtext,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                    fontStyle = FontStyle.Italic,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "继续和 AI 对话，它会慢慢认识你——",
+                        color = c.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        "你的性格、思维方式、价值观和生活习惯，都会逐渐沉淀在这里。",
+                        color = c.subtext,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
+                    )
+                    if (conversationCount > 0) {
+                        Text(
+                            "已对话 $conversationCount 次，再多聊几次就能生成你的专属描述。",
+                            color = c.accent.copy(alpha = 0.7f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.accent)
+                            .clickable(onClick = onRefresh)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("生成我的描述", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
             }
         }
     }
@@ -669,32 +642,42 @@ private fun findRelatedTasks(dimensionId: String, episodes: List<EpisodeEntity>)
 @Composable
 private fun SectionTabRow(active: ProfileSection, onSelect: (ProfileSection) -> Unit) {
     val c = LocalClawColors.current
-    val tabs = listOf(ProfileSection.PORTRAIT to "🎯 画像", ProfileSection.MEMORY to "💾 记忆", ProfileSection.HISTORY to "📋 历史")
+    val tabs = listOf(ProfileSection.PORTRAIT to "认识自己", ProfileSection.MEMORY to "记忆", ProfileSection.HISTORY to "历史")
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(c.card)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .background(c.surface)
+            .padding(horizontal = 16.dp, vertical = 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         tabs.forEach { (sec, label) ->
             val isActive = sec == active
-            Box(
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isActive) c.accent else Color.Transparent)
                     .clickable { onSelect(sec) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
+                    .padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(label, color = if (isActive) Color.White else c.subtext, fontSize = 12.sp, fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal)
+                Text(
+                    label,
+                    color = if (isActive) c.accent else c.subtext,
+                    fontSize = 13.sp,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    Modifier
+                        .height(2.dp)
+                        .fillMaxWidth(if (isActive) 0.5f else 0f)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(c.accent),
+                )
             }
         }
     }
+    HorizontalDivider(color = c.border, thickness = 0.5.dp)
 }
 
 // ── Task Insights (PORTRAIT section) ─────────────────────────────────────────
@@ -917,208 +900,86 @@ private val ASPECT_HINTS = mapOf(
     "profile.spiritual.growth"               to "你如何追求个人成长",
 )
 
-// ── Dimensions Expandable List (PORTRAIT section) ─────────────────────────────
+// ── Dimensions List (PORTRAIT section) ────────────────────────────────────────
 
 @Composable
 private fun DimensionsListSection(
     dimensions: List<ProfileDimension>,
+    facts: Map<String, String>,
     onOpenDimension: (ProfileDimension) -> Unit = {},
 ) {
     val c = LocalClawColors.current
-    var expandedIds by remember { mutableStateOf(setOf<String>()) }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "🔍 维度详情",
-            color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            "你的各个侧面",
+            color = c.subtext,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp,
             modifier = Modifier.padding(bottom = 2.dp),
         )
         dimensions.forEach { dim ->
-            val isExpanded = dim.id in expandedIds
-            val knownCount = dim.aspects.count { it.value != null }
-            val fraction = knownCount.toFloat() / dim.aspects.size.coerceAtLeast(1)
-            val framework = DIMENSION_FRAMEWORKS[dim.id]
+            val knownAspects = dim.aspects.filter { it.value != null }
+            val previewValue = knownAspects.firstOrNull()?.value
 
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(c.card)
-                    .border(
-                        1.dp,
-                        if (isExpanded) dim.color.copy(alpha = 0.4f) else c.border,
-                        RoundedCornerShape(10.dp),
-                    ),
+                    .border(1.dp, c.border, RoundedCornerShape(14.dp))
+                    .clickable { onOpenDimension(dim) }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Header row — tap to expand/collapse
-                Column(
+                // Emoji circle in dimension color
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            expandedIds = if (isExpanded) expandedIds - dim.id else expandedIds + dim.id
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(dim.color.copy(alpha = 0.12f))
+                        .border(1.dp, dim.color.copy(alpha = 0.35f), CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(dim.emoji, fontSize = 16.sp)
+                    Text(dim.emoji, fontSize = 18.sp)
+                }
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    // Dimension name without "维度" suffix
+                    val shortTitle = dim.title.removeSuffix("维度")
+                    Text(shortTitle, color = dim.color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    if (previewValue != null) {
+                        // Show the actual first known value
                         Text(
-                            dim.title,
-                            color = dim.color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
+                            previewValue,
+                            color = c.text,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
-                        // Mini progress bar
-                        Box(
-                            modifier = Modifier
-                                .width(36.dp).height(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(c.border),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(fraction)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(dim.color.copy(alpha = 0.75f)),
-                            )
-                        }
-                        Text("$knownCount/${dim.aspects.size}", color = c.subtext, fontSize = 10.sp)
-                        // "Detail" arrow
+                    } else {
                         Text(
-                            "详情",
-                            color = dim.color.copy(alpha = 0.7f),
-                            fontSize = 10.sp,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { onOpenDimension(dim) }
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
-                        )
-                        Text(
-                            if (isExpanded) "▲" else "▼",
-                            color = c.subtext.copy(alpha = 0.4f), fontSize = 9.sp,
-                        )
-                    }
-                    // Framework reference
-                    if (framework != null) {
-                        Text(
-                            framework,
-                            color = dim.color.copy(alpha = 0.5f),
-                            fontSize = 9.sp,
+                            "和 AI 多聊聊，它会慢慢了解你这方面",
+                            color = c.subtext.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
                             fontStyle = FontStyle.Italic,
-                            modifier = Modifier.padding(start = 24.dp, top = 2.dp),
                         )
                     }
                 }
 
-                // Expandable aspect list
-                AnimatedVisibility(
-                    visible = isExpanded,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically(),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .padding(bottom = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        HorizontalDivider(color = dim.color.copy(alpha = 0.15f), thickness = 0.5.dp)
-                        Spacer(Modifier.height(4.dp))
-                        dim.aspects.forEach { aspect ->
-                            val desc = ASPECT_DESCRIPTIONS[aspect.key]
-                            val hint = ASPECT_HINTS[aspect.key]
-                            val hasValue = aspect.value != null
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(
-                                        if (hasValue) dim.color.copy(alpha = 0.06f)
-                                        else Color.Transparent
-                                    )
-                                    .border(
-                                        0.5.dp,
-                                        if (hasValue) dim.color.copy(alpha = 0.15f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp),
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp).clip(CircleShape)
-                                            .background(
-                                                if (hasValue) dim.color else c.border.copy(alpha = 0.4f)
-                                            ),
-                                    )
-                                    Text(
-                                        aspect.label,
-                                        color = if (hasValue) dim.color.copy(alpha = 0.85f) else c.subtext,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (hasValue) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                    if (!hasValue) {
-                                        Text(
-                                            "未知",
-                                            color = c.subtext.copy(alpha = 0.3f),
-                                            fontSize = 10.sp,
-                                            fontStyle = FontStyle.Italic,
-                                        )
-                                    }
-                                }
-                                // Aspect description
-                                if (desc != null) {
-                                    Text(
-                                        desc,
-                                        color = c.subtext.copy(alpha = 0.55f),
-                                        fontSize = 10.sp,
-                                        lineHeight = 14.sp,
-                                        modifier = Modifier.padding(start = 14.dp, top = 2.dp),
-                                    )
-                                }
-                                // Current value
-                                if (hasValue) {
-                                    Text(
-                                        aspect.value!!,
-                                        color = c.text,
-                                        fontSize = 12.sp,
-                                        lineHeight = 17.sp,
-                                        modifier = Modifier.padding(start = 14.dp, top = 4.dp),
-                                    )
-                                } else if (hint != null) {
-                                    // Exploration hint
-                                    Row(
-                                        modifier = Modifier
-                                            .padding(start = 14.dp, top = 4.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(c.border.copy(alpha = 0.3f))
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text("💬", fontSize = 9.sp)
-                                        Text(
-                                            "探索: $hint",
-                                            color = c.subtext.copy(alpha = 0.5f),
-                                            fontSize = 10.sp,
-                                            fontStyle = FontStyle.Italic,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // Arrow
+                Text(
+                    "›",
+                    color = if (knownAspects.isNotEmpty()) dim.color.copy(alpha = 0.7f) else c.subtext.copy(alpha = 0.3f),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Light,
+                )
             }
         }
     }
@@ -1131,28 +992,44 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
     val c = LocalClawColors.current
 
     if (facts.isEmpty()) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.card).padding(24.dp),
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.card).padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("💾", fontSize = 28.sp)
-                Text("记忆库为空\n完成任务后将自动记录", color = c.subtext, fontSize = 13.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+                Text("💭", fontSize = 36.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("AI 还没有记住什么", color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "继续使用，AI 会自动从你们的对话里提炼和记录重要信息。",
+                    color = c.subtext,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
         return
     }
 
-    val groupLabels = mapOf("profile" to "🧠 用户画像", "user" to "👤 用户偏好", "app" to "📱 应用信息", "device" to "📟 设备信息")
+    val groupLabels = mapOf("profile" to "关于你的画像", "user" to "你的偏好", "app" to "应用信息", "device" to "设备信息")
     val grouped = facts.entries.sortedBy { it.key }.groupBy { it.key.substringBefore(".", it.key) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Text(
+            "AI 记住的事情",
+            color = c.subtext,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.padding(bottom = 2.dp),
+        )
         grouped.forEach { (prefix, entries) ->
-            MemoryGroup(label = groupLabels[prefix] ?: "📦 $prefix", entries = entries)
+            MemoryGroup(label = groupLabels[prefix] ?: prefix, entries = entries)
         }
     }
 }

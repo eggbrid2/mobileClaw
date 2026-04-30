@@ -1,5 +1,6 @@
 package com.mobileclaw.ui
 
+import com.mobileclaw.agent.Group
 import com.mobileclaw.agent.Role
 import com.mobileclaw.app.MiniApp
 import com.mobileclaw.config.ConfigEntry
@@ -10,7 +11,7 @@ import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import kotlinx.coroutines.flow.Flow
 
-enum class AppPage { CHAT, SETTINGS, SKILLS, PROFILE, ROLES, USER_CONFIG, APPS, CONSOLE, HELP }
+enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER }
 
 data class MainUiState(
     val isRunning: Boolean = false,
@@ -19,6 +20,8 @@ data class MainUiState(
     val streamingToken: String = "",
     val streamingThought: String = "",
     val currentPage: AppPage = AppPage.CHAT,
+    val canNavigateBack: Boolean = false,
+    val userAvatarUri: String? = null,
     val promotableSkills: List<SkillMeta> = emptyList(),
     val allSkills: List<SkillMeta> = emptyList(),
     val config: Flow<ConfigSnapshot>,
@@ -60,6 +63,26 @@ data class MainUiState(
     // Per-skill user notes
     val skillNotes: Map<String, String> = emptyMap(),
     val skillNoteGenerating: String? = null,
+    // Built-in browser
+    val browserUrl: String = "",
+    // Group chat
+    val groups: List<Group> = emptyList(),
+    val openGroup: Group? = null,
+    val groupMessages: List<GroupMessage> = emptyList(),
+    val groupRunning: Boolean = false,
+    val groupTypingAgentId: String? = null,   // role id currently streaming
+    val groupStreamingText: String = "",       // partial streamed text for typing agent
+    val groupUnreadCount: Int = 0,            // messages received while away from GROUP_CHAT page
+)
+
+data class GroupMessage(
+    val id: Long = 0,
+    val groupId: String,
+    val senderId: String,      // role id or "user"
+    val senderName: String,
+    val senderAvatar: String,
+    val text: String,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 data class ChatMessage(

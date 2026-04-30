@@ -60,6 +60,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.MiniAppActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MobileClaw" />
+
         <!-- Accessibility Service: core perception + action layer -->
         <service
             android:name=".perception.ClawAccessibilityService"

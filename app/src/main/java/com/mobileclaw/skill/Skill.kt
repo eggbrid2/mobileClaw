@@ -13,6 +13,9 @@ data class SkillMeta(
     val isBuiltin: Boolean = true,
     val minApiLevel: Int = 30,
     val version: String = "1.0.0",
+    val nameZh: String? = null,
+    val descriptionZh: String? = null,
+    val tags: List<String> = emptyList(),
 )
 
 data class SkillParam(

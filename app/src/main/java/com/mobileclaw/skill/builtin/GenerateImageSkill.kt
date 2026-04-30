@@ -20,7 +20,10 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class GenerateImageSkill(private val config: AgentConfig) : Skill {
+class GenerateImageSkill(
+    private val config: AgentConfig,
+    private val userConfig: com.mobileclaw.config.UserConfig? = null,
+) : Skill {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -40,6 +43,9 @@ class GenerateImageSkill(private val config: AgentConfig) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "生成图片",
+        descriptionZh = "通过 AI 模型生成图片。",
+        tags = listOf("创作"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {
@@ -52,9 +58,13 @@ class GenerateImageSkill(private val config: AgentConfig) : Skill {
             return@withContext SkillResult(false, "LLM endpoint or API key not configured")
         }
 
-        // Normalize endpoint: strip trailing /v1 or /v1/ to get base URL, then reconstruct
-        val base = snapshot.endpoint.trimEnd('/').removeSuffix("/v1")
-        val imageUrl = "$base/v1/images/generations"
+        // Prefer dedicated image endpoint from user_config (key: image_api_endpoint)
+        // Falls back to the LLM endpoint. Note: Claude/Gemini endpoints don't support image generation;
+        // set image_api_endpoint to an OpenAI-compatible provider that does (e.g. a dall-e proxy).
+        val imageBase = (userConfig?.get("image_api_endpoint")?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: snapshot.endpoint.trimEnd('/').removeSuffix("/v1"))
+        val imageUrl = "$imageBase/v1/images/generations"
 
         // Determine model: use param, fall back to dall-e-3
         val model = (params["model"] as? String)?.takeIf { it.isNotBlank() } ?: "dall-e-3"
@@ -83,10 +93,15 @@ class GenerateImageSkill(private val config: AgentConfig) : Skill {
                     try {
                         val body = response.body?.string() ?: ""
                         if (!response.isSuccessful) {
+                            val hint = when (response.code) {
+                                503 -> "\n💡 503 通常意味着该 API 端点不支持图片生成。" +
+                                    "请通过 user_config(action=set, key=image_api_endpoint, value=你的图片API地址) 配置专用图片端点。"
+                                401, 403 -> "\n💡 认证失败，请检查 API Key 是否正确，或者该 Key 是否有图片生成权限。"
+                                404 -> "\n💡 端点不存在，请确认 image_api_endpoint 配置正确。"
+                                else -> ""
+                            }
                             cont.resume(SkillResult(false,
-                                "Image API error ${response.code} at $imageUrl\n" +
-                                "Model: $model\n" +
-                                "Response: ${body.take(500)}"
+                                "Image API error ${response.code} at $imageUrl\nModel: $model\nResponse: ${body.take(300)}$hint"
                             ))
                             return
                         }

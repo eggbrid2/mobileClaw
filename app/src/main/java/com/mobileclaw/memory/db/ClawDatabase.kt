@@ -40,6 +40,21 @@ data class ConversationEntity(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+private val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS group_messages (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "groupId TEXT NOT NULL, " +
+                "senderId TEXT NOT NULL, " +
+                "senderName TEXT NOT NULL, " +
+                "senderAvatar TEXT NOT NULL, " +
+                "text TEXT NOT NULL, " +
+                "createdAt INTEGER NOT NULL)"
+        )
+    }
+}
+
 private val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -71,8 +86,9 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         ConversationEntity::class,
         SessionEntity::class,
         SessionMessageEntity::class,
+        GroupMessageEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class ClawDatabase : RoomDatabase() {
@@ -81,6 +97,7 @@ abstract class ClawDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun sessionDao(): SessionDao
     abstract fun sessionMessageDao(): SessionMessageDao
+    abstract fun groupMessageDao(): GroupMessageDao
 
     companion object {
         @Volatile private var INSTANCE: ClawDatabase? = null
@@ -92,7 +109,7 @@ abstract class ClawDatabase : RoomDatabase() {
                     ClawDatabase::class.java,
                     "claw.db"
                 )
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .build().also { INSTANCE = it }
             }
     }

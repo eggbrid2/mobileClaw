@@ -2,10 +2,18 @@ package com.mobileclaw.skill.builtin
 
 import com.mobileclaw.perception.ClawAccessibilityService
 import com.mobileclaw.skill.Skill
+import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+
+/** Returns an AccessibilityRequest failure result when the accessibility service is not running. */
+private fun accessibilityNotAvailable(skillName: String) = SkillResult(
+    success = false,
+    output = "Accessibility service is not enabled. Please grant MobileClaw accessibility access.",
+    data = SkillAttachment.AccessibilityRequest(skillName),
+)
 
 class ScreenshotSkill : Skill {
     override val meta = SkillMeta(
@@ -14,11 +22,12 @@ class ScreenshotSkill : Skill {
         description = "Captures the current screen and sends the image directly to you for visual analysis. Use this for apps where read_screen returns no useful content.",
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "截图",
+        descriptionZh = "对当前屏幕截图，将图片返回供视觉分析。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
-        if (!ClawAccessibilityService.isEnabled()) {
-            return SkillResult(success = false, output = "Accessibility service unavailable. Enable MobileClaw in Settings > Accessibility.")
-        }
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val data = runCatching { ClawAccessibilityService.captureScreenshot() }
             .getOrElse { return SkillResult(success = false, output = "Screenshot failed: ${it.message}") }
         return SkillResult(success = true, output = "Screenshot captured.", imageBase64 = data.imageBase64)
@@ -32,11 +41,12 @@ class ReadScreenSkill : Skill {
         description = "Returns the current screen UI as structured XML with node IDs. Legacy tool — only use when explicitly debugging accessibility trees. Prefer see_screen for all normal screen reading.",
         type = SkillType.NATIVE,
         injectionLevel = 2,
+        nameZh = "读取屏幕（XML）",
+        descriptionZh = "以 XML 格式读取屏幕 UI 结构（无障碍旧版）。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
-        if (!ClawAccessibilityService.isEnabled()) {
-            return SkillResult(success = false, output = "Accessibility service not available.")
-        }
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val xml = runCatching { ClawAccessibilityService.captureScreenshotXml() }
             .getOrElse { return SkillResult(success = false, output = "Failed to read screen: ${it.message}") }
             ?: return SkillResult(success = false, output = "No UI tree available.")
@@ -63,11 +73,12 @@ class SeeScreenSkill : Skill {
             "scroll(x=..., y=..., direction=...), or long_click(x=..., y=...). Call this before any screen interaction.",
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "看屏幕（视觉）",
+        descriptionZh = "截图后由视觉模型描述屏幕内容。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
-        if (!ClawAccessibilityService.isEnabled()) {
-            return SkillResult(success = false, output = "Accessibility service unavailable.")
-        }
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val som = runCatching { ClawAccessibilityService.captureScreenshotSom() }
             .getOrElse { return SkillResult(success = false, output = "Screenshot failed: ${it.message}") }
         val nodeMap = runCatching { ClawAccessibilityService.getNodeMap() ?: emptyMap() }.getOrDefault(emptyMap())
@@ -117,8 +128,12 @@ class TapSkill : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "点击",
+        descriptionZh = "点击屏幕上的指定坐标或元素。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val x = (params["x"] as? Number)?.toFloat()
         val y = (params["y"] as? Number)?.toFloat()
         val nodeId = params["node_id"] as? String
@@ -168,8 +183,12 @@ class InputTextSkill : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "输入文字",
+        descriptionZh = "在当前焦点输入框中输入文本。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val text = params["text"] as? String ?: return SkillResult(false, "text is required")
         val nodeId = params["node_id"] as? String
         if (nodeId != null) {
@@ -200,8 +219,12 @@ class NavigateSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "导航",
+        descriptionZh = "通过包名或 URL 跳转到指定页面或应用。",
+        tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         return when (val action = params["action"] as? String) {
             "home" -> { ClawAccessibilityService.goHome(); SkillResult(true, "Went home.") }
             "back" -> { ClawAccessibilityService.goBack(); SkillResult(true, "Went back.") }
@@ -249,9 +272,13 @@ class ScrollSkill : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "滚动 / 滑动",
+        descriptionZh = "在屏幕上执行滚动或滑动操作。",
+        tags = listOf("控制"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val direction = params["direction"] as? String
             ?: return SkillResult(false, "direction is required")
         val x = (params["x"] as? Number)?.toFloat()
@@ -305,9 +332,13 @@ class LongClickSkill : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 0,
+        nameZh = "长按",
+        descriptionZh = "长按屏幕上的指定坐标。",
+        tags = listOf("控制"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val x = (params["x"] as? Number)?.toFloat()
         val y = (params["y"] as? Number)?.toFloat()
         val nodeId = params["node_id"] as? String
@@ -350,12 +381,13 @@ class ListAppsSkill : Skill {
         description = "Returns all installed apps with their package names and display names. Use this before navigate(launch) to find the correct package_name.",
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "查看已安装应用",
+        descriptionZh = "列出设备上已安装的所有应用。",
+        tags = listOf("控制"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
-        if (!ClawAccessibilityService.isEnabled()) {
-            return SkillResult(false, "Accessibility service not enabled. Cannot list apps.")
-        }
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val apps = runCatching { ClawAccessibilityService.listInstalledApps() }
             .getOrElse { return SkillResult(false, "Failed to list apps: ${it.message}") }
         return SkillResult(true, apps.joinToString("\n") { "${it.appName}: ${it.packageName}" })

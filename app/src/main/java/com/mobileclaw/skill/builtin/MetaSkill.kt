@@ -29,8 +29,11 @@ class MetaSkill(
             "Allowed types: 'http', 'python'. Provide a complete skill definition as JSON.",
         parameters = listOf(
             SkillParam("id", "string", "Unique snake_case skill ID"),
-            SkillParam("name", "string", "Human-readable skill name"),
-            SkillParam("description", "string", "What this skill does (shown to LLM)"),
+            SkillParam("name", "string", "English skill name"),
+            SkillParam("name_zh", "string", "Chinese skill name (中文名)", required = false),
+            SkillParam("description", "string", "English description (shown to LLM)"),
+            SkillParam("description_zh", "string", "Chinese description (中文描述)", required = false),
+            SkillParam("tags", "string", "Comma-separated category tags, e.g. '网络,工具' (optional)", required = false),
             SkillParam("type", "string", "'http' or 'python'"),
             SkillParam("script", "string", "Python script (required for type=python)", required = false),
             SkillParam("http_url", "string", "HTTP endpoint URL (required for type=http)", required = false),
@@ -39,6 +42,9 @@ class MetaSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "创建技能",
+        descriptionZh = "创建新的 JSON 格式 AI 技能。",
+        tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -65,14 +71,23 @@ class MetaSkill(
             }
         }.getOrElse { emptyList() }
 
+        val nameZh = (params["name_zh"] as? String)?.takeIf { it.isNotBlank() }
+        val descriptionZh = (params["description_zh"] as? String)?.takeIf { it.isNotBlank() }
+        val tags = (params["tags"] as? String)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+            ?: emptyList()
+
         val skillMeta = SkillMeta(
             id = id,
             name = name,
             description = description,
             parameters = skillParams,
             type = SkillType.valueOf(type.uppercase()),
-            injectionLevel = 2,     // starts at level 2, user must promote manually
+            injectionLevel = 2,
             isBuiltin = false,
+            nameZh = nameZh,
+            descriptionZh = descriptionZh,
+            tags = tags,
         )
 
         val def = when (type) {
@@ -97,8 +112,7 @@ class MetaSkill(
             loader.persist(def)
             SkillResult(
                 success = true,
-                output = "Skill '$id' created and saved. It is available at injection level 2 (on-demand). " +
-                    "A user must manually promote it to level 1 for automatic injection.",
+                output = "Skill '$id' created and saved (level 2, on-demand). Tags: ${tags.ifEmpty { listOf("(none)") }}. User must promote to level 1 for auto-injection.",
             )
         }.getOrElse {
             SkillResult(success = false, output = "Failed to save skill: ${it.message}")

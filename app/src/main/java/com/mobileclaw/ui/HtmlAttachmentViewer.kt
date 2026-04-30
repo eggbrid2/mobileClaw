@@ -21,6 +21,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +38,25 @@ import com.mobileclaw.skill.SkillAttachment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private fun attachmentKey(a: SkillAttachment.HtmlData): String =
+    "${a.path}:${a.htmlContent.length}:${a.htmlContent.hashCode()}"
+
+private fun loadHtmlAttachment(
+    webView: WebView,
+    attachment: SkillAttachment.HtmlData,
+    store: com.mobileclaw.app.MiniAppStore,
+) {
+    val htmlContent = attachment.htmlContent.ifBlank {
+        runCatching { File(attachment.path).readText() }.getOrDefault("")
+    }
+    val baseUrl = when {
+        attachment.path.isNotBlank() -> "file://${File(attachment.path).parent}/"
+        else -> "file://${ClawApplication.instance.filesDir}/html_pages/"
+    }
+    val injectedHtml = store.injectBridge(htmlContent)
+    webView.loadDataWithBaseURL(baseUrl, injectedHtml, "text/html", "UTF-8", null)
+}
 
 /**
  * Full-screen HTML viewer rendered at Activity level (NOT inside a Dialog).
@@ -51,6 +74,11 @@ fun HtmlAttachmentViewer(
 ) {
     val app = ClawApplication.instance
     val c = LocalClawColors.current
+
+    // Track the content key to detect hot-update changes: path + content hash
+    val loadedKey = remember { mutableStateOf("") }
+    // Title is mutable — the app can update it via Claw.setTitle()
+    var appTitle by remember { mutableStateOf(attachment.title) }
 
     // Pre-warm Python runtime in the background
     LaunchedEffect(attachment.path) {
@@ -84,7 +112,7 @@ fun HtmlAttachmentViewer(
                 }
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    attachment.title,
+                    appTitle,
                     color = c.text,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -107,7 +135,13 @@ fun HtmlAttachmentViewer(
                     @Suppress("DEPRECATION")
                     settings.allowUniversalAccessFromFileURLs = true
                     settings.databaseEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = false
+                    settings.setSupportZoom(false)
+                    settings.builtInZoomControls = false
                     webChromeClient = android.webkit.WebChromeClient()
+                    // Prevent white flash while page loads
+                    setBackgroundColor(android.graphics.Color.parseColor("#1a1a2e"))
 
                     // Derive a stable app-like ID from the file path so data is persisted
                     val appId = attachment.path
@@ -125,8 +159,10 @@ fun HtmlAttachmentViewer(
                         semanticMemory = app.semanticMemory,
                         onAskAgent = onAskAgent,
                         onClose = onClose,
+                        onSetTitle = { appTitle = it },
                     )
                     addJavascriptInterface(bridge, "Android")
+                    bridge.bindWebView(this)
 
                     // Fallback: re-inject Claw script after page load in case
                     // the inline <script> ran before window.Android was ready
@@ -141,18 +177,16 @@ fun HtmlAttachmentViewer(
                         }
                     }
 
-                    // Determine HTML content and base URL
-                    val htmlContent = attachment.htmlContent.ifBlank {
-                        runCatching { File(attachment.path).readText() }.getOrDefault("")
-                    }
-                    val baseUrl = when {
-                        attachment.path.isNotBlank() -> "file://${File(attachment.path).parent}/"
-                        else -> "file://${app.filesDir}/html_pages/"
-                    }
-
-                    // Always inject bridge script fresh, then load
-                    val injectedHtml = app.miniAppStore.injectBridge(htmlContent)
-                    loadDataWithBaseURL(baseUrl, injectedHtml, "text/html", "UTF-8", null)
+                    loadHtmlAttachment(this, attachment, app.miniAppStore)
+                    loadedKey.value = attachmentKey(attachment)
+                }
+            },
+            update = { webView ->
+                // Hot-update: reload only when path or content actually changed
+                val key = attachmentKey(attachment)
+                if (loadedKey.value != key) {
+                    loadedKey.value = key
+                    loadHtmlAttachment(webView, attachment, app.miniAppStore)
                 }
             },
             modifier = Modifier.fillMaxSize(),

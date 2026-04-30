@@ -16,13 +16,17 @@ class PythonSkillExecutor(
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         return withContext(Dispatchers.IO) {
-            val result = withTimeoutOrNull(10_000L) {
+            val result = withTimeoutOrNull(60_000L) {
                 runCatching {
                     if (!Python.isStarted()) {
                         Python.start(AndroidPlatform(com.mobileclaw.ClawApplication.instance))
                     }
                     val py = Python.getInstance()
-                    val builtins = py.getBuiltins()
+                    val app = com.mobileclaw.ClawApplication.instance
+                    val pipTarget = RuntimePipInstaller.pipPackagesDir(app).absolutePath
+
+                    // Ensure runtime-installed packages are on sys.path
+                    RuntimePipInstaller.injectSysPath(py, pipTarget)
 
                     // Inject params as a Python dict named 'params'
                     val paramsDict = py.getModule("builtins").callAttr("dict")
@@ -37,7 +41,9 @@ class PythonSkillExecutor(
                     val sys = py.getModule("sys")
                     sys.put("stdout", stdout)
 
-                    py.getBuiltins().callAttr("exec", script, globals)
+                    // Prepend pip_install helper + sys.path setup
+                    val fullScript = RuntimePipInstaller.buildPreamble(pipTarget) + "\n" + script
+                    py.getBuiltins().callAttr("exec", fullScript, globals)
 
                     stdout.callAttr("getvalue").toString()
                 }.fold(
@@ -45,7 +51,7 @@ class PythonSkillExecutor(
                     onFailure = { SkillResult(success = false, output = "Python error: ${it.message}") }
                 )
             }
-            result ?: SkillResult(success = false, output = "Python execution timed out (10s)")
+            result ?: SkillResult(success = false, output = "Python execution timed out (60s)")
         }
     }
 }

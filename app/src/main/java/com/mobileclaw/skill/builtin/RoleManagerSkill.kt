@@ -38,6 +38,9 @@ class RoleManagerSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        nameZh = "角色管理",
+        descriptionZh = "创建、更新和删除 AI 角色。",
+        tags = listOf("角色"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {

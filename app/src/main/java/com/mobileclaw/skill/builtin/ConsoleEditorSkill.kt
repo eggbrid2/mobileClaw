@@ -59,6 +59,7 @@ class ConsoleEditorSkill(private val server: ConsoleServer) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        tags = listOf("系统"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
