@@ -12,6 +12,9 @@ import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.Message
 import com.mobileclaw.llm.OpenAiGateway
+import com.mobileclaw.llm.ToolDefinition
+import com.mobileclaw.llm.ToolParameters
+import com.mobileclaw.llm.ToolProperty
 import com.mobileclaw.memory.EpisodicMemory
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.memory.db.SessionMessageEntity
@@ -25,7 +28,10 @@ import com.mobileclaw.skill.builtin.VirtualDisplaySetupSkill
 import com.mobileclaw.skill.builtin.CreateFileSkill
 import com.mobileclaw.skill.builtin.CreateHtmlSkill
 import com.mobileclaw.skill.builtin.FetchUrlSkill
+import com.mobileclaw.skill.builtin.GenerateDocumentSkill
+import com.mobileclaw.skill.builtin.GenerateIconSkill
 import com.mobileclaw.skill.builtin.GenerateImageSkill
+import com.mobileclaw.skill.builtin.GenerateVideoSkill
 import com.mobileclaw.skill.builtin.InputTextSkill
 import com.mobileclaw.skill.builtin.ListAppsSkill
 import com.mobileclaw.skill.builtin.LongClickSkill
@@ -55,6 +61,7 @@ import com.mobileclaw.skill.builtin.WebContentSkill
 import com.mobileclaw.skill.builtin.WebJsSkill
 import com.mobileclaw.skill.builtin.WebSearchSkill
 import com.mobileclaw.server.PrivilegedClient
+import com.mobileclaw.skill.builtin.PipInstallSkill
 import com.mobileclaw.skill.executor.ShellSkill
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,6 +71,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -73,6 +81,7 @@ class MainViewModel : ViewModel() {
     private val app = ClawApplication.instance
     private val config = app.agentConfig
     private val registry = app.skillRegistry
+    private val loader = SkillLoader(app, registry)
     private val overlay = app.overlayManager
     private val auroraOverlay = app.auroraOverlayManager
     private val episodicMemory = EpisodicMemory(app.database.episodeDao(), OpenAiGateway(config))
@@ -98,6 +107,7 @@ class MainViewModel : ViewModel() {
     private val sessionRequests = MutableSharedFlow<SessionRequest>(extraBufferCapacity = 8)
 
     private val consoleServer = app.consoleServer
+    private val userPrefs = app.getSharedPreferences("user_prefs", android.content.Context.MODE_PRIVATE)
 
     private val _languageChanged = MutableSharedFlow<String>()
     val languageChanged: SharedFlow<String> = _languageChanged.asSharedFlow()
@@ -121,6 +131,8 @@ class MainViewModel : ViewModel() {
         registerBuiltinSkills()
         loadDynamicSkills()
         _uiState.update { it.copy(allSkills = registry.all().map { s -> s.meta }) }
+        loadMiniApps()
+        loadUserAvatar()
 
         viewModelScope.launch {
             config.configFlow.collect { snap ->
@@ -140,9 +152,13 @@ class MainViewModel : ViewModel() {
 
         // React to mini-app open requests from AppManagerSkill
         viewModelScope.launch {
+            app.pendingAgentTask.collect { task -> runTask(task) }
+        }
+
+        viewModelScope.launch {
             appOpenRequests.collect { appId ->
                 loadMiniApps()
-                _uiState.update { it.copy(openAppId = appId, currentPage = AppPage.APPS) }
+                _uiState.update { it.copy(openAppId = appId) }
             }
         }
 
@@ -202,10 +218,14 @@ class MainViewModel : ViewModel() {
             }
         }
 
-        // Load initial data
-        viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(availableRoles = roleManager.all()) }
+        // Keep roles in sync — updates whenever RoleManager.save/delete is called (e.g. from AI)
+        viewModelScope.launch {
+            roleManager.rolesFlow.collect { roles ->
+                _uiState.update { it.copy(availableRoles = roles) }
+            }
         }
+
+        viewModelScope.launch(Dispatchers.IO) { loadGroups() }
 
         viewModelScope.launch(Dispatchers.IO) {
             loadSessions()
@@ -265,6 +285,10 @@ class MainViewModel : ViewModel() {
             loadSessionMessages(sessionId)
             loadSessions()
         }
+    }
+
+    fun renameSession(id: String, title: String) {
+        viewModelScope.launch { sessionRequests.emit(SessionRequest.Rename(id, title)) }
     }
 
     fun deleteSession(sessionId: String) {
@@ -334,8 +358,7 @@ class MainViewModel : ViewModel() {
 
     fun saveCustomRole(role: Role) {
         viewModelScope.launch(Dispatchers.IO) {
-            roleManager.save(role)
-            _uiState.update { it.copy(availableRoles = roleManager.all()) }
+            roleManager.save(role)  // triggers rolesFlow → UI auto-updates via collector above
         }
     }
 
@@ -351,13 +374,25 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    fun loadUserAvatar() {
+        val uri = userPrefs.getString("avatar_uri", null)
+        _uiState.update { it.copy(userAvatarUri = uri) }
+    }
+
+    fun setUserAvatarUri(uri: String) {
+        app.contentResolver.runCatching {
+            takePersistableUriPermission(android.net.Uri.parse(uri), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        userPrefs.edit().putString("avatar_uri", uri).apply()
+        _uiState.update { it.copy(userAvatarUri = uri) }
+    }
+
     fun deleteCustomRole(roleId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            roleManager.delete(roleId)
+            roleManager.delete(roleId)  // triggers rolesFlow → UI auto-updates
             if (_uiState.value.currentRole.id == roleId) {
                 _uiState.update { it.copy(currentRole = Role.DEFAULT) }
             }
-            _uiState.update { it.copy(availableRoles = roleManager.all()) }
         }
     }
 
@@ -577,12 +612,35 @@ class MainViewModel : ViewModel() {
         _uiState.update { it.copy(inputImageBase64 = imageBase64) }
     }
 
+    private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.CHAT) }
+
     fun navigate(page: AppPage) {
         if (page == AppPage.SKILLS) refreshPromotableSkills()
         if (page == AppPage.PROFILE) loadProfileData()
         if (page == AppPage.SETTINGS) checkPrivServer()
-        if (page == AppPage.APPS) loadMiniApps()
-        _uiState.update { it.copy(currentPage = page) }
+        if (page == AppPage.APPS || page == AppPage.HOME) loadMiniApps()
+        if (page == AppPage.GROUPS) loadGroups()
+        if (page == AppPage.GROUP_CHAT) _uiState.update { it.copy(groupUnreadCount = 0) }
+        if (backStack.isEmpty() || backStack.last() != page) backStack.addLast(page)
+        if (page == AppPage.BROWSER && _uiState.value.browserUrl.isBlank()) {
+            _uiState.update { it.copy(browserUrl = "https://www.bing.com", currentPage = page, canNavigateBack = backStack.size > 1) }
+            return
+        }
+        _uiState.update { it.copy(currentPage = page, canNavigateBack = backStack.size > 1) }
+    }
+
+    fun navigateBack() {
+        if (backStack.size > 1) {
+            backStack.removeLast()
+            val page = backStack.last()
+            if (page == AppPage.APPS || page == AppPage.HOME) loadMiniApps()
+            _uiState.update { it.copy(currentPage = page, canNavigateBack = backStack.size > 1) }
+        }
+    }
+
+    fun navigateToBrowser(url: String) {
+        if (backStack.isEmpty() || backStack.last() != AppPage.BROWSER) backStack.addLast(AppPage.BROWSER)
+        _uiState.update { it.copy(browserUrl = url, currentPage = AppPage.BROWSER, canNavigateBack = backStack.size > 1) }
     }
 
     fun loadMiniApps() {
@@ -592,11 +650,7 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun openApp(appId: String) {
-        _uiState.update { it.copy(openAppId = appId) }
-    }
-
-    fun closeApp() {
+    fun clearPendingAppOpen() {
         _uiState.update { it.copy(openAppId = null) }
     }
 
@@ -607,6 +661,317 @@ class MainViewModel : ViewModel() {
     fun closeHtmlViewer() {
         _uiState.update { it.copy(openHtmlAttachment = null) }
     }
+
+    // ── Group chat ────────────────────────────────────────────────────────────
+
+    private val groupManager = app.groupManager
+    private var groupChatJob: Job? = null
+    @Volatile private var groupChatStopped = false
+
+    fun loadGroups() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val groups = groupManager.all()
+            _uiState.update { it.copy(groups = groups) }
+        }
+    }
+
+    fun createGroup(group: com.mobileclaw.agent.Group) {
+        viewModelScope.launch(Dispatchers.IO) {
+            groupManager.save(group)
+            loadGroups()
+        }
+    }
+
+    fun deleteGroup(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            groupManager.delete(id)
+            database.groupMessageDao().deleteForGroup(id)
+            loadGroups()
+            if (_uiState.value.openGroup?.id == id) closeGroupChat()
+        }
+    }
+
+    fun openGroupChat(group: com.mobileclaw.agent.Group) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val entities = database.groupMessageDao().forGroup(group.id)
+            val messages = entities.map { e ->
+                GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, e.createdAt)
+            }
+            _uiState.update { it.copy(openGroup = group, groupMessages = messages, groupRunning = false, groupUnreadCount = 0) }
+            navigate(AppPage.GROUP_CHAT)
+
+            // Auto-spark: if group has members and conversation is cold (no messages or last msg > 15 min ago)
+            val lastMsgTime = messages.lastOrNull()?.createdAt ?: 0L
+            val isCold = System.currentTimeMillis() - lastMsgTime > 15 * 60 * 1000L
+            val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
+            if (allMembers.isNotEmpty() && isCold && !groupChatStopped) {
+                kotlinx.coroutines.delay(1800)
+                if (_uiState.value.currentPage == AppPage.GROUP_CHAT && !_uiState.value.groupRunning) {
+                    sparkGroupChat()
+                }
+            }
+        }
+    }
+
+    fun closeGroupChat() {
+        groupChatJob?.cancel()
+        groupChatJob = null
+        _uiState.update { it.copy(openGroup = null, groupMessages = emptyList(), groupRunning = false, groupTypingAgentId = null, groupStreamingText = "") }
+        navigateBack()
+    }
+
+    fun stopGroupChat() {
+        groupChatStopped = true
+        groupChatJob?.cancel()
+        groupChatJob = null
+        _uiState.update { it.copy(groupRunning = false, groupTypingAgentId = null, groupStreamingText = "") }
+    }
+
+    fun sendGroupMessage(text: String) {
+        val group = _uiState.value.openGroup ?: return
+        if (text.isBlank()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val userMsg = GroupMessage(
+                groupId = group.id,
+                senderId = "user",
+                senderName = "你",
+                senderAvatar = "👤",
+                text = text,
+            )
+            val rowId = database.groupMessageDao().insert(userMsg.toEntity())
+            val savedUser = userMsg.copy(id = rowId)
+            _uiState.update { it.copy(groupMessages = it.groupMessages + savedUser) }
+
+            val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
+            if (allMembers.isEmpty()) return@launch
+
+            // Explicitly @mentioned members always respond; others join naturally via [PASS] self-evaluation
+            val mentioned = parseMentions(text)
+            val forced = if (mentioned.isNotEmpty())
+                allMembers.filter { r -> mentioned.any { m -> r.name.contains(m) || m.contains(r.name) || r.id == m } }
+            else emptyList()
+            // Remaining candidates in shuffled order (adds variety each time)
+            val candidates = (forced + allMembers.filter { it !in forced }.shuffled()).distinct()
+
+            groupChatStopped = false
+            _uiState.update { it.copy(groupRunning = true) }
+            groupManager.touch(group.id)
+            loadGroups()
+
+            groupChatJob = viewModelScope.launch(Dispatchers.IO) {
+                runGroupLoop(group, allMembers, candidates, forced.map { it.id }.toSet())
+            }
+        }
+    }
+
+    /** Triggers a random member to proactively start a conversation — call when group opens or chat is cold. */
+    fun sparkGroupChat() {
+        val group = _uiState.value.openGroup ?: return
+        if (_uiState.value.groupRunning) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
+            if (allMembers.isEmpty()) return@launch
+
+            val starter = allMembers.random()
+            groupChatStopped = false
+            _uiState.update { it.copy(groupRunning = true) }
+
+            groupChatJob = viewModelScope.launch(Dispatchers.IO) {
+                runGroupLoop(group, allMembers, listOf(starter), setOf(starter.id), spark = true)
+            }
+        }
+    }
+
+    private suspend fun runGroupLoop(
+        group: com.mobileclaw.agent.Group,
+        allMembers: List<Role>,
+        candidates: List<Role>,
+        forcedIds: Set<String> = emptySet(),
+        spark: Boolean = false,
+    ) {
+        // Reactions are allowed 1 level deep (a member reacting to another member's message)
+        val MAX_REACTION_DEPTH = 1
+        // When the user has navigated away from the group chat, cap background messages to avoid surprises
+        val MAX_BACKGROUND_MESSAGES = 8
+
+        data class QueueItem(val role: Role, val depth: Int, val isForced: Boolean)
+
+        val queue = ArrayDeque<QueueItem>()
+        candidates.forEach { r -> queue.addLast(QueueItem(r, 0, r.id in forcedIds)) }
+
+        val spokenIds = mutableSetOf<String>()
+        var backgroundMsgCount = 0
+
+        while (queue.isNotEmpty() && !groupChatStopped) {
+            val (role, depth, isForced) = queue.removeFirst()
+            if (depth > MAX_REACTION_DEPTH) continue
+
+            // Stop generating if user has left and we've hit the background cap
+            val userOnScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT
+            if (!userOnScreen && backgroundMsgCount >= MAX_BACKGROUND_MESSAGES) break
+
+            _uiState.update { it.copy(groupTypingAgentId = role.id, groupStreamingText = "") }
+
+            val history = _uiState.value.groupMessages
+            val others = allMembers.filter { it.id != role.id }
+            val systemPrompt = buildGroupSystemPrompt(role, group.name, allMembers, others, spark && depth == 0)
+
+            val historyMessages = history.takeLast(20).map { msg ->
+                Message(role = "user", content = "[${msg.senderName}]: ${msg.text}")
+            }
+            val callMessages = listOf(Message(role = "system", content = systemPrompt)) +
+                historyMessages +
+                listOf(Message(role = "user", content = "Your turn as ${role.avatar} ${role.name}:"))
+
+            val responseText = runGroupAgentTurn(role, callMessages)
+
+            // Member chose not to speak
+            if (responseText.trim().equals("[PASS]", ignoreCase = true) || responseText.isBlank()) {
+                _uiState.update { it.copy(groupTypingAgentId = null, groupStreamingText = "") }
+                continue
+            }
+
+            val cleanText = responseText.trim()
+            val agentMsg = GroupMessage(
+                groupId = group.id,
+                senderId = role.id,
+                senderName = role.name,
+                senderAvatar = role.avatar,
+                text = cleanText,
+            )
+            val rowId = database.groupMessageDao().insert(agentMsg.toEntity())
+
+            val nowOnScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT
+            _uiState.update {
+                it.copy(
+                    groupMessages = it.groupMessages + agentMsg.copy(id = rowId),
+                    groupStreamingText = "",
+                    groupUnreadCount = if (nowOnScreen) 0 else it.groupUnreadCount + 1,
+                )
+            }
+
+            spokenIds.add(role.id)
+            if (!nowOnScreen) backgroundMsgCount++
+
+            // After this member speaks, one random silent member may react naturally
+            if (depth < MAX_REACTION_DEPTH && !groupChatStopped) {
+                val reactor = allMembers
+                    .filter { it.id != role.id && it.id !in spokenIds }
+                    .shuffled()
+                    .firstOrNull()
+                if (reactor != null) queue.addLast(QueueItem(reactor, depth + 1, false))
+            }
+        }
+
+        _uiState.update { it.copy(groupRunning = false, groupTypingAgentId = null, groupStreamingText = "") }
+    }
+
+    // Mini ReAct loop per group-agent turn: up to MAX_SKILL_CALLS tool uses, then a final text reply.
+    private suspend fun runGroupAgentTurn(
+        role: Role,
+        baseMessages: List<Message>,
+        maxSkillCalls: Int = 3,
+    ): String {
+        val forcedMetas = role.forcedSkillIds.mapNotNull { registry.get(it)?.meta }
+        val tools = (registry.forInjection(maxLevel = 1) + forcedMetas).distinctBy { it.id }.map { m ->
+            ToolDefinition(
+                name = m.id,
+                description = m.description,
+                parameters = ToolParameters(
+                    properties = m.parameters.associate { p -> p.name to ToolProperty(p.type, p.description) },
+                    required = m.parameters.filter { it.required }.map { it.name },
+                ),
+            )
+        }
+
+        val messages = baseMessages.toMutableList()
+        var finalText = ""
+
+        repeat(maxSkillCalls + 1) { iteration ->
+            if (groupChatStopped) return finalText
+            var accumulated = ""
+            val resp = runCatching {
+                llm.chat(ChatRequest(
+                    messages = messages,
+                    tools = if (iteration < maxSkillCalls) tools else emptyList(), // no tools on last pass
+                    stream = true,
+                    onToken = { tok ->
+                        accumulated += tok
+                        _uiState.update { it.copy(groupStreamingText = accumulated) }
+                    },
+                ))
+            }.getOrElse { return finalText }
+
+            if (resp.toolCall == null) {
+                // Plain text reply — this is the agent's group message
+                finalText = accumulated.ifBlank { resp.content ?: "" }
+                return finalText
+            }
+
+            val tc = resp.toolCall
+            _uiState.update { it.copy(groupStreamingText = "🔧 ${tc.skillId}…") }
+            val skillResult = registry.get(tc.skillId)
+                ?.let { runCatching { it.execute(tc.params) }.getOrElse { e -> com.mobileclaw.skill.SkillResult(false, "Error: ${e.message}") } }
+                ?: com.mobileclaw.skill.SkillResult(false, "Skill '${tc.skillId}' not found")
+
+            // Append assistant tool-call + tool result into the conversation for next iteration
+            messages.add(Message(role = "assistant", content = accumulated.ifBlank { null }, toolCalls = listOf(tc)))
+            messages.add(Message(role = "tool", content = skillResult.output.take(3000), toolCallId = tc.id))
+        }
+
+        return finalText
+    }
+
+    private fun buildGroupSystemPrompt(
+        role: Role,
+        groupName: String,
+        allMembers: List<Role>,
+        others: List<Role>,
+        proactive: Boolean = false,
+    ): String = buildString {
+        appendLine("You are ${role.avatar} ${role.name} in group「$groupName」.")
+        if (role.description.isNotBlank()) appendLine("Your character: ${role.description}")
+        if (role.systemPromptAddendum.isNotBlank()) {
+            appendLine()
+            append(role.systemPromptAddendum)
+        }
+        appendLine()
+        appendLine("Group members:")
+        appendLine("  👤 User (human)")
+        allMembers.forEach { m ->
+            if (m.id == role.id) appendLine("  ${m.avatar} ${m.name} — that's you")
+            else appendLine("  ${m.avatar} ${m.name} — ${m.description}")
+        }
+        appendLine()
+        if (proactive) {
+            appendLine("The group has been quiet. As ${role.name}, bring up something interesting or start a topic that fits your character and the group's vibe. Be casual and natural.")
+        } else {
+            appendLine("Read the conversation so far. Ask yourself: does ${role.name} genuinely want to say something right now?")
+            appendLine("- If YES: write a short, natural reply in character (1-3 sentences). No name prefix.")
+            appendLine("- If NO (nothing meaningful to add, or it's not your place): reply with exactly: [PASS]")
+        }
+        appendLine()
+        appendLine("Rules:")
+        appendLine("• Stay in character. Be brief and real — like texting, not a speech.")
+        appendLine("• Don't summarize what others said. React, question, add something new.")
+        appendLine("• Reply in the same language as the conversation.")
+        appendLine("• You may use tools (max 3 calls) before writing your message.")
+    }
+
+    private fun parseMentions(text: String): List<String> =
+        Regex("@([\\w\\u4e00-\\u9fff·]+)").findAll(text).map { it.groupValues[1] }.toList()
+
+    private fun GroupMessage.toEntity() = com.mobileclaw.memory.db.GroupMessageEntity(
+        id = id,
+        groupId = groupId,
+        senderId = senderId,
+        senderName = senderName,
+        senderAvatar = senderAvatar,
+        text = text,
+        createdAt = createdAt,
+    )
 
     fun deleteApp(appId: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -695,16 +1060,13 @@ $factsText
         }
     }
 
-    fun generateDimensionQuiz(dimensionId: String, dimensionTitle: String) {
-        if (_uiState.value.dimensionQuizLoading == dimensionId) return
-        _uiState.update { it.copy(dimensionQuizLoading = dimensionId) }
+    private suspend fun fetchDimensionQuiz(dimensionId: String, dimensionTitle: String): List<AiQuizQuestion> {
         val facts = _uiState.value.profileFacts
         val relevantFacts = facts.entries
             .filter { it.key.startsWith("profile.$dimensionId.") || it.key.startsWith("profile.personality.") || it.key.startsWith("profile.cognitive.") }
             .joinToString("\n") { (k, v) -> "- ${k.removePrefix("profile.")}: $v" }
             .ifBlank { "暂无已知信息" }
-        viewModelScope.launch(Dispatchers.IO) {
-            val prompt = """
+        val prompt = """
 你是专业心理学家。请为"$dimensionTitle"维度生成5道深度心理测试题，持续深入了解用户的潜在特征。
 
 当前已知用户信息：
@@ -719,33 +1081,55 @@ $relevantFacts
 严格输出JSON数组（无markdown，无额外文字）：
 [{"question":"问题文字","hint":"此题探测XX倾向","answers":["A选项","B选项","C选项","D选项"],"factKey":"profile.${dimensionId}.xxx"}]
 """.trimIndent()
-            val content = runCatching {
-                llm.chat(ChatRequest(
-                    messages = listOf(
-                        Message(role = "system", content = "你是专业心理学家，只输出严格JSON。"),
-                        Message(role = "user", content = prompt),
-                    ),
-                    stream = false,
-                )).content?.trim() ?: ""
-            }.getOrDefault("")
-            val questions = runCatching {
-                val raw = content.trimStart().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-                val arr = JsonParser.parseString(raw).asJsonArray
-                arr.map { el ->
-                    val obj = el.asJsonObject
-                    AiQuizQuestion(
-                        question = obj["question"]?.asString ?: "",
-                        hint     = obj["hint"]?.asString ?: "",
-                        answers  = obj["answers"]?.asJsonArray?.map { it.asString } ?: emptyList(),
-                        factKey  = obj["factKey"]?.asString ?: "profile.$dimensionId.misc",
-                    )
-                }.filter { it.question.isNotBlank() && it.answers.size >= 2 }
-            }.getOrDefault(emptyList())
+        val content = runCatching {
+            llm.chat(ChatRequest(
+                messages = listOf(
+                    Message(role = "system", content = "你是专业心理学家，只输出严格JSON。"),
+                    Message(role = "user", content = prompt),
+                ),
+                stream = false,
+            )).content?.trim() ?: ""
+        }.getOrDefault("")
+        return runCatching {
+            val raw = content.trimStart().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            val arr = JsonParser.parseString(raw).asJsonArray
+            arr.map { el ->
+                val obj = el.asJsonObject
+                AiQuizQuestion(
+                    question = obj["question"]?.asString ?: "",
+                    hint     = obj["hint"]?.asString ?: "",
+                    answers  = obj["answers"]?.asJsonArray?.map { it.asString } ?: emptyList(),
+                    factKey  = obj["factKey"]?.asString ?: "profile.$dimensionId.misc",
+                )
+            }.filter { it.question.isNotBlank() && it.answers.size >= 2 }
+        }.getOrDefault(emptyList())
+    }
+
+    fun generateDimensionQuiz(dimensionId: String, dimensionTitle: String) {
+        if (_uiState.value.dimensionQuizLoading == dimensionId) return
+        _uiState.update { it.copy(dimensionQuizLoading = dimensionId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val questions = fetchDimensionQuiz(dimensionId, dimensionTitle)
             _uiState.update { state ->
                 state.copy(
                     dimensionQuizzes  = state.dimensionQuizzes + (dimensionId to questions),
                     dimensionQuizLoading = null,
                 )
+            }
+        }
+    }
+
+    fun prewarmAllDimensionQuizzes(dimensions: List<ProfileDimension>) {
+        val todo = dimensions.filter { it.id !in _uiState.value.dimensionQuizzes }
+        if (todo.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            for (dim in todo) {
+                if (_uiState.value.dimensionQuizzes.containsKey(dim.id)) continue
+                val questions = fetchDimensionQuiz(dim.id, dim.title)
+                _uiState.update { state ->
+                    state.copy(dimensionQuizzes = state.dimensionQuizzes + (dim.id to questions))
+                }
+                delay(400)
             }
         }
     }
@@ -819,8 +1203,31 @@ $relevantFacts
     // ── Skill Manager ────────────────────────────────────────────────────────
 
     fun promoteSkill(skillId: String) {
-        runCatching { SkillLoader(app, registry).promote(skillId) }
-        refreshPromotableSkills()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { loader.promote(skillId) }
+            refreshPromotableSkills()
+        }
+    }
+
+    fun demoteSkill(skillId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { loader.demote(skillId) }
+            refreshPromotableSkills()
+        }
+    }
+
+    fun deleteSkill(skillId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { loader.delete(skillId) }
+            refreshPromotableSkills()
+        }
+    }
+
+    fun installMarketSkill(def: com.mobileclaw.skill.SkillDefinition) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { loader.persist(def) }
+            refreshPromotableSkills()
+        }
     }
 
     private fun refreshPromotableSkills() {
@@ -843,7 +1250,6 @@ $relevantFacts
     }
 
     private fun registerBuiltinSkills() {
-        val loader = SkillLoader(app, registry)
         listOf(
             // Screen perception
             ScreenshotSkill(),
@@ -857,13 +1263,16 @@ $relevantFacts
             NavigateSkill(app.virtualDisplayManager),
             ListAppsSkill(),
             // Web
-            WebSearchSkill(),
+            WebSearchSkill(app.webViewManager),
             FetchUrlSkill(),
             WebBrowseSkill(app.webViewManager),
             WebContentSkill(app.webViewManager),
             WebJsSkill(app.webViewManager),
             // Content creation
-            GenerateImageSkill(config),
+            GenerateImageSkill(config, app.userConfig),
+            GenerateIconSkill(app, app.userConfig, app.miniAppStore),
+            GenerateDocumentSkill(app),
+            GenerateVideoSkill(config, app, app.userConfig),
             CreateFileSkill(app),
             CreateHtmlSkill(app),
             // Virtual display (background execution)
@@ -874,6 +1283,7 @@ $relevantFacts
             VirtualDisplaySetupSkill(app.virtualDisplayManager),
             // System
             ShellSkill(),
+            PipInstallSkill(),
             MemorySkill(app.semanticMemory),
             PermissionSkill(app.permissionManager),
             // Skill management
@@ -902,7 +1312,6 @@ $relevantFacts
     }
 
     private fun loadDynamicSkills() {
-        val loader = SkillLoader(app, registry)
         runCatching { loader.loadAll() }
     }
 
@@ -916,8 +1325,16 @@ $relevantFacts
                 is SkillAttachment.ImageData -> mapOf("type" to "image", "base64" to att.base64, "prompt" to (att.prompt ?: ""))
                 is SkillAttachment.FileData  -> mapOf("type" to "file", "path" to att.path, "name" to att.name, "mimeType" to att.mimeType, "sizeBytes" to att.sizeBytes.toString())
                 is SkillAttachment.HtmlData  -> mapOf("type" to "html", "path" to att.path, "title" to att.title, "htmlContent" to att.htmlContent)
+                is SkillAttachment.WebPage   -> mapOf("type" to "webpage", "url" to att.url, "title" to att.title, "excerpt" to att.excerpt)
+                is SkillAttachment.SearchResults -> mapOf(
+                    "type" to "search_results",
+                    "query" to att.query,
+                    "engine" to att.engine,
+                    "pages" to att.pages.map { p -> mapOf("url" to p.url, "title" to p.title, "excerpt" to p.excerpt) },
+                )
+                is SkillAttachment.AccessibilityRequest -> null
             }
-        }
+        }.filterNotNull()
         return gson.toJson(list)
     }
 }
@@ -957,6 +1374,28 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                     title = o["title"]?.asString ?: "",
                     htmlContent = o["htmlContent"]?.asString ?: "",
                 )
+                "webpage" -> SkillAttachment.WebPage(
+                    url = o["url"]?.asString ?: "",
+                    title = o["title"]?.asString ?: "",
+                    excerpt = o["excerpt"]?.asString ?: "",
+                )
+                "search_results" -> {
+                    val pages = runCatching {
+                        o["pages"]?.asJsonArray?.mapNotNull { pe ->
+                            val p = pe.asJsonObject
+                            SkillAttachment.WebPage(
+                                url = p["url"]?.asString ?: return@mapNotNull null,
+                                title = p["title"]?.asString ?: "",
+                                excerpt = p["excerpt"]?.asString ?: "",
+                            )
+                        } ?: emptyList()
+                    }.getOrDefault(emptyList())
+                    SkillAttachment.SearchResults(
+                        query = o["query"]?.asString ?: "",
+                        engine = o["engine"]?.asString ?: "",
+                        pages = pages,
+                    )
+                }
                 else -> null
             }
         }

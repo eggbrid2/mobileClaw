@@ -1,15 +1,8 @@
 <div align="center">
 
-```
-███╗   ███╗ ██████╗ ██████╗ ██╗██╗     ███████╗ ██████╗██╗      █████╗ ██╗    ██╗
-████╗ ████║██╔═══██╗██╔══██╗██║██║     ██╔════╝██╔════╝██║     ██╔══██╗██║    ██║
-██╔████╔██║██║   ██║██████╔╝██║██║     █████╗  ██║     ██║     ███████║██║ █╗ ██║
-██║╚██╔╝██║██║   ██║██╔══██╗██║██║     ██╔══╝  ██║     ██║     ██╔══██║██║███╗██║
-██║ ╚═╝ ██║╚██████╔╝██████╔╝██║███████╗███████╗╚██████╗███████╗██║  ██║╚███╔███╔╝
-╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚═╝╚══════╝╚══════╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
-```
+<img src="docs/logo.png" alt="MobileClaw" width="180" />
 
-**🦞 The Autonomous AI Agent That Lives Inside Your Android**
+**The Autonomous AI Agent That Lives Inside Your Android**
 
 *See the screen. Think. Act. Build. Remember. Never stop.*
 
@@ -44,11 +37,9 @@ It's not a chatbot. It's not a macro recorder. It's a **thinking, deciding, self
 Here are real things you can ask MobileClaw right now:
 
 ```
-"Monitor Taobao every hour and alert me when the price drops below ¥299"
+"Open JD.com, find the cheapest iPhone 16, and tell me if it's a good deal"
 
 "Open Instagram, scroll my feed, summarize what my friends posted today"
-
-"Help me draft and send 10 personalized follow-up emails in Gmail"
 
 "Search for flights to Tokyo next month, compare prices, give me a table"
 
@@ -57,6 +48,8 @@ Here are real things you can ask MobileClaw right now:
 "Switch to Coder mode and refactor this Python file in my notes"
 
 "Take a screenshot of my WeChat conversation and translate it to English"
+
+"Start a group with Web Agent and General, research the best AI model for coding"
 ```
 
 No special setup. No coding. Just ask.
@@ -72,6 +65,7 @@ No special setup. No coding. Just ask.
 | **Web Access** | Search, fetch, browse, and run JavaScript in a hidden WebView |
 | **Mini-App Builder** | AI generates full interactive HTML apps with native Android bridge (SQLite, Python, files, clipboard, device APIs) |
 | **Role / Persona System** | Switch between specialist agents (Coder, Web Agent, Phone Operator, Creator) with forced skills and model overrides |
+| **Multi-Agent Group Chat** | Pull any combination of AI roles into one conversation — they @mention each other, stream responses live, and stop automatically when consensus is reached |
 | **Persistent Sessions** | Full conversation history in Room DB — pick up any past task exactly where you left off |
 | **Dynamic Model Switching** | Agent autonomously switches LLM mid-task when it needs vision, reasoning, or image generation |
 | **User Config** | Agent reads and writes your personal config — preferences persist across sessions |
@@ -146,8 +140,8 @@ The agent follows a **ReAct loop**: reason about the next action → call a skil
 **Option 2 — Build from Source**
 
 ```bash
-git clone https://github.com/yourname/mobileclaw.git
-cd mobileclaw
+git clone https://github.com/eggbrid2/mobileClaw.git
+cd mobileClaw
 ./gradlew :app:assembleRelease
 ```
 
@@ -175,7 +169,7 @@ Roles are specialist agent personas that come pre-loaded with targeted skills, a
 
 | Role | Avatar | Forced Skills | Best For |
 |------|--------|---------------|----------|
-| **General** | 🦞 | none | Everyday tasks, conversation |
+| **General** | 🦀 | none | Everyday tasks, conversation |
 | **Coder** | 👨‍💻 | `shell` | File operations, code execution |
 | **Web Agent** | 🌐 | `web_search`, `web_browse`, `fetch_url` | Research, price tracking, scraping |
 | **Phone Operator** | 📱 | `see_screen`, `tap`, `scroll` | UI automation, app control |
@@ -207,15 +201,15 @@ Claw.files.write("notes.txt", "Hello")
 Claw.files.read("notes.txt")
 
 // Full SQLite database
-Claw.sql("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT)")
-Claw.sql("INSERT INTO tasks VALUES (null, ?)", ["Buy milk"])
-Claw.sql("SELECT * FROM tasks").rows
+await Claw.sql("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT)")
+await Claw.sql("INSERT INTO tasks VALUES (null, ?)", ["Buy milk"])
+const res = await Claw.sql("SELECT * FROM tasks")
 
 // Python backend (on-device, no server)
-Claw.python({ action: "analyze", data: [1, 2, 3, 4, 5] })
+const r = await Claw.python({ action: "analyze", data: [1, 2, 3, 4, 5] })
 
 // HTTP requests (no CORS)
-Claw.fetch("https://api.example.com/data", { method: "GET" })
+const r = await Claw.fetch("https://api.example.com/data", { method: "GET" })
 
 // Device integration
 Claw.toast("Saved!")
@@ -265,6 +259,7 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 | `bg_stop` | Release the virtual display |
 | `shell` | Run arbitrary shell commands |
 | `generate_image` | Generate images via DALL-E or compatible API |
+| `generate_icon` | Generate AI app icons (DashScope/CogView/OpenAI-compat) |
 | `create_html` | Build and persist a full interactive mini-app |
 | `console_editor` | Personalise the LAN console web page — full rewrite, CSS theme injection, or JS widget injection |
 | `user_config` | Read/write the user's personal configuration store |
@@ -282,7 +277,7 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 | `skill_check` | List all registered skills with parameters |
 | `skill_notes` | Read/write user notes and AI-generated remarks per skill |
 | `check_permissions` | Inspect and request app permissions |
-| `app_manager` | Install, uninstall, force-stop, or query app info |
+| `app_manager` | Create, update, delete, and launch HTML mini-apps with native Android bridge |
 | `create_file` | Read and write files in app storage |
 | `vd_setup` | Configure virtual display parameters |
 
@@ -330,6 +325,45 @@ Task Goal
 Every conversation is persisted to Room DB with full message history, log lines, and attachments. Switch between past conversations from the left drawer — each session remembers exactly where you left off.
 
 The agent can also manage sessions programmatically: create a new session for a task, rename it when it discovers the topic, and archive it when done.
+
+---
+
+## 👥 Multi-Agent Group Chat
+
+Stop talking to one AI at a time. Create a **Group**, invite multiple roles, and watch them collaborate — or argue — until the job is done.
+
+```
+"Start a group with Coder, Web Agent, and General.
+ Research the best Python web scraping library, then implement it."
+```
+
+**How it works:**
+
+1. **Create a group** — pick a name, emoji, and any subset of your roles
+2. **Send a message** — all members see the full conversation history
+3. **Agents chain naturally** — when an agent finishes, it @mentions the next relevant member; the loop continues until an agent responds without an @mention (meaning: done)
+4. **@mention manually** — type `@RoleName` in your message to direct a question to a specific agent
+5. **Stop any time** — hit the ■ button; the running agent finishes its current response and the loop halts
+
+**What makes it different:**
+
+| Feature | Detail |
+|---------|--------|
+| **Live streaming** | Each agent's response streams token-by-token; you see them think |
+| **Loop guard** | Max 5 chained agent turns per message — prevents infinite AI debates |
+| **Per-agent color coding** | Every role gets a distinct accent color so you always know who's speaking |
+| **Full history context** | Each agent sees the complete conversation, not just the last message |
+| **@mention highlighting** | `@mentions` are rendered in the speaker's color inside bubbles |
+| **Persistent** | Group messages stored in Room DB — reopen any group and continue exactly where you left off |
+
+**Example groups you can build:**
+
+| Group | Members | Use case |
+|-------|---------|---------|
+| 🛠️ Dev Squad | Coder + Web Agent | Research → implement → test cycle |
+| 🔬 Research Panel | General + Web Agent | Multi-angle deep research with cross-checking |
+| 🎨 Creative Studio | Creator + General | Brainstorm → generate → review |
+| 📱 Phone Squad | Phone Operator + Web Agent | Look something up then act on it |
 
 ---
 
@@ -412,15 +446,16 @@ The agent keeps the `/api/events` SSE stream, `/api/send`, `/api/sessions`, and 
 Things we're building next — contributions welcome:
 
 - **Scheduled Tasks** — cron-style task scheduling, run agent jobs while you sleep
-- **Multi-Agent Collaboration** — spawn sub-agents for parallel subtasks
+- **Group Roles** — assign a dedicated coordinator role that plans and delegates to other group members
 - **Proactive Notifications** — agent monitors conditions and alerts you without being asked
 - **Live Screen Mirroring** — stream virtual display to the UI for visibility
 - **Voice Interface** — wake word + STT/TTS so you can give tasks by speaking
 - **Skill Marketplace** — community-curated skill packs installable in one tap
-- **Cross-Device Sync** — share memory, sessions, and mini-apps across phones
+- **Cross-Device Sync** — share memory, sessions, mini-apps, and group histories across phones
 - **On-Device LLM** — first-class integration with llama.cpp / MLC-LLM for fully offline operation
 - **Computer Use API** — native Anthropic Computer Use support when Claude gains mobile support
 - **Workflow Chains** — visual node editor to wire skills into reusable automation pipelines
+- **Group Voting** — structured consensus mechanism where agents vote on options before proceeding
 
 ---
 
@@ -432,7 +467,9 @@ app/src/main/java/com/mobileclaw/
 │   ├── AgentRuntime.kt          # ReAct loop — Reason → Act → Observe
 │   ├── AgentContext.kt          # Task state, step list, loop-guard
 │   ├── Role.kt                  # Role / persona data model
-│   └── RoleManager.kt           # Built-in + custom role management
+│   ├── RoleManager.kt           # Built-in + custom role management
+│   ├── Group.kt                 # Group data model (name, emoji, member role IDs)
+│   └── GroupManager.kt          # JSON-backed group CRUD (filesDir/groups/)
 ├── app/
 │   └── MiniAppStore.kt          # Mini-app metadata + HTML persistence + JS bridge injection
 ├── llm/
@@ -450,7 +487,7 @@ app/src/main/java/com/mobileclaw/
 │   ├── ConversationMemory.kt    # Chat history for profile extraction
 │   ├── WorkingMemory.kt         # Sliding-window context budget
 │   ├── UserProfileExtractor.kt  # LLM-powered user profile extraction
-│   └── db/                      # Room DB — entities, DAOs, migrations, sessions
+│   └── db/                      # Room DB — entities, DAOs, migrations, sessions, group messages
 ├── config/
 │   ├── AgentConfig.kt           # DataStore-backed config (endpoint, model, theme…)
 │   ├── UserConfig.kt            # User's personal key-value config store
@@ -470,6 +507,8 @@ app/src/main/java/com/mobileclaw/
     ├── DrawerContent.kt         # Left drawer — sessions + role badge + nav
     ├── HtmlAttachmentViewer.kt  # Full-screen mini-app viewer (Activity-level WebView)
     ├── AppLauncherPage.kt       # Mini-app library & launcher
+    ├── GroupsPage.kt            # Group list, creation dialog, group cards
+    ├── GroupChatScreen.kt       # Multi-agent streaming chat — @mentions, color coding, stop button
     ├── RolesPage.kt             # Role browser, creator, editor
     ├── SkillsPage.kt            # Skill browser, notes, promotion
     ├── ProfilePage.kt           # User profile facts + episode timeline
@@ -498,7 +537,7 @@ app/src/main/java/com/mobileclaw/
 
 **Option A — Ask the agent** (recommended):
 
-*"Create a skill that monitors my battery and logs it every hour."*
+*"Create a skill that reads my battery level and tells me if I should charge."*
 
 The agent calls `quick_skill`, generates a Python/HTTP skill, tests it, and registers it — all automatically. You can then promote it to permanent from the Skills page.
 
@@ -530,6 +569,12 @@ Drop a `.json` file in the skill directory or use the `meta` skill at runtime. S
 
 ---
 
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=eggbrid2/mobileClaw&type=Date)](https://star-history.com/#eggbrid2/mobileClaw&Date)
+
+---
+
 ## 🤝 Contributing
 
 ```bash
@@ -558,6 +603,8 @@ MIT — see [LICENSE](LICENSE)
 ---
 
 <div align="center">
+
+<img src="docs/logo.png" alt="MobileClaw" width="80" />
 
 Built for those who believe the phone in their pocket is smarter than it lets on.
 
