@@ -147,8 +147,6 @@ class MiniAppStore(private val context: Context) {
     close:function(){try{A.close()}catch(e){}},
     setTitle:function(t){try{A.setTitle(String(t))}catch(e){}}
   };
-  // Override native fetch so AI-generated code works without CORS issues (file:// origin)
-  window.fetch=Claw.fetch;
   // Inject device-accurate viewport height as CSS custom property --vh
   // Use height:calc(var(--vh)*100) instead of 100vh in your CSS for reliable full-screen layout
   (function(){

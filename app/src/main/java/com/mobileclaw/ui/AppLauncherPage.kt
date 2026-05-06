@@ -2,7 +2,13 @@ package com.mobileclaw.ui
 
 import android.annotation.SuppressLint
 import android.graphics.BitmapFactory
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.ByteArrayInputStream
+import java.util.concurrent.TimeUnit
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -319,7 +325,65 @@ fun AppViewerDialog(
                     addJavascriptInterface(bridge, "Android")
                     bridge.bindWebView(this)
 
+                    val corsClient = OkHttpClient.Builder()
+                        .connectTimeout(15, TimeUnit.SECONDS)
+                        .readTimeout(30, TimeUnit.SECONDS)
+                        .build()
+
                     webViewClient = object : android.webkit.WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView,
+                            request: WebResourceRequest,
+                        ): WebResourceResponse? {
+                            val url = request.url?.toString() ?: return null
+                            if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+
+                            val method = request.method?.uppercase() ?: "GET"
+
+                            // Respond to CORS preflight immediately so the browser unblocks the real request
+                            if (method == "OPTIONS") {
+                                return WebResourceResponse(
+                                    "text/plain", "UTF-8", 200, "OK",
+                                    mapOf(
+                                        "Access-Control-Allow-Origin" to "*",
+                                        "Access-Control-Allow-Methods" to "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+                                        "Access-Control-Allow-Headers" to "*",
+                                        "Access-Control-Max-Age" to "86400",
+                                    ),
+                                    ByteArrayInputStream(ByteArray(0)),
+                                )
+                            }
+
+                            // For GET/HEAD: fetch natively and inject CORS headers into the response
+                            if (method !in listOf("GET", "HEAD")) return null
+
+                            return runCatching {
+                                val reqBuilder = Request.Builder().url(url)
+                                request.requestHeaders?.forEach { (k, v) ->
+                                    runCatching { reqBuilder.header(k, v) }
+                                }
+                                reqBuilder.method(method, null)
+
+                                val response = corsClient.newCall(reqBuilder.build()).execute()
+                                val contentType = response.header("Content-Type") ?: "application/octet-stream"
+                                val mimeType = contentType.substringBefore(";").trim()
+                                val encoding = contentType.substringAfter("charset=", "UTF-8")
+                                    .substringBefore(";").trim().ifBlank { "UTF-8" }
+
+                                val headers = mutableMapOf<String, String>()
+                                response.headers.forEach { (k, v) -> headers[k] = v }
+                                headers["Access-Control-Allow-Origin"] = "*"
+                                headers["Access-Control-Allow-Headers"] = "*"
+
+                                WebResourceResponse(
+                                    mimeType, encoding,
+                                    response.code, response.message.ifBlank { "OK" },
+                                    headers,
+                                    response.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0)),
+                                )
+                            }.getOrNull()
+                        }
+
                         override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                             super.onPageFinished(view, url)
                             val reinjection = app.miniAppStore.clawBridgeSetupJs()
