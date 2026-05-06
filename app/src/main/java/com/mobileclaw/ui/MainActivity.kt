@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.permission.PermissionItem
@@ -182,16 +183,19 @@ class MainActivity : ComponentActivity() {
                             // Without this, the ChatScreen's BasicTextField below receives
                             // key/touch events even when overlaid by another full-screen page.
                             val chatActive = uiState.currentPage == AppPage.CHAT
-                            Box(modifier = Modifier.fillMaxSize().pointerInput(chatActive) {
-                                if (!chatActive) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            awaitPointerEvent(PointerEventPass.Initial)
-                                                .changes.forEach { it.consume() }
+                            Box(modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = if (chatActive) 1f else 0f }
+                                .pointerInput(chatActive) {
+                                    if (!chatActive) {
+                                        awaitPointerEventScope {
+                                            while (true) {
+                                                awaitPointerEvent(PointerEventPass.Initial)
+                                                    .changes.forEach { it.consume() }
+                                            }
                                         }
                                     }
-                                }
-                            }) {
+                                }) {
                                 ChatScreen(
                                     uiState = uiState,
                                     onSendGoal = { vm.runTask(it) },

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.userConfigStore by preferencesDataStore("user_config")
@@ -36,14 +37,11 @@ class UserConfig(private val context: Context) {
     val configFlow: Flow<Map<String, String>> = entriesFlow.map { m -> m.mapValues { it.value.value } }
 
     suspend fun allEntries(): Map<String, ConfigEntry> {
-        var result: Map<String, ConfigEntry> = emptyMap()
-        context.userConfigStore.data.collect { prefs ->
-            result = prefs[V2_KEY]?.let { parseV2(it) }
-                ?: prefs[LEGACY_KEY]?.let { migrateLegacy(it) }
-                ?: emptyMap()
-            return@collect
-        }
-        return result
+        // .first() takes one emission and cancels — .collect { return@collect } never cancels the flow
+        val prefs = context.userConfigStore.data.first()
+        return prefs[V2_KEY]?.let { parseV2(it) }
+            ?: prefs[LEGACY_KEY]?.let { migrateLegacy(it) }
+            ?: emptyMap()
     }
 
     suspend fun all(): Map<String, String> = allEntries().mapValues { it.value.value }

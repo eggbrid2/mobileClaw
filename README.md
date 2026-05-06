@@ -62,6 +62,7 @@ No special setup. No coding. Just ask.
 |---------|-------------|
 | **Interactive Chat UI** | AI proactively embeds live buttons, forms, cards, charts, and data tables inside chat messages using a JSON DSL — the chat becomes an interactive app surface |
 | **Rich Markdown** | Full markdown in AI replies: pipe tables, code fences, bold/italic/inline-code, blockquotes, ordered/unordered lists, and horizontal rules |
+| **Image Save** | Tap any image in chat to view fullscreen; save to gallery with one button (supports Android 9+) |
 | **Screen Understanding** | Set-of-Mark annotated screenshots — works on native, Flutter, React Native, WebView, and games |
 | **Gesture Control** | Tap, long-press, scroll, swipe, type with pixel-perfect accuracy |
 | **Web Access** | Search, fetch, browse, and run JavaScript in a hidden WebView |
@@ -78,7 +79,7 @@ No special setup. No coding. Just ask.
 | **Image Generation** | Generate images via DALL-E or any compatible API, returned as attachments |
 | **Privileged Server** | Self-contained shell-UID server bundled in the APK — no Shizuku needed |
 | **Personalised Console** | Agent rewrites the LAN web console for each user — custom themes, widgets, and shortcuts |
-| **Skill Self-Extension** | Agent creates new skills from natural language; promotes them to the skill library with one tap |
+| **Skill Self-Extension** | Agent creates new skills from natural language; promotes to the skill library with one tap; non-builtin skills can be deleted or demoted |
 | **Chain-of-Thought** | Native DeepSeek-R1 `reasoning_content` streaming; thinking shown live in UI |
 | **User Profile** | AI builds a live model of who you are — habits, goals, preferences — with a skill exploration progress tracker |
 | **ROM Compatible** | Handles MIUI, EMUI, ColorOS, OriginOS, One UI, and stock Android |
@@ -326,6 +327,8 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 | `session_manager` | Create, switch, rename, and delete chat sessions |
 | `app_manager` | Create, update, delete, and launch HTML mini-apps |
 
+> **Managing user-created skills:** Non-builtin skills can be deleted (trash icon) or demoted from Level 1 back to Level 2 (on-demand) via the Skills page. Built-in skills have a **Restore** button.
+
 ### Level 2 — On-Demand
 
 | Skill | Description |
@@ -410,8 +413,8 @@ Runs as **shell UID (2000)**. Listens on **TCP 127.0.0.1:52730**. Only accepts `
 
 | Provider | Notes |
 |----------|-------|
-| **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `o1`, `o3-mini` — full tool use + vision |
-| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` — native `reasoning_content` streaming |
+| **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `o3`, `o4-mini`, `gpt-4.1`, `gpt-5.x` — full tool use + vision; newer models automatically use the Responses API image format |
+| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` — native `reasoning_content` streaming; inline `<think>` tags also stripped |
 | **Anthropic** | Via OpenAI-compatible proxy (e.g. litellm) |
 | **Ollama** | Point endpoint to `http://localhost:11434` |
 | **LocalAI / vLLM** | Any OpenAI-compatible local inference server |

@@ -137,7 +137,14 @@ private fun RenderNode(
             modifier = Modifier.fillMaxWidth().then(padMod),
             horizontalArrangement = Arrangement.spacedBy(gap.dp),
             verticalAlignment = Alignment.CenterVertically,
-        ) { children(node["children"]?.asJsonArray) }
+        ) {
+            // each child auto-weighted so fillMaxWidth() inside buttons doesn't consume all space
+            node["children"]?.asJsonArray?.forEach { el ->
+                Box(Modifier.weight(1f)) {
+                    runCatching { RenderNode(el.asJsonObject, onAction, inputState) }
+                }
+            }
+        }
 
         "card" -> {
             val title = node["title"]?.asString
@@ -441,6 +448,83 @@ private fun RenderNode(
                                 fontSize = 12.sp, color = c.text, lineHeight = 17.sp,
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // button_group: equal-width button row with shared default style
+        "button_group" -> {
+            val buttons = node["buttons"]?.asJsonArray ?: node["children"]?.asJsonArray ?: return
+            val defaultStyle = node["style"]?.asString ?: "outline"
+            Row(
+                modifier = Modifier.fillMaxWidth().then(padMod),
+                horizontalArrangement = Arrangement.spacedBy(gap.dp),
+            ) {
+                for (el in buttons) {
+                    val btn = runCatching { el.asJsonObject }.getOrNull() ?: continue
+                    val label = btn["label"]?.asString ?: continue
+                    val action = btn["action"]?.asString ?: continue
+                    val style = btn["style"]?.asString ?: defaultStyle
+                    val synth = com.google.gson.JsonObject().apply {
+                        addProperty("type", "button")
+                        addProperty("label", label)
+                        addProperty("action", action)
+                        addProperty("style", style)
+                    }
+                    Box(Modifier.weight(1f)) { RenderNode(synth, onAction, inputState) }
+                }
+            }
+        }
+
+        // metric_grid: grid of stat tiles (value + label), configurable cols (default 2)
+        "metric_grid" -> {
+            val items = node["items"]?.asJsonArray ?: return
+            val cols = (node["cols"]?.asInt ?: 2).coerceIn(1, 4)
+            val itemList = items.mapNotNull { runCatching { it.asJsonObject }.getOrNull() }
+            Column(modifier = Modifier.fillMaxWidth().then(padMod), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
+                for (chunk in itemList.chunked(cols)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
+                        for (item in chunk) {
+                            val label = item["label"]?.asString ?: ""
+                            val value = item["value"]?.asString ?: ""
+                            val color = if (item["color"] != null) nodeColor(item, "color", c) else c.accent
+                            Box(
+                                modifier = Modifier.weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(c.cardAlt)
+                                    .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+                                    .padding(12.dp),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = color)
+                                    Text(label, fontSize = 11.sp, color = c.subtext)
+                                }
+                            }
+                        }
+                        repeat(cols - chunk.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+
+        // info_rows: labeled key-value list with dividers, aligned label-left value-right
+        "info_rows" -> {
+            val items = node["items"]?.asJsonArray ?: return
+            Column(modifier = Modifier.fillMaxWidth().then(padMod)) {
+                items.forEachIndexed { idx, el ->
+                    val item = runCatching { el.asJsonObject }.getOrNull() ?: return@forEachIndexed
+                    val label = item["label"]?.asString ?: return@forEachIndexed
+                    val value = item["value"]?.asString ?: return@forEachIndexed
+                    val color = if (item["color"] != null) nodeColor(item, "color", c) else c.text
+                    if (idx > 0) HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(label, fontSize = 13.sp, color = c.subtext, modifier = Modifier.weight(1f))
+                        Text(value, fontSize = 13.sp, color = color, fontWeight = FontWeight.Medium, textAlign = TextAlign.End)
                     }
                 }
             }
