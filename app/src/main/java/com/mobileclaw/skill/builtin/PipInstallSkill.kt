@@ -27,12 +27,12 @@ class PipInstallSkill : Skill {
         id = "pip_install",
         name = "Pip Install",
         nameZh = "pip 安装",
-        description = "Installs a Python package at runtime via pip. " +
-            "Pure-Python packages always work (e.g. requests, beautifulsoup4, pandas pure-Python ops). " +
-            "After install the package is immediately importable in any Python skill. " +
-            "Use pip_install(package=...) in Python skill scripts for inline installs.",
-        descriptionZh = "通过 pip 在运行时安装 Python 包到 filesDir/pip_packages。纯 Python 包均可安装；" +
-            "需要 C 扩展的包需要 PyPI 上有 Android arm64 wheel。安装后立即可在所有 Python 技能中 import。",
+        description = "Installs a pure-Python package from PyPI at runtime (no pip needed — uses requests+zipfile). " +
+            "Works for any package with a py3-none-any wheel (e.g. pydantic, httpx, toml, yaml, etc.). " +
+            "Native packages (numpy, pandas, pillow, requests, bs4) are pre-installed — no need to install them. " +
+            "After install the package is immediately importable in run_python.",
+        descriptionZh = "从 PyPI 下载纯 Python 包（py3-none-any wheel）并安装到 filesDir/pip_packages，无需 pip。" +
+            "numpy/pandas/pillow/requests/bs4 已预装，无需安装。安装后立即可在 run_python 中 import。",
         parameters = listOf(
             SkillParam("package", "string", "Package name with optional version spec, e.g. 'pandas' or 'numpy==1.26.0'"),
         ),

@@ -122,36 +122,15 @@ _env_info = json.dumps({
             if (!Python.isStarted()) {
                 Python.start(AndroidPlatform(context.applicationContext))
             }
-            val py = Python.getInstance()
-            val builtins = py.getModule("builtins")
-            // Sanitize: only allow package name characters
-            val safePkg = packageName.replace(Regex("[^a-zA-Z0-9_.\\-\\[\\]<>=!]"), "").take(120)
-            // Use pip's Python API directly — subprocess cannot launch sys.executable in Chaquopy
-            val code = """
-import json, io, sys as _sys
-_buf = io.StringIO()
-_old_out, _old_err = _sys.stdout, _sys.stderr
-_sys.stdout = _sys.stderr = _buf
-try:
-    try:
-        from pip._internal.cli.main import main as _pip
-    except ImportError:
-        from pip import main as _pip
-    _rc = _pip(['install', '$safePkg'])
-except SystemExit as _e:
-    _rc = int(_e.code) if _e.code is not None else 0
-except Exception as _e:
-    _rc = 1
-    _buf.write(str(_e))
-finally:
-    _sys.stdout, _sys.stderr = _old_out, _old_err
-_pip_result = json.dumps({'ok': _rc == 0, 'output': _buf.getvalue()[-3000:] or f'exit {_rc}'})
-""".trimIndent()
-            val ns = builtins.callAttr("dict")
-            builtins.callAttr("exec", code, ns)
-            ns.callAttr("get", "_pip_result").toString()
+            val app = context.applicationContext as com.mobileclaw.ClawApplication
+            val result = com.mobileclaw.skill.executor.RuntimePipInstaller.install(app, packageName)
+            if (result.isSuccess) {
+                gson.toJson(mapOf("ok" to true, "output" to result.getOrThrow()))
+            } else {
+                gson.toJson(mapOf("ok" to false, "output" to (result.exceptionOrNull()?.message ?: "install failed")))
+            }
         }.getOrElse { e ->
-            gson.toJson(mapOf("ok" to false, "output" to (e.message ?: "pip error")))
+            gson.toJson(mapOf("ok" to false, "output" to (e.message ?: "install error")))
         }
     }
 
