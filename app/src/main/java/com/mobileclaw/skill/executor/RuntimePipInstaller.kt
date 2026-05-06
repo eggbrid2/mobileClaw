@@ -56,6 +56,8 @@ object RuntimePipInstaller {
                     "--target", targetPath,
                     "--no-cache-dir",
                     "--disable-pip-version-check",
+                    "--trusted-host", "pypi.org",
+                    "--trusted-host", "files.pythonhosted.org",
                     packageSpec,
                 )).toInt()
         } finally {
@@ -81,7 +83,7 @@ def pip_install(package):
     _sys.stdout = _sys.stderr = _buf
     try:
         from pip._internal.cli.main import main as _pip_main
-        _code = _pip_main(['install', '--target', '$targetPath', '--no-cache-dir', '--disable-pip-version-check', package])
+        _code = _pip_main(['install', '--target', '$targetPath', '--no-cache-dir', '--disable-pip-version-check', '--trusted-host', 'pypi.org', '--trusted-host', 'files.pythonhosted.org', package])
     except Exception as _e:
         _code = 1
         _buf.write(str(_e))

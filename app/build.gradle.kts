@@ -59,6 +59,8 @@ chaquopy {
             install("beautifulsoup4")
             install("numpy")
             install("pillow")
+            install("pandas")
+            install("pip")
         }
     }
 }
