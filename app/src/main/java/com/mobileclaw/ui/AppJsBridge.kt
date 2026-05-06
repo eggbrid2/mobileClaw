@@ -86,25 +86,70 @@ class AppJsBridge(
         bgExecutor.submit { fireCallback(callbackId, pipInstall(packageName)) }
     }
 
+    @JavascriptInterface
+    fun pythonEnvInfo(): String {
+        return runCatching {
+            if (!Python.isStarted()) {
+                Python.start(AndroidPlatform(context.applicationContext))
+            }
+            val py = Python.getInstance()
+            val builtins = py.getModule("builtins")
+            val code = """
+import sys, json, importlib
+packages = {}
+for pkg in ['requests','bs4','numpy','pillow','PIL','pandas','pip']:
+    try:
+        m = importlib.import_module(pkg)
+        packages[pkg] = getattr(m, '__version__', 'ok')
+    except ImportError:
+        packages[pkg] = None
+_env_info = json.dumps({
+    'python': sys.version,
+    'packages': packages,
+    'path': sys.path[:3],
+})
+""".trimIndent()
+            val ns = builtins.callAttr("dict")
+            builtins.callAttr("exec", code, ns)
+            ns.callAttr("get", "_env_info").toString()
+        }.getOrElse { e ->
+            gson.toJson(mapOf("error" to (e.message ?: "Python not available")))
+        }
+    }
+
     private fun pipInstall(packageName: String): String {
         return runCatching {
             if (!Python.isStarted()) {
                 Python.start(AndroidPlatform(context.applicationContext))
             }
             val py = Python.getInstance()
-            val sys = py.getModule("sys")
-            val subprocess = py.getModule("subprocess")
-            val result = subprocess.callAttr(
-                "run",
-                arrayOf(sys["executable"], "-m", "pip", "install", packageName),
-                com.chaquo.python.Kwarg("capture_output", true),
-                com.chaquo.python.Kwarg("text", true),
-                com.chaquo.python.Kwarg("timeout", 120),
-            )
-            val ok = result["returncode"]?.toJava(Int::class.java) == 0
-            val stdout = result["stdout"]?.toString() ?: ""
-            val stderr = result["stderr"]?.toString() ?: ""
-            gson.toJson(mapOf("ok" to ok, "output" to (stdout + stderr).trim().takeLast(2000)))
+            val builtins = py.getModule("builtins")
+            // Sanitize: only allow package name characters
+            val safePkg = packageName.replace(Regex("[^a-zA-Z0-9_.\\-\\[\\]<>=!]"), "").take(120)
+            // Use pip's Python API directly — subprocess cannot launch sys.executable in Chaquopy
+            val code = """
+import json, io, sys as _sys
+_buf = io.StringIO()
+_old_out, _old_err = _sys.stdout, _sys.stderr
+_sys.stdout = _sys.stderr = _buf
+try:
+    try:
+        from pip._internal.cli.main import main as _pip
+    except ImportError:
+        from pip import main as _pip
+    _rc = _pip(['install', '$safePkg'])
+except SystemExit as _e:
+    _rc = int(_e.code) if _e.code is not None else 0
+except Exception as _e:
+    _rc = 1
+    _buf.write(str(_e))
+finally:
+    _sys.stdout, _sys.stderr = _old_out, _old_err
+_pip_result = json.dumps({'ok': _rc == 0, 'output': _buf.getvalue()[-3000:] or f'exit {_rc}'})
+""".trimIndent()
+            val ns = builtins.callAttr("dict")
+            builtins.callAttr("exec", code, ns)
+            ns.callAttr("get", "_pip_result").toString()
         }.getOrElse { e ->
             gson.toJson(mapOf("ok" to false, "output" to (e.message ?: "pip error")))
         }
