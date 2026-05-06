@@ -59,7 +59,6 @@ if "$targetPath" not in _sys.path:
     _sys.path.insert(0, "$targetPath")
 
 def pip_install(package):
-    \"\"\"Install a pure-Python package from PyPI at runtime (no pip needed).\"\"\"
     import requests as _req, zipfile as _zf, io as _io, os as _os, json as _json
     _target = "$targetPath"
     _os.makedirs(_target, exist_ok=True)
