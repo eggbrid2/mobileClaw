@@ -107,6 +107,25 @@ class MiniAppStore(private val context: Context) {
       });
     };
   }
+  // ── Global error handlers — catch silent failures ──────────────────────
+  window.addEventListener('unhandledrejection',function(e){
+    var msg='Unhandled Promise rejection: '+(e.reason&&(e.reason.message||e.reason)||'unknown');
+    try{A.showToast(msg.substring(0,100));}catch(_){}
+    console.error(msg);
+  });
+  window.addEventListener('error',function(e){
+    var msg='JS error: '+(e.message||'unknown')+' ('+e.filename+':'+e.lineno+')';
+    try{A.showToast(msg.substring(0,100));}catch(_){}
+    console.error(msg);
+  });
+  // ── Redirect native fetch() → Claw.fetch() so AI mistakes fail loudly ──
+  window.fetch=function(url,opts){
+    try{A.showToast('Use Claw.fetch() not fetch(). Redirecting…');}catch(_){}
+    return _async(function(u,o,id){var op=o||{};A.httpFetchAsync(u,op.method||'GET',JSON.stringify(op.headers||{}),op.body||'',id);})(url,opts).then(function(r){
+      return {ok:r.ok,status:r.status,text:function(){return Promise.resolve(r.body);},json:function(){return Promise.resolve(JSON.parse(r.body));}};
+    });
+  };
+  window.XMLHttpRequest=function(){try{A.showToast('Use Claw.fetch() instead of XHR');}catch(_){} throw new Error('XMLHttpRequest blocked — use Claw.fetch()');};
   window.Claw={
     // ── Async I/O (always use await) ──────────────────────────────────────
     fetch:_async(function(url,opts,id){
@@ -147,7 +166,11 @@ class MiniAppStore(private val context: Context) {
     },
     ask:function(m){try{A.askAgent(String(m))}catch(e){}},
     close:function(){try{A.close()}catch(e){}},
-    setTitle:function(t){try{A.setTitle(String(t))}catch(e){}}
+    setTitle:function(t){try{A.setTitle(String(t))}catch(e){}},
+    // ── Native Android integration ────────────────────────────────────────────
+    launchApp:function(pkg){try{return JSON.parse(A.launchApp(String(pkg)));}catch(e){return{error:e.message};}},
+    openUrl:function(url){try{return JSON.parse(A.openUrl(String(url)));}catch(e){return{error:e.message};}},
+    shareText:function(text,title){try{return JSON.parse(A.shareText(String(text),String(title||'')));}catch(e){return{error:e.message};}}
   };
   // Inject device-accurate viewport height as CSS custom property --vh
   // Use height:calc(var(--vh)*100) instead of 100vh in your CSS for reliable full-screen layout
@@ -164,14 +187,15 @@ class MiniAppStore(private val context: Context) {
 """.trimIndent()
 
     fun injectBridge(html: String): String {
-        // Stable layout foundation: viewport meta + overflow guard injected once
         val layoutMeta = buildString {
             if (!html.contains("name=\"viewport\"", ignoreCase = true)) {
                 append("""<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">""")
                 append("\n")
             }
-            // Force body to fill WebView exactly; use overflow-y:auto so content can scroll inside
-            append("""<style>html{height:100%;overflow:hidden;}body{min-height:100%;height:auto;overflow-y:auto;overflow-x:hidden;-webkit-text-size-adjust:100%;box-sizing:border-box;}*{box-sizing:inherit;}</style>""")
+            // Let WebView handle native scroll — do NOT set overflow:hidden on html, that causes
+            // dual-scroll conflicts between CSS overflow and WebView's native scroll mechanism.
+            // Inner scrollable containers should use overflow-y:auto + -webkit-overflow-scrolling:touch.
+            append("""<style>html,body{margin:0;padding:0;min-height:100%;overflow-x:hidden;}body{-webkit-text-size-adjust:100%;box-sizing:border-box;}*{box-sizing:inherit;}-webkit-scrollbar{display:none;}</style>""")
             append("\n")
         }
 

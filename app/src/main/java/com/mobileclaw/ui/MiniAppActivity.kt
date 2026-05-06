@@ -123,6 +123,12 @@ private fun MiniAppScreen(
     val webView = remember(appId) {
         WebView(context).apply {
             setBackgroundColor(AndroidColor.TRANSPARENT)
+            // Hardware acceleration reduces render jank and improves scroll smoothness
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            // Let the WebView be the scroll container — Compose should not intercept scroll events
+            isScrollContainer = true
+            overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            isVerticalScrollBarEnabled = false
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true

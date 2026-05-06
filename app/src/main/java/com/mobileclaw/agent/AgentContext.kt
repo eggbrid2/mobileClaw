@@ -41,6 +41,11 @@ class LoopGuard(val windowSize: Int = 3) {
 fun AgentContext.toMessages(systemPrompt: String, steps: List<AgentStep> = this.steps): List<Message> {
     val messages = mutableListOf(Message(role = "system", content = systemPrompt))
     messages.add(Message(role = "user", content = goal, imageBase64 = imageBase64))
+
+    // Only keep images from the most recent 2 steps — older screenshots are already processed
+    // and are the primary cause of 1.5MB+ requests when multiple screen captures accumulate.
+    val recentImageIndices = steps.filter { it.imageBase64 != null }.takeLast(2).map { it.index }.toSet()
+
     for (step in steps) {
         if (step.skillId != null) {
             messages.add(Message(
@@ -59,7 +64,7 @@ fun AgentContext.toMessages(systemPrompt: String, steps: List<AgentStep> = this.
             ))
             // Vision: inject screenshot as a user-role message immediately after the tool result.
             // OpenAI requires images in user/assistant roles, not tool role.
-            if (step.imageBase64 != null) {
+            if (step.imageBase64 != null && step.index in recentImageIndices) {
                 messages.add(Message(
                     role = "user",
                     content = null,
@@ -155,6 +160,32 @@ Rules:
 - Only add when offering clear next steps, choices, or follow-up actions.
 - Do NOT add quick replies when calling a tool or in the middle of a task.
 Example: "任务完成，你想要什么？ [[查看结果|再来一次|没了]]"
+
+## Embedded UI Components
+Embed interactive UI anywhere in your reply using a ```ui block containing a JSON tree.
+Supported types and their key props:
+- column / row: layout containers — gap (dp), padding (dp), children:[]
+- card: styled box — title, gap, padding, children:[]
+- text: content, size (sp, default 14), bold, italic, color (accent/subtext/red/green/blue/#hex), align (start/center/end)
+- button: label, action (see below), style (filled/outline/text)
+- input: key (unique id), placeholder — user types a value; reference as {key} in button actions
+- select: key, options:["A","B","C"]
+- image: src (data:image/... base64), height (dp)
+- table: headers:["Col1","Col2"], rows:[["A","1"],["B","2"]]
+- progress: value (0.0–1.0), label
+- chart_line / chart_bar: data:[1,2,3], labels:["Mon","Tue","Wed"], title
+- divider — horizontal rule
+- spacer: size (dp)
+- badge: text, color (accent/red/green/#hex)
+Action protocol for buttons:
+- "send:text to send" — sends the literal text as a user message
+- "submit:Search for {q}" — replaces {q} with the current value of input[key="q"], then sends
+- "copy:text to copy" — copies text to clipboard (no message sent)
+Example (city weather form):
+```ui
+{"type":"column","gap":10,"children":[{"type":"text","content":"城市天气查询","bold":true,"size":16},{"type":"input","key":"city","placeholder":"输入城市名"},{"type":"button","label":"查询天气","action":"submit:查询{city}的今日天气"}]}
+```
+Use embedded UI when structured display or interactive input (forms, dashboards, option pickers) would be clearer than plain text. Keep JSON compact — one line is fine.
 
 ## Self-Upgrade API (Local)
 The app exposes a local HTTP API at http://127.0.0.1:52732 for self-modification:

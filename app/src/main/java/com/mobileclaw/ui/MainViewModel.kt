@@ -8,6 +8,7 @@ import com.google.gson.JsonParser
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.agent.AgentEvent
 import com.mobileclaw.agent.AgentRuntime
+import com.mobileclaw.agent.ChatRouter
 import com.mobileclaw.agent.Role
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.ChatRequest
@@ -131,8 +132,16 @@ class MainViewModel : ViewModel() {
     )
     val uiState: StateFlow<MainUiState> = _uiState
 
-    private var runtime: AgentRuntime? = null
-    private var taskJob: Job? = null
+    // Per-session task management (multiple sessions can run simultaneously)
+    private val taskJobs = mutableMapOf<String, Job>()
+    private val runtimes = mutableMapOf<String, AgentRuntime>()
+
+    private fun updateSession(sessionId: String, transform: (SessionRunState) -> SessionRunState) {
+        _uiState.update { state ->
+            val current = state.sessionStates[sessionId] ?: SessionRunState()
+            state.copy(sessionStates = state.sessionStates + (sessionId to transform(current)))
+        }
+    }
 
     init {
         registerBuiltinSkills()
@@ -278,34 +287,18 @@ class MainViewModel : ViewModel() {
             title = "新对话",
             roleId = roleId,
         ))
-        _uiState.update { it.copy(
-            currentSessionId = id,
-            messages = emptyList(),
-            activeLogLines = emptyList(),
-        )}
+        _uiState.update { it.copy(currentSessionId = id) }
         loadSessions()
     }
 
     fun loadSession(sessionId: String) {
-        // Cancel any running task from the previous session before switching.
-        // The running job writes to _uiState.messages — if we don't cancel it, its output
-        // would bleed into the newly loaded session's message list.
-        if (_uiState.value.isRunning) {
-            taskJob?.cancel()
-            taskJob = null
-            runtime = null
-            overlay.hide()
-        }
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(
-                currentSessionId = sessionId,
-                isRunning = false,
-                streamingToken = "",
-                streamingThought = "",
-                activeLogLines = emptyList(),
-                activeAttachments = emptyList(),
-            )}
-            loadSessionMessages(sessionId)
+            _uiState.update { it.copy(currentSessionId = sessionId) }
+            // Only load DB messages if the session is NOT currently running (running state is live)
+            val isAlreadyRunning = _uiState.value.sessionStates[sessionId]?.isRunning == true
+            if (!isAlreadyRunning) {
+                loadSessionMessages(sessionId)
+            }
             loadSessions()
         }
     }
@@ -331,12 +324,40 @@ class MainViewModel : ViewModel() {
         _uiState.update { it.copy(sessions = sessions) }
     }
 
-    private suspend fun loadSessionMessages(sessionId: String) {
+    private suspend fun loadSessionMessages(sessionId: String, pageSize: Int = 20) {
+        val total = runCatching { database.sessionMessageDao().countForSession(sessionId) }.getOrDefault(0)
         val entities = runCatching {
-            database.sessionMessageDao().forSession(sessionId)
-        }.getOrDefault(emptyList())
+            database.sessionMessageDao().forSessionPaged(sessionId, pageSize, 0)
+        }.getOrDefault(emptyList()).reversed()  // DESC→reversed gives ASC order
         val messages = entities.map { it.toChatMessage() }
-        _uiState.update { it.copy(messages = messages) }
+        val hasMore = total > pageSize
+        updateSession(sessionId) { it.copy(messages = messages) }
+        _uiState.update { it.copy(
+            historyOffset = pageSize,
+            historyHasMore = hasMore,
+            historyLoading = false,
+        )}
+    }
+
+    fun loadMoreHistory() {
+        val sessionId = _uiState.value.currentSessionId
+        if (sessionId.isBlank() || _uiState.value.historyLoading || !_uiState.value.historyHasMore) return
+        _uiState.update { it.copy(historyLoading = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val offset = _uiState.value.historyOffset
+            val pageSize = 20
+            val total = runCatching { database.sessionMessageDao().countForSession(sessionId) }.getOrDefault(0)
+            val entities = runCatching {
+                database.sessionMessageDao().forSessionPaged(sessionId, pageSize, offset)
+            }.getOrDefault(emptyList()).reversed()
+            val older = entities.map { it.toChatMessage() }
+            updateSession(sessionId) { it.copy(messages = older + it.messages) }
+            _uiState.update { it.copy(
+                historyOffset = offset + pageSize,
+                historyHasMore = offset + pageSize < total,
+                historyLoading = false,
+            )}
+        }
     }
 
     private suspend fun persistMessages(sessionId: String, userMsg: ChatMessage, agentMsg: ChatMessage) {
@@ -419,10 +440,27 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    fun editRole(role: Role) {
+        _uiState.update { it.copy(editingRole = role) }
+        navigate(AppPage.ROLE_EDIT)
+        if (_uiState.value.availableModels.isEmpty()) fetchModels()
+    }
+
+    fun restoreBuiltinRole(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            roleManager.restore(id)
+            // If the active role was the overridden built-in, refresh it from the restored default
+            if (_uiState.value.currentRole.id == id) {
+                roleManager.get(id)?.let { setActiveRole(it) }
+            }
+        }
+    }
+
     // ── Task Execution ───────────────────────────────────────────────────────
 
     fun runTask(goal: String) {
-        if (goal.isBlank() || _uiState.value.isRunning) return
+        val currentSessionId = _uiState.value.currentSessionId
+        if (goal.isBlank() || _uiState.value.sessionStates[currentSessionId]?.isRunning == true) return
 
         val priorContext = buildPriorContext()
         val currentRole = _uiState.value.currentRole
@@ -442,31 +480,45 @@ class MainViewModel : ViewModel() {
                           else null,
         )
 
-        _uiState.update { it.copy(
+        _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
+        updateSession(sessionIdAtStart) { s -> s.copy(
             isRunning = true,
-            messages = it.messages + userMessage,
+            messages = s.messages + userMessage,
             activeLogLines = emptyList(),
             activeAttachments = emptyList(),
             streamingToken = "",
             streamingThought = "",
-            inputImageBase64 = null,
-            inputFileAttachment = null,
         )}
+        // Fast path: conversational message with no attachments → skip agent loop
+        if (attachedImage == null && attachedFile == null &&
+            ChatRouter.classify(goal) == ChatRouter.Intent.CHAT) {
+            runDirectChat(sessionIdAtStart, userMessage, goal, currentRole, priorContext)
+            return
+        }
+
         val llm = OpenAiGateway(config)
-        runtime = AgentRuntime(llm, registry, app.semanticMemory)
-        val rt = runtime!!
+        val rt = AgentRuntime(llm, registry, app.semanticMemory)
+        runtimes[sessionIdAtStart] = rt
 
         overlay.show(goal)
 
         consoleServer.broadcast("task_started", goal)
 
-        taskJob = viewModelScope.launch {
+        val newJob = viewModelScope.launch {
             // Ensure a session exists
             var sessionId = sessionIdAtStart
             if (sessionId.isBlank()) {
                 withContext(Dispatchers.IO) { createNewSessionInternal() }
                 sessionId = _uiState.value.currentSessionId
+                // Move initial state to the real session id
+                val prev = _uiState.value.sessionStates[sessionIdAtStart]
+                if (prev != null && sessionId != sessionIdAtStart) {
+                    _uiState.update { state ->
+                        state.copy(sessionStates = (state.sessionStates - sessionIdAtStart) + (sessionId to prev))
+                    }
+                }
             }
+            val resolvedSessionId = sessionId
 
             val episodicContext = runCatching {
                 episodicMemory.retrieve(goal)
@@ -474,12 +526,26 @@ class MainViewModel : ViewModel() {
                     .joinToString("\n") { "- ${it.reflexionSummary}" }
             }.getOrDefault("")
 
+            // Collect NetworkTracer events and append to the most recent active log line's details
+            launch {
+                com.mobileclaw.agent.NetworkTracer.events.collect { msg ->
+                    updateSession(resolvedSessionId) { s ->
+                        val lines = s.activeLogLines.toMutableList()
+                        if (lines.isNotEmpty()) {
+                            val last = lines.last()
+                            lines[lines.size - 1] = last.copy(details = last.details + msg)
+                        }
+                        s.copy(activeLogLines = lines)
+                    }
+                }
+            }
+
             launch {
                 rt.events.collect { event ->
                     when (event) {
                         is AgentEvent.ThinkingToken -> {
                             overlay.onToken(event.text)
-                            _uiState.update { it.copy(streamingThought = it.streamingThought + event.text) }
+                            updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + event.text) }
                         }
                         is AgentEvent.SkillCalling -> {
                             overlay.onSkillCalling(event.skillId, event.params)
@@ -487,46 +553,61 @@ class MainViewModel : ViewModel() {
                                 if (event.skillId == "see_screen") auroraOverlay.flashFullScreen()
                                 else auroraOverlay.flash()
                             }
-                            _uiState.update { it.copy(streamingThought = "") }
-                            event.toLogLine()?.let { line ->
-                                _uiState.update { it.copy(activeLogLines = it.activeLogLines + line) }
+                            // Build full details: formatted params for the detail sheet
+                            val paramDetails = event.params.entries.map { (k, v) ->
+                                "  $k: ${Gson().toJson(v).take(300)}"
+                            }
+                            val lineDetails = listOf("调用参数:") + paramDetails
+                            val line = event.toLogLine()?.copy(details = lineDetails)
+                            updateSession(resolvedSessionId) { s ->
+                                s.copy(
+                                    streamingThought = "",
+                                    activeLogLines = if (line != null) s.activeLogLines + line else s.activeLogLines,
+                                )
                             }
                             consoleServer.broadcast("skill_called", friendlySkillDescription(event.skillId, event.params))
                         }
                         is AgentEvent.Observation -> {
                             overlay.onObservation(event.text)
+                            val lineDetails = buildList {
+                                if (event.text.isNotBlank()) {
+                                    add("完整结果 (${event.text.length} 字符):")
+                                    add(event.text.take(2000))
+                                }
+                            }
                             val line = LogLine(
                                 type = LogType.OBSERVATION,
                                 text = event.text.take(400),
                                 imageBase64 = event.imageBase64,
+                                details = lineDetails,
                             )
-                            _uiState.update { state ->
-                                state.copy(
-                                    activeLogLines = state.activeLogLines + line,
+                            updateSession(resolvedSessionId) { s ->
+                                s.copy(
+                                    activeLogLines = s.activeLogLines + line,
                                     activeAttachments = if (event.attachment != null)
-                                        state.activeAttachments + event.attachment
-                                    else state.activeAttachments,
+                                        s.activeAttachments + event.attachment
+                                    else s.activeAttachments,
                                 )
                             }
                         }
                         is AgentEvent.Error -> {
                             overlay.onError(event.message)
                             event.toLogLine()?.let { line ->
-                                _uiState.update { it.copy(activeLogLines = it.activeLogLines + line) }
+                                updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
                             }
                         }
                         is AgentEvent.ThinkingComplete -> {
                             overlay.onThinkingComplete()
-                            _uiState.update { state ->
-                                state.copy(
-                                    activeLogLines = state.activeLogLines + LogLine(LogType.THINKING, event.thought),
+                            updateSession(resolvedSessionId) { s ->
+                                s.copy(
+                                    activeLogLines = s.activeLogLines + LogLine(LogType.THINKING, event.thought),
                                     streamingToken = "",
                                     streamingThought = "",
                                 )
                             }
                         }
                         else -> event.toLogLine()?.let { line ->
-                            _uiState.update { it.copy(activeLogLines = it.activeLogLines + line) }
+                            updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
                         }
                     }
                 }
@@ -551,12 +632,12 @@ class MainViewModel : ViewModel() {
                     userProfileContext = userProfileContext,
                     onToken       = { token ->
                         overlay.onToken(token)
-                        _uiState.update { it.copy(streamingToken = it.streamingToken + token) }
+                        updateSession(resolvedSessionId) { it.copy(streamingToken = it.streamingToken + token) }
                         consoleServer.broadcast("token", token)
                     },
                     onThinkToken  = { token ->
                         overlay.onToken(token)
-                        _uiState.update { it.copy(streamingThought = it.streamingThought + token) }
+                        updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + token) }
                     },
                 )
             }
@@ -575,34 +656,35 @@ class MainViewModel : ViewModel() {
                 }
             }
 
+            val currentRunState = _uiState.value.sessionStates[resolvedSessionId] ?: SessionRunState()
             val finalAgentMsg = run {
                 val finalLogLines = buildList {
-                    addAll(_uiState.value.activeLogLines)
-                    if (_uiState.value.streamingThought.isNotBlank()) {
-                        add(LogLine(LogType.THINKING, _uiState.value.streamingThought))
+                    addAll(currentRunState.activeLogLines)
+                    if (currentRunState.streamingThought.isNotBlank()) {
+                        add(LogLine(LogType.THINKING, currentRunState.streamingThought))
                     }
                 }
                 ChatMessage(
                     role = MessageRole.AGENT,
                     text = summary,
                     logLines = finalLogLines,
-                    attachments = _uiState.value.activeAttachments,
+                    attachments = currentRunState.activeAttachments,
                 )
             }
-            _uiState.update { state ->
-                state.copy(
-                    isRunning = false,
-                    streamingToken = "",
-                    streamingThought = "",
-                    messages = state.messages + finalAgentMsg,
-                    activeLogLines = emptyList(),
-                    activeAttachments = emptyList(),
-                )
-            }
+            updateSession(resolvedSessionId) { s -> s.copy(
+                isRunning = false,
+                streamingToken = "",
+                streamingThought = "",
+                messages = s.messages + finalAgentMsg,
+                activeLogLines = emptyList(),
+                activeAttachments = emptyList(),
+            )}
+            taskJobs.remove(resolvedSessionId)
+            runtimes.remove(resolvedSessionId)
 
             // Persist the exchange to the session DB
-            if (sessionId.isNotBlank()) {
-                launch(Dispatchers.IO) { persistMessages(sessionId, userMessage, finalAgentMsg) }
+            if (resolvedSessionId.isNotBlank()) {
+                launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage, finalAgentMsg) }
             }
 
             // Refresh recommendations after task completes
@@ -615,15 +697,119 @@ class MainViewModel : ViewModel() {
                 _uiState.update { it.copy(recommendations = recs) }
             }
         }
+        taskJobs[sessionIdAtStart] = newJob
+    }
+
+    private fun runDirectChat(
+        sessionIdAtStart: String,
+        userMessage: ChatMessage,
+        goal: String,
+        currentRole: Role,
+        priorContext: String,
+    ) {
+        val llm = OpenAiGateway(config)
+        val newJob = viewModelScope.launch {
+            var sessionId = sessionIdAtStart
+            if (sessionId.isBlank()) {
+                withContext(Dispatchers.IO) { createNewSessionInternal() }
+                sessionId = _uiState.value.currentSessionId
+                val prev = _uiState.value.sessionStates[sessionIdAtStart]
+                if (prev != null && sessionId != sessionIdAtStart) {
+                    _uiState.update { state ->
+                        state.copy(sessionStates = (state.sessionStates - sessionIdAtStart) + (sessionId to prev))
+                    }
+                }
+            }
+            val resolvedSessionId = sessionId
+
+            val userProfileContext = runCatching {
+                app.semanticMemory.all()
+                    .filter { it.key.startsWith("profile.") }
+                    .entries.joinToString("\n") { (k, v) -> "- ${k.removePrefix("profile.")}: $v" }
+                    .let { if (it.isNotBlank()) it else "" }
+            }.getOrDefault("")
+
+            val langSection = when (config.language) {
+                "zh" -> "\nYou MUST respond in Simplified Chinese (简体中文).\n"
+                "en" -> "\nYou MUST respond in English.\n"
+                else -> ""
+            }
+            val roleSection = if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
+                "\n## Your Persona\n${currentRole.systemPromptAddendum.trim()}\n"
+            } else ""
+            val profileSection = if (userProfileContext.isNotBlank()) "\n## User Context\n$userProfileContext\n" else ""
+            val contextSection = if (priorContext.isNotBlank()) "\n## Recent Conversation\n$priorContext\n" else ""
+            val systemPrompt = """You are ${currentRole.avatar} ${currentRole.name}, a helpful AI assistant.$langSection$roleSection$profileSection$contextSection
+## Interactive UI — MANDATORY RULES
+You MUST render interactive components instead of plain text in these situations:
+1. Offering choices/options → use buttons (never write "A. xxx  B. xxx" as text)
+2. Asking user to fill in a value → use input + submit button
+3. Showing 3+ items with attributes → use a table
+4. Comparing options → use a card-based layout
+5. Showing numeric progress/stats → use progress or chart
+
+Embed a ${"```"}ui block with a single JSON object. Keep it on as few lines as possible.
+Types: column/row(gap,padding,children) | card(title,children) | text(content,size,bold,color,align) | button(label,action,style) | input(key,placeholder) | select(key,options:[]) | table(headers:[],rows:[[]]) | chart_bar/chart_line(data:[],labels:[],title) | progress(value,label) | badge(text,color) | divider | spacer(size)
+Actions: "send:message" | "submit:text with {key}" | "copy:text"
+
+Example — when user asks to choose something:
+${"```"}ui
+{"type":"column","gap":10,"children":[{"type":"text","content":"请选择","bold":true,"size":15},{"type":"row","gap":8,"children":[{"type":"button","label":"选项A","action":"send:选项A"},{"type":"button","label":"选项B","action":"send:选项B","style":"outline"}]}]}
+${"```"}
+
+Example — when collecting input:
+${"```"}ui
+{"type":"column","gap":8,"children":[{"type":"input","key":"q","placeholder":"输入内容"},{"type":"button","label":"提交","action":"submit:{q}"}]}
+${"```"}
+
+For pure conversational replies (greetings, simple factual answers) — plain text is fine.""".trimIndent()
+
+            val result = runCatching {
+                llm.chat(ChatRequest(
+                    messages = listOf(
+                        Message(role = "system", content = systemPrompt),
+                        Message(role = "user", content = goal),
+                    ),
+                    tools = emptyList(),
+                    stream = true,
+                    onToken = { token ->
+                        updateSession(resolvedSessionId) { it.copy(streamingToken = it.streamingToken + token) }
+                    },
+                ))
+            }
+
+            val summary = result.getOrNull()?.content
+                ?: _uiState.value.sessionStates[resolvedSessionId]?.streamingToken?.ifBlank { null }
+                ?: result.exceptionOrNull()?.message ?: "Error."
+
+            val finalAgentMsg = ChatMessage(role = MessageRole.AGENT, text = summary)
+            updateSession(resolvedSessionId) { s -> s.copy(
+                isRunning = false,
+                streamingToken = "",
+                streamingThought = "",
+                messages = s.messages + finalAgentMsg,
+                activeLogLines = emptyList(),
+                activeAttachments = emptyList(),
+            )}
+            taskJobs.remove(resolvedSessionId)
+
+            if (resolvedSessionId.isNotBlank()) {
+                launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage, finalAgentMsg) }
+            }
+            launch { runCatching { conversationMemory.addUserMessage(goal); conversationMemory.addAgentMessage(summary) } }
+        }
+        taskJobs[sessionIdAtStart] = newJob
     }
 
     fun stopTask() {
-        taskJob?.cancel()
-        taskJob = null
-        runtime = null
+        val sessionId = _uiState.value.currentSessionId
+        taskJobs[sessionId]?.cancel()
+        taskJobs.remove(sessionId)
+        runtimes.remove(sessionId)
         overlay.hide()
         consoleServer.broadcast("task_stopped", "")
-        _uiState.update { state ->
+        val runState = _uiState.value.sessionStates[sessionId] ?: SessionRunState()
+        updateSession(sessionId) { state ->
             val agentMsg = if (state.activeLogLines.isNotEmpty() || state.streamingToken.isNotBlank()) {
                 listOf(ChatMessage(
                     role = MessageRole.AGENT,
@@ -660,7 +846,16 @@ class MainViewModel : ViewModel() {
         if (page == AppPage.APPS || page == AppPage.HOME) loadMiniApps()
         if (page == AppPage.GROUPS) loadGroups()
         if (page == AppPage.GROUP_CHAT) _uiState.update { it.copy(groupUnreadCount = 0) }
-        if (backStack.isEmpty() || backStack.last() != page) backStack.addLast(page)
+
+        // CHAT and HOME are root-level peers — switching between them resets the stack
+        // so system back doesn't replay the toggle history.
+        if (page == AppPage.CHAT || page == AppPage.HOME) {
+            backStack.clear()
+            backStack.addLast(page)
+        } else if (backStack.isEmpty() || backStack.last() != page) {
+            backStack.addLast(page)
+        }
+
         if (page == AppPage.BROWSER && _uiState.value.browserUrl.isBlank()) {
             _uiState.update { it.copy(browserUrl = "https://www.bing.com", currentPage = page, canNavigateBack = backStack.size > 1) }
             return
@@ -673,7 +868,12 @@ class MainViewModel : ViewModel() {
             backStack.removeLast()
             val page = backStack.last()
             if (page == AppPage.APPS || page == AppPage.HOME) loadMiniApps()
-            _uiState.update { it.copy(currentPage = page, canNavigateBack = backStack.size > 1) }
+            val clearEdit = page != AppPage.ROLE_EDIT
+            _uiState.update { it.copy(
+                currentPage = page,
+                canNavigateBack = backStack.size > 1,
+                editingRole = if (clearEdit) null else it.editingRole,
+            ) }
         }
     }
 
@@ -1221,9 +1421,14 @@ $relevantFacts
     }
 
     fun fetchModels() {
+        if (_uiState.value.modelsLoading) return
+        _uiState.update { it.copy(modelsLoading = true) }
         viewModelScope.launch(Dispatchers.IO) {
             val models = runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
-            if (models.isNotEmpty()) _uiState.update { it.copy(availableModels = models) }
+            _uiState.update { it.copy(
+                availableModels = if (models.isNotEmpty()) models else it.availableModels,
+                modelsLoading = false,
+            ) }
         }
     }
 
@@ -1286,14 +1491,20 @@ $relevantFacts
     // ── Internals ────────────────────────────────────────────────────────────
 
     private fun buildPriorContext(): String {
-        val msgs = _uiState.value.messages
+        val msgs = _uiState.value.currentRunState.messages
         if (msgs.isEmpty()) return ""
-        return msgs.takeLast(20).joinToString("\n") { msg ->
-            when (msg.role) {
+        val recent = msgs.takeLast(8)
+        val lines = recent.map { msg ->
+            val raw = when (msg.role) {
                 MessageRole.USER -> "User: ${msg.text}"
                 MessageRole.AGENT -> "Agent: ${msg.text}"
             }
+            // Truncate very long individual messages (e.g. code blocks, agent summaries)
+            if (raw.length > 400) raw.take(400) + "…" else raw
         }
+        // Hard cap on total prior context size
+        val full = lines.joinToString("\n")
+        return if (full.length > 2000) full.takeLast(2000) else full
     }
 
     private fun registerBuiltinSkills() {
@@ -1386,6 +1597,11 @@ $relevantFacts
                     "pages" to att.pages.map { p -> mapOf("url" to p.url, "title" to p.title, "excerpt" to p.excerpt) },
                 )
                 is SkillAttachment.AccessibilityRequest -> null
+                is SkillAttachment.FileList -> mapOf(
+                    "type" to "file_list",
+                    "directory" to att.directory,
+                    "files" to att.files.map { f -> mapOf("path" to f.path, "name" to f.name, "mimeType" to f.mimeType, "sizeBytes" to f.sizeBytes.toString()) },
+                )
             }
         }.filterNotNull()
         return gson.toJson(list)
@@ -1403,6 +1619,7 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                 text = o["text"]?.asString ?: "",
                 skillId = o["skillId"]?.asString,
                 imageBase64 = null, // stripped on save
+                details = runCatching { o["details"]?.asJsonArray?.map { it.asString } ?: emptyList() }.getOrDefault(emptyList()),
             )
         }
     }.getOrDefault(emptyList())
@@ -1448,6 +1665,20 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                         engine = o["engine"]?.asString ?: "",
                         pages = pages,
                     )
+                }
+                "file_list" -> {
+                    val files = runCatching {
+                        o["files"]?.asJsonArray?.mapNotNull { fe ->
+                            val f = fe.asJsonObject
+                            SkillAttachment.FileList.FileEntry(
+                                path = f["path"]?.asString ?: return@mapNotNull null,
+                                name = f["name"]?.asString ?: "",
+                                mimeType = f["mimeType"]?.asString ?: "text/plain",
+                                sizeBytes = f["sizeBytes"]?.asString?.toLongOrNull() ?: 0L,
+                            )
+                        } ?: emptyList()
+                    }.getOrDefault(emptyList())
+                    SkillAttachment.FileList(files, o["directory"]?.asString ?: "")
                 }
                 else -> null
             }

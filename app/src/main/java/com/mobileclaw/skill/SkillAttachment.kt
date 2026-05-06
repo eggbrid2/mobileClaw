@@ -17,4 +17,8 @@ sealed class SkillAttachment {
      * [skillName] is the display name of the blocked skill.
      */
     data class AccessibilityRequest(val skillName: String) : SkillAttachment()
+    /** A list of local files shown as tappable cards in the chat. */
+    data class FileList(val files: List<FileEntry>, val directory: String = "") : SkillAttachment() {
+        data class FileEntry(val path: String, val name: String, val mimeType: String, val sizeBytes: Long)
+    }
 }

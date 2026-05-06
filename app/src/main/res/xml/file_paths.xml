@@ -8,4 +8,6 @@
     <external-files-path name="external_files" path="." />
     <!-- External cache dir -->
     <external-cache-path name="external_cache" path="." />
+    <!-- Public external storage (Downloads, Documents, Pictures, Music, etc.) -->
+    <external-path name="external_storage" path="." />
 </paths>

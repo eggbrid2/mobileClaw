@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
@@ -50,9 +51,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,6 +104,7 @@ private val CommonModels = listOf(
 )
 
 // ── Main Screen ──────────────────────────────────────────────────────────────
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     uiState: MainUiState,
@@ -121,11 +125,13 @@ fun ChatScreen(
     onOpenDesktop: () -> Unit = {},
     onSwitchRole: () -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
+    onLoadMoreHistory: () -> Unit = {},
 ) {
     val c = LocalClawColors.current
+    val runState = uiState.currentRunState
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val itemCount = uiState.messages.size + if (uiState.isRunning) 1 else 0
+    val itemCount = runState.messages.size + if (runState.isRunning) 1 else 0
     val context = LocalContext.current
     val sessionTitle = remember(uiState.currentSessionId, uiState.sessions) {
         uiState.sessions.find { it.id == uiState.currentSessionId }?.title ?: "MobileClaw"
@@ -215,15 +221,26 @@ fun ChatScreen(
             lastScrolledCount = 0
         }
     }
-    val scrollKey = remember(uiState.streamingToken.length / 40, uiState.streamingThought.length / 40) { Unit }
-    LaunchedEffect(uiState.activeLogLines.size, scrollKey) {
-        if (itemCount > 0 && uiState.isRunning) {
+    val scrollKey = remember(runState.streamingToken.length / 40, runState.streamingThought.length / 40) { Unit }
+    LaunchedEffect(runState.activeLogLines.size, scrollKey) {
+        if (itemCount > 0 && runState.isRunning) {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             if (lastVisible >= itemCount - 2) {
                 listState.scrollToItem(itemCount - 1, scrollOffset = 3000)
             }
         }
     }
+
+    // Load more history when user scrolls to the very top
+    val firstVisibleIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    LaunchedEffect(firstVisibleIndex) {
+        if (firstVisibleIndex == 0 && uiState.historyHasMore && !uiState.historyLoading && !runState.isRunning) {
+            onLoadMoreHistory()
+        }
+    }
+
+    // Step detail bottom sheet state
+    var selectedStepLog by remember { mutableStateOf<LogLine?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
@@ -233,7 +250,7 @@ fun ChatScreen(
             onOpenDesktop = onOpenDesktop,
         )
 
-        if (!uiState.isConfigured && uiState.messages.isEmpty()) {
+        if (!uiState.isConfigured && runState.messages.isEmpty()) {
             SetupBanner(onOpenSettings)
         }
 
@@ -244,7 +261,7 @@ fun ChatScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (uiState.messages.isEmpty() && !uiState.isRunning) {
+                if (runState.messages.isEmpty() && !runState.isRunning) {
                     item {
                         EmptyState(
                             recommendations = uiState.recommendations,
@@ -253,7 +270,21 @@ fun ChatScreen(
                         )
                     }
                 }
-                items(uiState.messages) { msg ->
+                // History loading indicator at top
+                if (uiState.historyLoading) {
+                    item(key = "history_loading") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.subtext)
+                        }
+                    }
+                } else if (uiState.historyHasMore) {
+                    item(key = "history_hint") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                            Text("向上滚动加载更多", fontSize = 11.sp, color = c.subtext.copy(alpha = 0.4f))
+                        }
+                    }
+                }
+                items(runState.messages, key = { it.hashCode() }) { msg ->
                     when (msg.role) {
                         MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
                         MessageRole.AGENT -> AgentBubble(
@@ -268,22 +299,25 @@ fun ChatScreen(
                             onOpenBrowser = onOpenBrowser,
                             onSendGoal = onSendGoal,
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                            onSelectStep = { selectedStepLog = it },
                         )
                     }
                 }
-                if (uiState.isRunning) {
+                if (runState.isRunning) {
                     item {
                         ActiveTaskBubble(
-                            logLines = uiState.activeLogLines,
-                            streamingToken = uiState.streamingToken,
-                            streamingThought = uiState.streamingThought,
-                            activeAttachments = uiState.activeAttachments,
+                            logLines = runState.activeLogLines,
+                            streamingToken = runState.streamingToken,
+                            streamingThought = runState.streamingThought,
+                            activeAttachments = runState.activeAttachments,
                             currentRole = uiState.currentRole,
                             currentModel = uiState.currentModel,
                             onPickModel = { showModelPicker = true },
                             onOpenHtmlViewer = onOpenHtmlViewer,
                             onOpenBrowser = onOpenBrowser,
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                            onSelectStep = { selectedStepLog = it },
+                            onSendGoal = onSendGoal,
                         )
                     }
                 }
@@ -299,7 +333,7 @@ fun ChatScreen(
 
         InputBar(
             input = input,
-            isRunning = uiState.isRunning,
+            isRunning = runState.isRunning,
             attachedImageBase64 = uiState.inputImageBase64,
             attachedFile = uiState.inputFileAttachment,
             showAttachMenu = showAttachMenu,
@@ -352,6 +386,44 @@ fun ChatScreen(
                 TextButton(onClick = { showRenameDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
             },
         )
+    }
+
+    selectedStepLog?.let { step ->
+        val sheetState = rememberModalBottomSheetState()
+        ModalBottomSheet(
+            onDismissRequest = { selectedStepLog = null },
+            sheetState = sheetState,
+        ) {
+            val c = LocalClawColors.current
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text("步骤详情", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = c.text)
+                Spacer(Modifier.height(10.dp))
+                val displayLines = step.details.ifEmpty {
+                    if (step.text.isNotBlank()) listOf(step.text) else listOf("无详细数据")
+                }
+                displayLines.forEach { detail ->
+                    Text(
+                        detail,
+                        fontSize = 11.sp,
+                        color = c.subtext.copy(alpha = 0.85f),
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 15.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(c.surface)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -673,6 +745,7 @@ private fun AgentBubble(
     onOpenBrowser: (String) -> Unit = {},
     onSendGoal: (String) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
+    onSelectStep: (LogLine) -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val context = LocalContext.current
@@ -715,7 +788,7 @@ private fun AgentBubble(
             }
         }
 
-        MarkdownText(cleanSummary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp)
+        MarkdownText(cleanSummary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp, onAction = onSendGoal)
 
         if (quickReplies.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
@@ -749,6 +822,7 @@ private fun AgentBubble(
                         is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
                         is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
                         is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
+                        is SkillAttachment.FileList             -> FileListCard(attachment, context)
                     }
                 }
             }
@@ -811,7 +885,7 @@ private fun AgentBubble(
                                 modifier = Modifier.padding(horizontal = 12.dp),
                             )
                         }
-                        LogLineItem(line)
+                        LogLineItem(line, onSelectStep = onSelectStep)
                     }
                 }
             }
@@ -832,6 +906,8 @@ private fun ActiveTaskBubble(
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
     onOpenBrowser: (String) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
+    onSelectStep: (LogLine) -> Unit = {},
+    onSendGoal: (String) -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val context = LocalContext.current
@@ -953,7 +1029,7 @@ private fun ActiveTaskBubble(
                     ) {
                         logLines.forEachIndexed { index, line ->
                             if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.25f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 10.dp))
-                            LogLineItem(line)
+                            LogLineItem(line, onSelectStep = onSelectStep)
                         }
                     }
                 }
@@ -1002,7 +1078,7 @@ private fun ActiveTaskBubble(
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(modifier = Modifier.padding(top = 4.dp).size(width = 2.dp, height = 14.dp).background(c.accent.copy(alpha = 0.6f), RoundedCornerShape(1.dp)))
-                    MarkdownText(text = streamingToken, color = c.text, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+                    MarkdownText(text = streamingToken, color = c.text, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f), onAction = onSendGoal)
                 }
             }
 
@@ -1020,6 +1096,7 @@ private fun ActiveTaskBubble(
                             is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
                             is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
                             is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
+                            is SkillAttachment.FileList             -> FileListCard(attachment, context)
                         }
                     }
                 }
@@ -1099,40 +1176,57 @@ private fun CollapsibleStepRow(
     expanded: Boolean,
     onToggle: () -> Unit,
     labelColor: Color,
+    onDetail: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val c = LocalClawColors.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                label,
-                color = labelColor,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 110.dp),
-            )
-            if (summary.isNotBlank()) {
+            // Main area: tap to open detail sheet (if available), fallback to toggle
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { if (onDetail != null) onDetail() else onToggle() }
+                    .padding(start = 10.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(
-                    summary,
-                    color = c.subtext.copy(alpha = 0.6f),
+                    label,
+                    color = labelColor,
                     fontSize = 11.sp,
-                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 110.dp),
                 )
-            } else {
-                Spacer(Modifier.weight(1f))
+                if (summary.isNotBlank()) {
+                    Text(
+                        summary,
+                        color = c.subtext.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Text(if (expanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.4f), fontSize = 9.sp)
+            // Expand/collapse toggle (dedicated tap area)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clickable(onClick = onToggle),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = c.subtext.copy(alpha = 0.45f),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
         AnimatedVisibility(
             visible = expanded,
@@ -1145,7 +1239,7 @@ private fun CollapsibleStepRow(
 }
 
 @Composable
-private fun LogLineItem(line: LogLine) {
+private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
     val c = LocalClawColors.current
 
     when (line.type) {
@@ -1157,6 +1251,7 @@ private fun LogLineItem(line: LogLine) {
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = c.purple.copy(alpha = 0.7f),
+                onDetail = { onSelectStep(line) },
             ) {
                 Text(
                     line.text,
@@ -1181,6 +1276,7 @@ private fun LogLineItem(line: LogLine) {
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = labelColor,
+                onDetail = { onSelectStep(line) },
             ) {
                 Box(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
                     if (line.skillId == "shell") ShellCommandCard(line.text)
@@ -1204,6 +1300,7 @@ private fun LogLineItem(line: LogLine) {
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = c.subtext.copy(alpha = 0.65f),
+                onDetail = { onSelectStep(line) },
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1473,6 +1570,56 @@ private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: an
 }
 
 @Composable
+private fun FileListCard(attachment: SkillAttachment.FileList, context: android.content.Context) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .background(c.card),
+    ) {
+        if (attachment.directory.isNotBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(c.surface)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("📁", fontSize = 12.sp)
+                Text(attachment.directory, fontSize = 11.sp, color = c.subtext, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${attachment.files.size} 个文件", fontSize = 11.sp, color = c.subtext)
+            }
+            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        }
+        attachment.files.forEachIndexed { index, entry ->
+            if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp, modifier = Modifier.padding(start = 48.dp))
+            val fileAttachment = SkillAttachment.FileData(entry.path, entry.name, entry.mimeType, entry.sizeBytes)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { openFileAttachment(context, fileAttachment) }
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)).background(c.blue.copy(alpha = 0.10f)),
+                    contentAlignment = Alignment.Center,
+                ) { Text(mimeTypeEmoji(entry.mimeType), fontSize = 15.sp) }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(entry.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(formatFileSize(entry.sizeBytes), color = c.subtext, fontSize = 10.sp)
+                }
+                Text("打开", color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
 private fun ImageAttachmentCard(
     attachment: SkillAttachment.FileData,
     context: android.content.Context,
@@ -1557,10 +1704,8 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
     // Build a content URI via FileProvider
     val uri = runCatching {
         androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    }.getOrNull()
-
-    if (uri == null) {
-        android.widget.Toast.makeText(context, "无法读取文件", android.widget.Toast.LENGTH_SHORT).show()
+    }.getOrElse { e ->
+        android.widget.Toast.makeText(context, "无法共享文件: ${e.message?.take(80)}", android.widget.Toast.LENGTH_LONG).show()
         return
     }
 

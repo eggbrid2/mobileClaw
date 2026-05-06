@@ -5,7 +5,9 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.mobileclaw.agent.NetworkTracer
 import com.mobileclaw.config.AgentConfig
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -24,6 +26,22 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        .addInterceptor(Interceptor { chain ->
+            val req = chain.request()
+            val host = req.url.host
+            val path = req.url.encodedPath.takeLast(40)
+            val startMs = System.currentTimeMillis()
+            NetworkTracer.log("🌐 → ${req.method} $host$path")
+            try {
+                val response = chain.proceed(req)
+                val ms = System.currentTimeMillis() - startMs
+                NetworkTracer.log("🌐 ← ${response.code} (${ms}ms)")
+                response
+            } catch (e: Exception) {
+                NetworkTracer.log("🌐 ✗ ${e.message?.take(60)}")
+                throw e
+            }
+        })
         .build()
 
     override suspend fun chat(request: ChatRequest): ChatResponse {

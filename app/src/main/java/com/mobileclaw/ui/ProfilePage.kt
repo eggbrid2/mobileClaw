@@ -157,6 +157,7 @@ fun ProfilePage(
     dimensionQuizLoading: String? = null,
     onGenerateDimensionQuiz: (dimensionId: String, title: String) -> Unit = { _, _ -> },
     onPrewarmQuizzes: (List<ProfileDimension>) -> Unit = {},
+    totalSkillCount: Int = 0,
 ) {
     val c = LocalClawColors.current
     val dimensions = remember(facts) { buildDimensions(facts) }
@@ -227,6 +228,10 @@ fun ProfilePage(
                             conversationCount = conversationCount,
                         )
                     }
+                    if (totalSkillCount > 0 || episodes.isNotEmpty()) {
+                        item { Spacer(Modifier.height(4.dp)) }
+                        item { SkillExplorationCard(episodes = episodes, totalSkillCount = totalSkillCount) }
+                    }
                     item { Spacer(Modifier.height(4.dp)) }
                     item {
                         DimensionsListSection(
@@ -254,6 +259,98 @@ fun ProfilePage(
                     } else {
                         item { Spacer(Modifier.height(4.dp)) }
                         items(episodes.size) { i -> EpisodeCard(episodes[i]) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Skill Exploration Card ────────────────────────────────────────────────────
+
+@Composable
+private fun SkillExplorationCard(episodes: List<EpisodeEntity>, totalSkillCount: Int) {
+    val c = LocalClawColors.current
+    val gson = remember { Gson() }
+
+    val usedSkillIds = remember(episodes) {
+        episodes.flatMap { ep ->
+            runCatching { gson.fromJson(ep.skillsUsed, Array<String>::class.java).toList() }
+                .getOrDefault(emptyList())
+        }.toSet()
+    }
+
+    val explored = usedSkillIds.size
+    val total = totalSkillCount.coerceAtLeast(explored)
+    val progress = if (total > 0) explored.toFloat() / total else 0f
+
+    val milestoneLabel = when {
+        progress >= 1f   -> "全部解锁 🎉"
+        progress >= 0.75f -> "探索达人"
+        progress >= 0.5f  -> "进阶探索者"
+        progress >= 0.25f -> "初级探索者"
+        explored > 0      -> "刚开始探索"
+        else              -> "尚未使用任何技能"
+    }
+    val milestoneColor = when {
+        progress >= 0.75f -> c.accent
+        progress >= 0.25f -> c.blue
+        else              -> c.subtext
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(12.dp)).background(c.card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🧭 功能探索", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f))
+            Text(milestoneLabel, color = milestoneColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        }
+        HorizontalDivider(color = c.border, thickness = 0.5.dp)
+
+        // Progress bar
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("已使用 $explored 个技能", fontSize = 12.sp, color = c.subtext)
+                Text("共 $total 个", fontSize = 12.sp, color = c.subtext)
+            }
+            Box(
+                Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.border)
+            ) {
+                Box(
+                    Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.8f), c.accent))
+                        )
+                )
+            }
+        }
+
+        // Recently used skills chips
+        if (usedSkillIds.isNotEmpty()) {
+            val recentSkills = usedSkillIds.take(6)
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                recentSkills.forEach { skillId ->
+                    Box(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(c.accent.copy(0.12f))
+                            .border(0.5.dp, c.accent.copy(0.25f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(skillId.replace("_", " "), fontSize = 11.sp, color = c.accent)
+                    }
+                }
+                if (usedSkillIds.size > 6) {
+                    Box(
+                        Modifier.clip(RoundedCornerShape(6.dp)).background(c.cardAlt)
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text("+${usedSkillIds.size - 6}", fontSize = 11.sp, color = c.subtext)
                     }
                 }
             }

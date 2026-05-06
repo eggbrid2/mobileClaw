@@ -24,7 +24,7 @@ class EpisodicMemory(
     /** Called after a task completes. Generates reflexion summary and stores the episode. */
     suspend fun record(result: AgentResult) {
         val reflexion = generateReflexion(result)
-        val embedding = runCatching { llm.embed(result.context.goal) }.getOrElse { FloatArray(0) }
+        val embedding = LocalEmbedder.embed(result.context.goal)
         val entity = EpisodeEntity(
             id = result.context.taskId,
             goalText = result.context.goal,
@@ -42,7 +42,7 @@ class EpisodicMemory(
 
     /** Returns top-k similar past episodes for a new goal. */
     suspend fun retrieve(goal: String, topK: Int = 3): List<EpisodeEntity> {
-        val queryEmbedding = runCatching { llm.embed(goal) }.getOrElse { return emptyList() }
+        val queryEmbedding = LocalEmbedder.embed(goal)
         val all = dao.recent(limit = 100)
         return all
             .mapNotNull { ep ->

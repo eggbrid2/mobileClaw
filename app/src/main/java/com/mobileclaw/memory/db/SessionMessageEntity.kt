@@ -26,6 +26,12 @@ interface SessionMessageDao {
     @Query("SELECT * FROM session_messages WHERE sessionId = :sessionId ORDER BY createdAt ASC")
     suspend fun forSession(sessionId: String): List<SessionMessageEntity>
 
+    @Query("SELECT * FROM session_messages WHERE sessionId = :sessionId ORDER BY createdAt DESC LIMIT :limit OFFSET :offset")
+    suspend fun forSessionPaged(sessionId: String, limit: Int, offset: Int): List<SessionMessageEntity>
+
+    @Query("SELECT COUNT(*) FROM session_messages WHERE sessionId = :sessionId")
+    suspend fun countForSession(sessionId: String): Int
+
     @Query("DELETE FROM session_messages WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: String)
 }

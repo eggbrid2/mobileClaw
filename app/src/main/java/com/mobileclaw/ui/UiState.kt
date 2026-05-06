@@ -11,14 +11,25 @@ import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import kotlinx.coroutines.flow.Flow
 
-enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER }
+enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER }
 
-data class MainUiState(
+/** Per-session running state — each session can have an independent task running. */
+data class SessionRunState(
     val isRunning: Boolean = false,
     val messages: List<ChatMessage> = emptyList(),
     val activeLogLines: List<LogLine> = emptyList(),
     val streamingToken: String = "",
     val streamingThought: String = "",
+    val activeAttachments: List<SkillAttachment> = emptyList(),
+)
+
+val MainUiState.currentRunState: SessionRunState
+    get() = sessionStates[currentSessionId] ?: SessionRunState()
+
+data class MainUiState(
+    // Per-session run states (task may run in multiple sessions simultaneously)
+    val sessionStates: Map<String, SessionRunState> = emptyMap(),
+    // Convenience flat accessors kept as computed: use currentRunState extension instead
     val currentPage: AppPage = AppPage.CHAT,
     val canNavigateBack: Boolean = false,
     val userAvatarUri: String? = null,
@@ -37,13 +48,14 @@ data class MainUiState(
     val privServerConnected: Boolean = false,
     val currentModel: String = "gpt-4o",
     val availableModels: List<String> = emptyList(),
-    val activeAttachments: List<SkillAttachment> = emptyList(),
+    val modelsLoading: Boolean = false,
     // Sessions
     val currentSessionId: String = "",
     val sessions: List<SessionEntity> = emptyList(),
     // Roles
     val currentRole: Role = Role.DEFAULT,
     val availableRoles: List<Role> = emptyList(),
+    val editingRole: Role? = null,
     // Dynamic user config (value + optional description per key)
     val userConfigEntries: Map<String, ConfigEntry> = emptyMap(),
     // History-based recommendations
@@ -66,6 +78,10 @@ data class MainUiState(
     val skillNoteGenerating: String? = null,
     // Built-in browser
     val browserUrl: String = "",
+    // History pagination
+    val historyLoading: Boolean = false,
+    val historyHasMore: Boolean = false,
+    val historyOffset: Int = 0,
     // Group chat
     val groups: List<Group> = emptyList(),
     val openGroup: Group? = null,
@@ -103,7 +119,13 @@ data class ChatMessage(
 
 enum class MessageRole { USER, AGENT }
 
-data class LogLine(val type: LogType, val text: String, val skillId: String? = null, val imageBase64: String? = null)
+data class LogLine(
+    val type: LogType,
+    val text: String,
+    val skillId: String? = null,
+    val imageBase64: String? = null,
+    val details: List<String> = emptyList(),   // fine-grained sub-details for the detail sheet
+)
 
 data class AiQuizQuestion(
     val question: String,

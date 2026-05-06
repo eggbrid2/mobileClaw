@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 private sealed class MarkdownPart {
     data class Prose(val content: String) : MarkdownPart()
     data class Fence(val language: String, val content: String) : MarkdownPart()
+    data class UiBlock(val content: String) : MarkdownPart()
 }
 
 // ── Public composable ─────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ fun MarkdownText(
     fontSize: TextUnit = 14.sp,
     lineHeight: TextUnit = 21.sp,
     modifier: Modifier = Modifier,
+    onAction: ((String) -> Unit)? = null,
 ) {
     val c = LocalClawColors.current
     val parts = splitFenceBlocks(text)
@@ -42,6 +44,7 @@ fun MarkdownText(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         parts.forEach { part ->
             when (part) {
+                is MarkdownPart.UiBlock -> DynamicUiRenderer(part.content, onAction ?: {})
                 is MarkdownPart.Fence -> {
                     Box(
                         modifier = Modifier
@@ -225,7 +228,8 @@ private fun splitFenceBlocks(text: String): List<MarkdownPart> {
         if (m.range.first > cursor) result.add(MarkdownPart.Prose(text.substring(cursor, m.range.first)))
         val lang    = (m.groupValues[1].ifBlank { m.groupValues[3] })
         val content = (m.groupValues[2].ifBlank { m.groupValues[4] })
-        result.add(MarkdownPart.Fence(lang, content))
+        if (lang == "ui") result.add(MarkdownPart.UiBlock(content))
+        else result.add(MarkdownPart.Fence(lang, content))
         cursor = m.range.last + 1
     }
     if (cursor < text.length) result.add(MarkdownPart.Prose(text.substring(cursor)))

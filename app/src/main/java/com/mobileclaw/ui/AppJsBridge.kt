@@ -394,6 +394,51 @@ _env_info = json.dumps({
     @JavascriptInterface
     fun setTitle(title: String) = mainHandler.post { onSetTitle(title) }
 
+    @JavascriptInterface
+    fun launchApp(packageName: String): String {
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+                ?: return gson.toJson(mapOf("error" to "App not found: $packageName"))
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            mainHandler.post { context.startActivity(intent) }
+            gson.toJson(mapOf("ok" to true))
+        } catch (e: Exception) {
+            gson.toJson(mapOf("error" to e.message))
+        }
+    }
+
+    @JavascriptInterface
+    fun openUrl(url: String): String {
+        return try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse(url)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            mainHandler.post { context.startActivity(intent) }
+            gson.toJson(mapOf("ok" to true))
+        } catch (e: Exception) {
+            gson.toJson(mapOf("error" to e.message))
+        }
+    }
+
+    @JavascriptInterface
+    fun shareText(text: String, title: String = ""): String {
+        return try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_TEXT, text)
+                if (title.isNotBlank()) putExtra(android.content.Intent.EXTRA_SUBJECT, title)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            mainHandler.post { context.startActivity(android.content.Intent.createChooser(intent, "分享").apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }) }
+            gson.toJson(mapOf("ok" to true))
+        } catch (e: Exception) {
+            gson.toJson(mapOf("error" to e.message))
+        }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private fun appDataFile(name: String): File {

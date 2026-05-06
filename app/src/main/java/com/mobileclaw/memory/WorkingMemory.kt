@@ -1,19 +1,18 @@
 package com.mobileclaw.memory
 
 import com.mobileclaw.agent.AgentStep
-import com.mobileclaw.llm.Message
 
 /**
  * Sliding-window context for the current task.
- * Keeps the most recent steps within a token budget.
+ * Keeps recent steps within a token budget; trims oldest non-anchor steps first.
  */
-class WorkingMemory(private val tokenBudget: Int = 4096) {
+class WorkingMemory(private val tokenBudget: Int = 2000) {
 
     private val steps = ArrayDeque<AgentStep>()
 
     fun push(step: AgentStep) {
         steps.addLast(step)
-        // Trim from index 1 (preserve step 0 = first observation) when over budget
+        // Trim from index 1 (preserve step 0 = anchor) when over budget
         while (estimateTokens() > tokenBudget && steps.size > 1) {
             steps.removeAt(1)
         }
@@ -23,7 +22,10 @@ class WorkingMemory(private val tokenBudget: Int = 4096) {
 
     fun clear() = steps.clear()
 
-    /** Rough token estimate: 1 token ≈ 4 chars */
-    private fun estimateTokens(): Int =
-        steps.sumOf { (it.thought.length + it.observation.length) / 4 }
+    /** 1 token ≈ 4 chars; images are base64 strings (~1.33x raw size) counted at full weight */
+    private fun estimateTokens(): Int = steps.sumOf {
+        minOf(it.thought.length, 800) / 4 +
+        minOf(it.observation.length, 4000) / 4 +
+        (it.imageBase64?.length?.div(4) ?: 0)
+    }
 }

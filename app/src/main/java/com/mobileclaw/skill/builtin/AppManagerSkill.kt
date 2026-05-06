@@ -241,6 +241,9 @@ async function run(){
 | Claw.close() | void | Close the app |
 | Claw.setTitle(title) | void | Update the native title bar text |
 | Claw.setPython(code) / .getPython() | void/string | Set/get Python backend code |
+| Claw.launchApp(packageName) | {ok} or {error} | Open a third-party Android app by package name |
+| Claw.openUrl(url) | {ok} or {error} | Open a URL in the system browser / associated app |
+| Claw.shareText(text, title?) | {ok} or {error} | Open Android share sheet with text |
 
 ### Python Backend Contract
 The Python backend must define `handle(input_json_str) -> str` returning a JSON string:
@@ -259,6 +262,9 @@ Call from JS: `var r = await Claw.python({action:'greet', name:'Alice'})`
 ### Layout Rules
 - Use `min-height:calc(var(--app-height,100vh))` on body — NOT `100vh` (unreliable in WebView)
 - `--app-height` is injected by Claw and equals the actual WebView height in pixels
+- For **scrollable inner containers** (chat history, lists, etc.) use: `overflow-y:auto; -webkit-overflow-scrolling:touch; max-height:XXXpx`
+- Do NOT set `overflow:hidden` on `html` or `body` — it creates scroll conflicts in Android WebView
+- `native fetch()` and `XMLHttpRequest` are **blocked** (CORS) — always use `Claw.fetch()`
 
 ### Design Rules
 1. Dark theme: background #1a1a2e, cards #1e1e3f, accent #7c3aed, text #eee

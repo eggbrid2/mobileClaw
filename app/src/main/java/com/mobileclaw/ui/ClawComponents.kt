@@ -1,14 +1,19 @@
 package com.mobileclaw.ui
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,17 +23,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.statusBarsPadding
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Emoji avatar with a radial gradient background, giving depth vs. flat-color circles.
@@ -43,6 +55,28 @@ fun GradientAvatar(
     shape: androidx.compose.ui.graphics.Shape = CircleShape,
     fontSize: TextUnit = (size.value * 0.46f).sp,
 ) {
+    val isImageUri = emoji.startsWith("content://") || emoji.startsWith("file://") || emoji.startsWith("data:")
+    val context = LocalContext.current
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = emoji) {
+        if (isImageUri) {
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    when {
+                        emoji.startsWith("data:") -> {
+                            val base64Data = emoji.substringAfter(",")
+                            val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        }
+                        else -> {
+                            context.contentResolver.openInputStream(Uri.parse(emoji))?.use { stream ->
+                                BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                            }
+                        }
+                    }
+                }.getOrNull()
+            }
+        }
+    }
     val gradient = Brush.radialGradient(
         colors = listOf(color.copy(alpha = 0.42f), color.copy(alpha = 0.07f)),
     )
@@ -54,7 +88,18 @@ fun GradientAvatar(
             .border(1.dp, color.copy(alpha = 0.50f), shape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(emoji, fontSize = fontSize)
+        if (isImageUri) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap!!,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        } else {
+            Text(emoji, fontSize = fontSize)
+        }
     }
 }
 

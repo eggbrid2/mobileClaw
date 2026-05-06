@@ -42,6 +42,14 @@ class AgentRuntime(
         val workingMemory = WorkingMemory()
         emit(AgentEvent.Started(ctx.taskId, goal))
 
+        // Build once per task — these don't change across steps
+        val baseSkills = registry.forInjection(maxLevel = 1)
+        val forcedSkills = role?.forcedSkillIds.orEmpty().mapNotNull { registry.get(it)?.meta }
+        val injectedSkills = (baseSkills + forcedSkills).distinctBy { it.id }
+        val tools = injectedSkills.toToolDefinitions()
+        val semanticContext = runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
+        val systemPrompt = buildSystemPrompt(injectedSkills, priorContext, episodicContext, semanticContext, language, role, userProfileContext)
+
         while (!ctx.isExhausted()) {
             if (loopGuard.check(ctx.steps)) {
                 val msg = "Loop detected — same action repeated ${loopGuard.windowSize} times. Stopping."
@@ -49,14 +57,7 @@ class AgentRuntime(
                 return AgentResult(success = false, summary = msg, context = ctx)
             }
 
-            val baseSkills = registry.forInjection(maxLevel = 1)
-            val forcedSkills = role?.forcedSkillIds.orEmpty()
-                .mapNotNull { registry.get(it)?.meta }
-            val injectedSkills = (baseSkills + forcedSkills).distinctBy { it.id }
-            val semanticContext = runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
-            val systemPrompt = buildSystemPrompt(injectedSkills, priorContext, episodicContext, semanticContext, language, role, userProfileContext)
             val messages = ctx.toMessages(systemPrompt, workingMemory.steps())
-            val tools = injectedSkills.toToolDefinitions()
 
             emit(AgentEvent.Thinking)
 
@@ -102,13 +103,16 @@ class AgentRuntime(
                 attachment = skillResult.data as? SkillAttachment,
             ))
 
+            val truncatedObservation = skillResult.output.let {
+                if (it.length > 4000) it.take(4000) + "\n…[truncated ${it.length - 4000} chars]" else it
+            }
             val step = AgentStep(
                 index = ctx.steps.size,
                 thought = response.content ?: "",
                 toolCallId = tc.id,
                 skillId = tc.skillId,
                 skillParams = tc.params,
-                observation = skillResult.output,
+                observation = truncatedObservation,
                 isError = !skillResult.success,
                 imageBase64 = skillResult.imageBase64,
             )

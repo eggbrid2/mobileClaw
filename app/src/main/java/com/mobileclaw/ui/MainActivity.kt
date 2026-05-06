@@ -29,6 +29,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -89,8 +90,23 @@ class MainActivity : ComponentActivity() {
                 val drawerState = rememberDrawerState(DrawerValue.Closed)
                     val scope = rememberCoroutineScope()
 
+                    var userAvatarCropUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
                     val avatarPickerLauncher = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-                        if (uri != null) vm.setUserAvatarUri(uri.toString())
+                        if (uri != null) {
+                            applicationContext.contentResolver.runCatching {
+                                takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            userAvatarCropUri = uri
+                        }
+                    }
+
+                    if (userAvatarCropUri != null) {
+                        CropImageDialog(
+                            imageUri = userAvatarCropUri!!,
+                            onDismiss = { userAvatarCropUri = null },
+                            onCropped = { path -> vm.setUserAvatarUri(path); userAvatarCropUri = null },
+                        )
                     }
 
                     // Launch MiniAppActivity when AI opens an app (e.g. after creation)
@@ -178,6 +194,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenDesktop = { vm.navigate(AppPage.HOME) },
                                     onSwitchRole = { vm.navigate(AppPage.ROLES) },
                                     onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
+                                    onLoadMoreHistory = { vm.loadMoreHistory() },
                                 )
                             }
                             AnimatedVisibility(
@@ -251,6 +268,7 @@ class MainActivity : ComponentActivity() {
                                     dimensionQuizLoading = uiState.dimensionQuizLoading,
                                     onGenerateDimensionQuiz = { id, title -> vm.generateDimensionQuiz(id, title) },
                                     onPrewarmQuizzes = { dims -> vm.prewarmAllDimensionQuizzes(dims) },
+                                    totalSkillCount = uiState.allSkills.size,
                                 )
                             }
                             AnimatedVisibility(
@@ -262,10 +280,29 @@ class MainActivity : ComponentActivity() {
                                     availableRoles = uiState.availableRoles,
                                     currentRole = uiState.currentRole,
                                     onActivate = { vm.setActiveRole(it) },
-                                    onSave = { vm.saveCustomRole(it) },
+                                    onEdit = { vm.editRole(it) },
                                     onDelete = { vm.deleteCustomRole(it) },
                                     onBack = { vm.navigateBack() },
                                 )
+                            }
+                            AnimatedVisibility(
+                                visible = uiState.currentPage == AppPage.ROLE_EDIT,
+                                enter = slideInHorizontally { it } + fadeIn(),
+                                exit = slideOutHorizontally { it } + fadeOut(),
+                            ) {
+                                val role = uiState.editingRole
+                                if (role != null) {
+                                    RoleEditPage(
+                                        initial = role,
+                                        availableModels = uiState.availableModels,
+                                        modelsLoading = uiState.modelsLoading,
+                                        allSkills = uiState.allSkills,
+                                        onSave = { vm.saveCustomRole(it); vm.navigateBack() },
+                                        onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
+                                        onFetchModels = { vm.fetchModels() },
+                                        onBack = { vm.navigateBack() },
+                                    )
+                                }
                             }
                             AnimatedVisibility(
                                 visible = uiState.currentPage == AppPage.USER_CONFIG,
@@ -298,7 +335,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 ConsolePage(
                                     serverUrl = uiState.consoleServerUrl,
-                                    isRunning = uiState.isRunning,
+                                    isRunning = uiState.currentRunState.isRunning,
                                     onBack = { vm.navigateBack() },
                                 )
                             }

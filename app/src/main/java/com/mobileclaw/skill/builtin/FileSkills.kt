@@ -106,9 +106,13 @@ class ListFilesSkill(private val context: Context) : Skill {
         id = "list_files",
         name = "List Files",
         nameZh = "列出文件",
-        description = "Lists files previously created by the AI in the created_files directory.",
-        descriptionZh = "列出 AI 通过 create_file 创建的文件。",
-        parameters = emptyList(),
+        description = "Lists files in a directory — shown as tappable file cards in chat. " +
+            "directory: 'created_files' (AI-created, default), 'downloads', 'documents', 'pictures', 'music', or an absolute path. " +
+            "Returns at most 50 files, no recursion. Do NOT call this in a loop — one call gives you the complete flat listing.",
+        descriptionZh = "列出目录中的文件，结果以文件卡片形式展示。directory 可为 'created_files'（默认）、'downloads'、'documents'、'pictures'、'music' 或绝对路径。最多 50 个文件，不递归。",
+        parameters = listOf(
+            SkillParam("directory", "string", "Which folder to list: 'created_files' (default), 'downloads', 'documents', 'pictures', 'music', or absolute path.", required = false),
+        ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
@@ -116,18 +120,64 @@ class ListFilesSkill(private val context: Context) : Skill {
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {
-        val dir = context.getExternalFilesDir("created_files") ?: context.filesDir.resolve("created_files")
-        val files = dir.listFiles()?.sortedBy { it.lastModified() }?.reversed() ?: emptyList()
-        if (files.isEmpty()) return@withContext SkillResult(true, "No files found in created_files directory.")
-        val lines = files.map { f ->
-            val size = when {
-                f.length() < 1024 -> "${f.length()} B"
-                f.length() < 1_048_576 -> "${"%.1f".format(f.length() / 1024.0)} KB"
-                else -> "${"%.1f".format(f.length() / 1_048_576.0)} MB"
-            }
-            "${f.name}  ($size)"
+        val dirKey = (params["directory"] as? String)?.trim() ?: "created_files"
+        val dir: java.io.File = resolveDirectory(dirKey)
+
+        if (!dir.exists()) return@withContext SkillResult(false, "Directory not found: $dirKey")
+        if (!dir.isDirectory) return@withContext SkillResult(false, "$dirKey is not a directory")
+
+        val MAX_FILES = 50
+        val allFiles = dir.listFiles()
+            ?.filter { it.isFile }
+            ?.sortedByDescending { it.lastModified() }
+            ?: emptyList()
+
+        val files = allFiles.take(MAX_FILES)
+        if (files.isEmpty()) return@withContext SkillResult(true, "No files found in $dirKey.")
+
+        val entries = files.map { f ->
+            SkillAttachment.FileList.FileEntry(
+                path = f.absolutePath,
+                name = f.name,
+                mimeType = inferMimeType(f.name),
+                sizeBytes = f.length(),
+            )
         }
-        SkillResult(true, "${files.size} file(s) in created_files:\n" + lines.joinToString("\n"))
+        val truncated = if (allFiles.size > MAX_FILES) " (showing first $MAX_FILES of ${allFiles.size})" else ""
+        SkillResult(
+            success = true,
+            output = "${files.size} file(s) in $dirKey$truncated",
+            data = SkillAttachment.FileList(entries, dirKey),
+        )
+    }
+
+    private fun resolveDirectory(key: String): java.io.File = when (key) {
+        "created_files" -> context.getExternalFilesDir("created_files")
+            ?: context.filesDir.resolve("created_files")
+        "downloads" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        "documents" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS)
+        "pictures" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+        "music" -> android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+        else -> java.io.File(key)
+    }
+
+    private fun inferMimeType(filename: String): String = when (filename.substringAfterLast('.').lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png"  -> "image/png"
+        "gif"  -> "image/gif"
+        "webp" -> "image/webp"
+        "mp4"  -> "video/mp4"
+        "mp3"  -> "audio/mpeg"
+        "pdf"  -> "application/pdf"
+        "csv"  -> "text/csv"
+        "json" -> "application/json"
+        "html" -> "text/html"
+        "md"   -> "text/markdown"
+        "xml"  -> "text/xml"
+        "py"   -> "text/x-python"
+        "js"   -> "text/javascript"
+        "zip"  -> "application/zip"
+        else   -> "text/plain"
     }
 }
 
