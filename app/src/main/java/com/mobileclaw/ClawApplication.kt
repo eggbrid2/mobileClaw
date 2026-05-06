@@ -97,9 +97,10 @@ class ClawApplication : Application() {
         virtualDisplayManager = VirtualDisplayManager(this)
         userConfig = UserConfig(this)
         roleManager = RoleManager(this)
+        val sharedSkillLoader = SkillLoader(this, skillRegistry)
         localApiServer = LocalApiServer(
             skillRegistry = skillRegistry,
-            skillLoader = SkillLoader(this, skillRegistry),
+            skillLoader = sharedSkillLoader,
             semanticMemory = semanticMemory,
             userConfig = userConfig,
         )
@@ -108,7 +109,14 @@ class ClawApplication : Application() {
         skillNotesStore = SkillNotesStore(this)
         userStorageManager = com.mobileclaw.config.UserStorageManager(this)
         groupManager = com.mobileclaw.agent.GroupManager(this)
-        consoleServer = ConsoleServer(filesDir = filesDir, database = database)
+        consoleServer = ConsoleServer(
+            filesDir = filesDir,
+            database = database,
+            skillRegistry = skillRegistry,
+            skillLoader = sharedSkillLoader,
+            semanticMemory = semanticMemory,
+            userConfig = userConfig,
+        )
         consoleServer.start()
     }
 

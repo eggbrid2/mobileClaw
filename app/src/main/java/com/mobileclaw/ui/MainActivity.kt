@@ -167,6 +167,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenSkillManager = { vm.navigate(AppPage.SKILLS) },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onAttachImage = { vm.setInputImage(it) },
+                                    onAttachFile = { vm.setFileAttachment(it) },
                                     onOpenProfile = { vm.navigate(AppPage.PROFILE) },
                                     onModelChange = { vm.setModel(it) },
                                     onFetchModels = { vm.fetchModels() },

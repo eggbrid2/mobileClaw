@@ -60,6 +60,7 @@ chaquopy {
             install("numpy")
             install("pillow")
             install("pandas")
+            install("lxml")
         }
     }
 }

@@ -28,6 +28,7 @@ data class MainUiState(
     val isConfigured: Boolean = false,
     val virtualDisplayTestResult: String? = null,
     val inputImageBase64: String? = null,
+    val inputFileAttachment: FileAttachment? = null,
     val profileFacts: Map<String, String> = emptyMap(),
     val recentEpisodes: List<EpisodeEntity> = emptyList(),
     val profileLoading: Boolean = false,
@@ -73,6 +74,13 @@ data class MainUiState(
     val groupTypingAgentId: String? = null,   // role id currently streaming
     val groupStreamingText: String = "",       // partial streamed text for typing agent
     val groupUnreadCount: Int = 0,            // messages received while away from GROUP_CHAT page
+)
+
+data class FileAttachment(
+    val name: String,
+    val content: String,   // text content, or base64 for binary
+    val isText: Boolean,   // true = text file (inject into prompt), false = image (use vision)
+    val mimeType: String = "text/plain",
 )
 
 data class GroupMessage(

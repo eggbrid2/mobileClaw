@@ -1,5 +1,6 @@
 package com.mobileclaw.ui
 
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -25,8 +26,13 @@ import com.mobileclaw.skill.builtin.BgReadScreenSkill
 import com.mobileclaw.skill.builtin.BgScreenshotSkill
 import com.mobileclaw.skill.builtin.BgStopSkill
 import com.mobileclaw.skill.builtin.VirtualDisplaySetupSkill
+import com.mobileclaw.skill.builtin.ClipboardSkill
 import com.mobileclaw.skill.builtin.CreateFileSkill
 import com.mobileclaw.skill.builtin.CreateHtmlSkill
+import com.mobileclaw.skill.builtin.DeviceInfoSkill
+import com.mobileclaw.skill.builtin.ListFilesSkill
+import com.mobileclaw.skill.builtin.ReadFileSkill
+import com.mobileclaw.skill.builtin.ShowToastSkill
 import com.mobileclaw.skill.builtin.FetchUrlSkill
 import com.mobileclaw.skill.builtin.GenerateDocumentSkill
 import com.mobileclaw.skill.builtin.GenerateIconSkill
@@ -281,8 +287,24 @@ class MainViewModel : ViewModel() {
     }
 
     fun loadSession(sessionId: String) {
+        // Cancel any running task from the previous session before switching.
+        // The running job writes to _uiState.messages — if we don't cancel it, its output
+        // would bleed into the newly loaded session's message list.
+        if (_uiState.value.isRunning) {
+            taskJob?.cancel()
+            taskJob = null
+            runtime = null
+            overlay.hide()
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(currentSessionId = sessionId) }
+            _uiState.update { it.copy(
+                currentSessionId = sessionId,
+                isRunning = false,
+                streamingToken = "",
+                streamingThought = "",
+                activeLogLines = emptyList(),
+                activeAttachments = emptyList(),
+            )}
             loadSessionMessages(sessionId)
             loadSessions()
         }
@@ -405,9 +427,20 @@ class MainViewModel : ViewModel() {
         val priorContext = buildPriorContext()
         val currentRole = _uiState.value.currentRole
         val attachedImage = _uiState.value.inputImageBase64
+        val attachedFile = _uiState.value.inputFileAttachment
         val sessionIdAtStart = _uiState.value.currentSessionId
+        // Prepend text file content directly into the LLM goal
+        val effectiveGoal = if (attachedFile != null && attachedFile.isText) {
+            "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goal"
+        } else goal
         // Build the user message once so we have a stable reference for persisting
-        val userMessage = ChatMessage(MessageRole.USER, goal, imageBase64 = attachedImage)
+        val userMessage = ChatMessage(
+            role = MessageRole.USER,
+            text = goal,
+            imageBase64 = if (attachedImage != null) attachedImage
+                          else if (attachedFile != null && !attachedFile.isText) attachedFile.content
+                          else null,
+        )
 
         _uiState.update { it.copy(
             isRunning = true,
@@ -417,6 +450,7 @@ class MainViewModel : ViewModel() {
             streamingToken = "",
             streamingThought = "",
             inputImageBase64 = null,
+            inputFileAttachment = null,
         )}
         val llm = OpenAiGateway(config)
         runtime = AgentRuntime(llm, registry, app.semanticMemory)
@@ -508,7 +542,7 @@ class MainViewModel : ViewModel() {
 
             val result = runCatching {
                 rt.run(
-                    goal             = goal,
+                    goal             = effectiveGoal,
                     priorContext     = priorContext,
                     episodicContext  = episodicContext,
                     language         = config.language,
@@ -611,6 +645,10 @@ class MainViewModel : ViewModel() {
 
     fun setInputImage(imageBase64: String?) {
         _uiState.update { it.copy(inputImageBase64 = imageBase64) }
+    }
+
+    fun setFileAttachment(attachment: FileAttachment?) {
+        _uiState.update { it.copy(inputFileAttachment = attachment) }
     }
 
     private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.CHAT) }
@@ -1226,8 +1264,16 @@ $relevantFacts
 
     fun installMarketSkill(def: com.mobileclaw.skill.SkillDefinition) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { loader.persist(def) }
+            val result = runCatching { loader.persist(def) }
             refreshPromotableSkills()
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) {
+                    Toast.makeText(app, "已安装：${def.meta.nameZh ?: def.meta.name}", Toast.LENGTH_SHORT).show()
+                } else {
+                    val msg = result.exceptionOrNull()?.message ?: "未知错误"
+                    Toast.makeText(app, "安装失败：$msg", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -1275,6 +1321,8 @@ $relevantFacts
             GenerateDocumentSkill(app),
             GenerateVideoSkill(config, app, app.userConfig),
             CreateFileSkill(app),
+            ReadFileSkill(app),
+            ListFilesSkill(app),
             CreateHtmlSkill(app),
             // Virtual display (background execution)
             BgLaunchSkill(app.virtualDisplayManager),
@@ -1286,6 +1334,9 @@ $relevantFacts
             ShellSkill(),
             PipInstallSkill(),
             RunPythonSkill(),
+            ClipboardSkill(),
+            ShowToastSkill(),
+            DeviceInfoSkill(),
             MemorySkill(app.semanticMemory),
             PermissionSkill(app.permissionManager),
             // Skill management

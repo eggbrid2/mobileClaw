@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.GetContent
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
@@ -109,6 +110,7 @@ fun ChatScreen(
     onOpenSkillManager: () -> Unit,
     onOpenDrawer: () -> Unit = {},
     onAttachImage: (String?) -> Unit = {},
+    onAttachFile: (FileAttachment?) -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onModelChange: (String) -> Unit = {},
     onFetchModels: () -> Unit = {},
@@ -151,21 +153,75 @@ fun ChatScreen(
             onAttachImage(base64)
         }
     }
+    val filePicker = rememberLauncherForActivityResult(GetContent()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                val fileName = run {
+                    val cursor = context.contentResolver.query(uri, null, null, null, null)
+                    cursor?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0) c.getString(idx) else null
+                        } else null
+                    } ?: uri.lastPathSegment ?: "attachment"
+                }
+                val isText = mimeType.startsWith("text/") ||
+                    mimeType == "application/json" || mimeType == "application/xml" ||
+                    mimeType == "application/javascript" || mimeType == "application/x-sh"
+                if (isText) {
+                    val content = context.contentResolver.openInputStream(uri)
+                        ?.use { it.bufferedReader().readText() } ?: return@runCatching
+                    onAttachFile(FileAttachment(fileName, content, isText = true, mimeType = mimeType))
+                } else if (mimeType.startsWith("image/")) {
+                    val base64 = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val bm = BitmapFactory.decodeStream(stream)
+                        val out = ByteArrayOutputStream()
+                        val scale = minOf(1024f / bm.width, 1024f / bm.height, 1f)
+                        val scaled = if (scale < 1f) {
+                            Bitmap.createScaledBitmap(bm, (bm.width * scale).toInt(), (bm.height * scale).toInt(), true)
+                                .also { bm.recycle() }
+                        } else bm
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                        scaled.recycle()
+                        "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                    }
+                    if (base64 != null) onAttachImage(base64)
+                } else {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: return@runCatching
+                    val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    onAttachFile(FileAttachment(fileName, base64Content, isText = false, mimeType = mimeType))
+                }
+            }
+        }
+    }
+    var showAttachMenu by remember { mutableStateOf(false) }
 
-    // Scroll to bottom when new items arrive or streaming content grows.
-    // Use instant scroll for session loads (big jumps), animated scroll for incremental additions.
-    val scrollKey = remember(uiState.streamingToken.length / 40, uiState.streamingThought.length / 40) { Unit }
+    // Scroll to bottom. Split into two effects:
+    // 1) item count changes → animated scroll (new message completed)
+    // 2) log lines / streaming → instant scroll to avoid jump artifacts from overlapping animations
+    // scrollOffset = 3000 ensures the BOTTOM of the last item is visible (clamped to max extent).
     var lastScrolledCount by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(itemCount, uiState.activeLogLines.size, scrollKey) {
+    LaunchedEffect(itemCount) {
         if (itemCount > 0) {
             if (lastScrolledCount < 0 || itemCount - lastScrolledCount > 1) {
-                listState.scrollToItem(itemCount - 1)
+                listState.scrollToItem(itemCount - 1, scrollOffset = 3000)
             } else {
-                listState.animateScrollToItem(itemCount - 1)
+                listState.animateScrollToItem(itemCount - 1, scrollOffset = 3000)
             }
             lastScrolledCount = itemCount
         } else {
             lastScrolledCount = 0
+        }
+    }
+    val scrollKey = remember(uiState.streamingToken.length / 40, uiState.streamingThought.length / 40) { Unit }
+    LaunchedEffect(uiState.activeLogLines.size, scrollKey) {
+        if (itemCount > 0 && uiState.isRunning) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            if (lastVisible >= itemCount - 2) {
+                listState.scrollToItem(itemCount - 1, scrollOffset = 3000)
+            }
         }
     }
 
@@ -245,11 +301,21 @@ fun ChatScreen(
             input = input,
             isRunning = uiState.isRunning,
             attachedImageBase64 = uiState.inputImageBase64,
+            attachedFile = uiState.inputFileAttachment,
+            showAttachMenu = showAttachMenu,
             onInputChange = { input = it },
-            onSend = { if (input.isNotBlank() || uiState.inputImageBase64 != null) { onSendGoal(input.trim()); input = "" } },
+            onSend = {
+                if (input.isNotBlank() || uiState.inputImageBase64 != null || uiState.inputFileAttachment != null) {
+                    onSendGoal(input.trim())
+                    input = ""
+                }
+            },
             onStop = onStop,
-            onAttachImage = { imagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+            onAttachClick = { showAttachMenu = !showAttachMenu },
+            onPickImage = { showAttachMenu = false; imagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
+            onPickFile = { showAttachMenu = false; filePicker.launch("*/*") },
             onRemoveImage = { onAttachImage(null) },
+            onRemoveFile = { onAttachFile(null) },
         )
     }
 
@@ -536,6 +602,7 @@ private fun EmptyState(
 @Composable
 private fun UserBubble(text: String, imageBase64: String? = null) {
     val c = LocalClawColors.current
+    var showFullscreen by remember { mutableStateOf(false) }
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Column(
             modifier = Modifier.widthIn(max = 290.dp),
@@ -545,10 +612,10 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
             if (imageBase64 != null) {
                 val bitmap = remember(imageBase64) {
                     runCatching {
-                        val bytes = Base64.decode(
-                            imageBase64.removePrefix("data:image/jpeg;base64,"),
-                            Base64.NO_WRAP,
-                        )
+                        val clean = imageBase64
+                            .removePrefix("data:image/jpeg;base64,")
+                            .removePrefix("data:image/png;base64,")
+                        val bytes = Base64.decode(clean, Base64.NO_WRAP)
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     }.getOrNull()
                 }
@@ -559,9 +626,13 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
                         modifier = Modifier
                             .widthIn(max = 200.dp)
                             .heightIn(max = 160.dp)
-                            .clip(RoundedCornerShape(14.dp)),
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { showFullscreen = true },
                         contentScale = ContentScale.Crop,
                     )
+                    if (showFullscreen) {
+                        FullscreenImageDialog(bitmap = bitmap, onDismiss = { showFullscreen = false })
+                    }
                 }
             }
             if (text.isNotBlank()) {
@@ -1148,6 +1219,7 @@ private fun LogLineItem(line: LogLine) {
                                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             }.getOrNull()
                         }
+                        var showStepFullscreen by remember { mutableStateOf(false) }
                         if (bitmap != null) {
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
@@ -1156,9 +1228,13 @@ private fun LogLineItem(line: LogLine) {
                                     .fillMaxWidth()
                                     .heightIn(max = 160.dp)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .border(0.5.dp, c.border, RoundedCornerShape(6.dp)),
+                                    .border(0.5.dp, c.border, RoundedCornerShape(6.dp))
+                                    .clickable { showStepFullscreen = true },
                                 contentScale = ContentScale.FillWidth,
                             )
+                            if (showStepFullscreen) {
+                                FullscreenImageDialog(bitmap = bitmap, onDismiss = { showStepFullscreen = false })
+                            }
                         }
                     }
                     if (line.text.isNotBlank()) {
@@ -1285,6 +1361,31 @@ private fun ShellCommandCard(text: String) {
 // ── Attachment Cards ──────────────────────────────────────────────────────────
 
 @Composable
+private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.92f))
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                contentScale = ContentScale.Fit,
+            )
+        }
+    }
+}
+
+@Composable
 private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
     val c = LocalClawColors.current
     val bitmap = remember(attachment.base64) {
@@ -1296,13 +1397,15 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }.getOrNull()
     }
+    var showFullscreen by remember { mutableStateOf(false) }
     if (bitmap != null) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .border(1.dp, c.border, RoundedCornerShape(12.dp))
-                .background(c.card),
+                .background(c.card)
+                .clickable { showFullscreen = true },
         ) {
             Image(
                 bitmap = bitmap.asImageBitmap(),
@@ -1322,6 +1425,9 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             }
+        }
+        if (showFullscreen) {
+            FullscreenImageDialog(bitmap = bitmap, onDismiss = { showFullscreen = false })
         }
     }
 }
@@ -1701,14 +1807,20 @@ private fun InputBar(
     input: String,
     isRunning: Boolean,
     attachedImageBase64: String?,
+    attachedFile: FileAttachment?,
+    showAttachMenu: Boolean,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onAttachImage: () -> Unit,
+    onAttachClick: () -> Unit,
+    onPickImage: () -> Unit,
+    onPickFile: () -> Unit,
     onRemoveImage: () -> Unit,
+    onRemoveFile: () -> Unit,
 ) {
     val c = LocalClawColors.current
-    val sendEnabled = (input.isNotBlank() || attachedImageBase64 != null) && !isRunning
+    val hasAttachment = attachedImageBase64 != null || attachedFile != null
+    val sendEnabled = (input.isNotBlank() || hasAttachment) && !isRunning
     val buttonAlpha by animateFloatAsState(if (sendEnabled) 1f else 0.4f, label = "btn")
 
     Column(
@@ -1719,13 +1831,39 @@ private fun InputBar(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // Attach type menu (shown when attach button tapped)
+        if (showAttachMenu) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.card)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(
+                    Triple(Icons.Default.AttachFile, "图片", onPickImage),
+                    Triple(Icons.Default.Extension, "文档", onPickFile),
+                ).forEach { (icon, label, action) ->
+                    TextButton(
+                        onClick = action,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(icon, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(label, fontSize = 12.sp, color = c.text)
+                    }
+                }
+            }
+        }
+
         if (attachedImageBase64 != null) {
             val bitmap = remember(attachedImageBase64) {
                 runCatching {
-                    val bytes = Base64.decode(
-                        attachedImageBase64.removePrefix("data:image/jpeg;base64,"),
-                        Base64.NO_WRAP,
-                    )
+                    val clean = attachedImageBase64
+                        .removePrefix("data:image/jpeg;base64,")
+                        .removePrefix("data:image/png;base64,")
+                    val bytes = Base64.decode(clean, Base64.NO_WRAP)
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }.getOrNull()
             }
@@ -1755,16 +1893,39 @@ private fun InputBar(
             }
         }
 
+        if (attachedFile != null) {
+            Row(
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(c.card)
+                    .border(0.5.dp, c.border, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(Icons.Default.AttachFile, contentDescription = null, tint = c.accent, modifier = Modifier.size(14.dp))
+                Text(attachedFile.name, fontSize = 12.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 180.dp))
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = null,
+                    tint = c.subtext,
+                    modifier = Modifier.size(14.dp).clickable { onRemoveFile() },
+                )
+            }
+        }
+
         Row(verticalAlignment = Alignment.Bottom) {
             IconButton(
-                onClick = onAttachImage,
+                onClick = onAttachClick,
                 enabled = !isRunning,
                 modifier = Modifier.size(44.dp),
             ) {
                 Icon(
                     Icons.Default.AttachFile,
-                    contentDescription = "Attach image",
-                    tint = if (isRunning) c.subtext.copy(alpha = 0.3f) else c.subtext,
+                    contentDescription = "Attach",
+                    tint = if (isRunning) c.subtext.copy(alpha = 0.3f) else if (showAttachMenu) c.accent else c.subtext,
                     modifier = Modifier.size(20.dp),
                 )
             }

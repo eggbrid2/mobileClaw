@@ -1,7 +1,13 @@
 package com.mobileclaw.server
 
+import android.os.Build
 import com.google.gson.Gson
+import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.memory.db.ClawDatabase
+import com.mobileclaw.skill.SkillDefinition
+import com.mobileclaw.skill.SkillLoader
+import com.mobileclaw.skill.SkillRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,20 +25,37 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * LAN HTTP server on 0.0.0.0:52733.
- * Serves a chat console web UI accessible from any PC on the same network.
- * Supports SSE for real-time agent event streaming.
+ * Serves a chat console web UI and a comprehensive REST API for OpenClaw integration.
  *
- * Endpoints:
- *   GET  /                    — console web UI (filesDir/console_web/index.html)
- *   GET  /api/events          — SSE stream of agent events
- *   POST /api/send            — send a message to the agent {message: string}
- *   GET  /api/sessions        — list recent sessions
- *   GET  /api/messages?sessionId=<id>  — messages for a session
+ * Console endpoints:
+ *   GET  /                                   — console web UI
+ *   GET  /api/events                         — SSE stream of agent events
+ *   POST /api/send                           — send a task {message: string}
+ *   GET  /api/sessions                       — list recent sessions
+ *   GET  /api/messages?sessionId=<id>        — messages for a session
+ *
+ * OpenClaw bridge endpoints (all CORS-enabled):
+ *   GET  /api/info                           — device info, API version, capabilities
+ *   GET  /api/skills                         — list all registered skills
+ *   GET  /api/skills/definitions             — download all dynamic skill definitions (JSON bundle)
+ *   GET  /api/skill/<id>/definition          — get one skill definition
+ *   POST /api/skill                          — install a skill definition
+ *   DELETE /api/skill/<id>                   — delete a dynamic skill
+ *   GET  /api/memory                         — all semantic memory facts
+ *   POST /api/memory                         — set memory fact {key, value}
+ *   GET  /api/config                         — all user config entries
+ *   POST /api/config                         — set config entry {key, value, description?}
+ *   DELETE /api/config/<key>                 — delete a config entry
+ *   GET  /api/openclaw/cli.sh                — download OpenClaw bash CLI script
  */
 class ConsoleServer(
     private val filesDir: File,
     private val database: ClawDatabase,
     val messageRequests: MutableSharedFlow<String> = MutableSharedFlow(extraBufferCapacity = 16),
+    private val skillRegistry: SkillRegistry? = null,
+    private val skillLoader: SkillLoader? = null,
+    private val semanticMemory: SemanticMemory? = null,
+    private val userConfig: UserConfig? = null,
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var serverSocket: ServerSocket? = null
@@ -136,13 +159,38 @@ class ConsoleServer(
                 String(buf)
             } else ""
 
+            // CORS preflight
+            if (method == "OPTIONS") { sendCorsOk(socket); return }
+
             when {
                 path == "/api/events" -> { handleSse(socket); return }
                 path == "/api/send" && method == "POST" -> handleSend(socket, body)
                 path == "/api/sessions" -> handleSessions(socket)
                 path == "/api/messages" -> handleMessages(socket, query)
+                // OpenClaw bridge
+                path == "/api/info" -> handleInfo(socket)
+                path == "/api/skills" && method == "GET" -> handleSkillsList(socket)
+                path == "/api/skills/definitions" && method == "GET" -> handleSkillsExport(socket)
+                path.matches(Regex("/api/skill/[^/]+/definition")) && method == "GET" -> {
+                    val id = path.removePrefix("/api/skill/").removeSuffix("/definition")
+                    handleSkillDefinition(socket, id)
+                }
+                path == "/api/skill" && method == "POST" -> handleSkillInstall(socket, body)
+                path.startsWith("/api/skill/") && method == "DELETE" -> {
+                    val id = path.removePrefix("/api/skill/")
+                    handleSkillDelete(socket, id)
+                }
+                path == "/api/memory" && method == "GET" -> handleMemoryGet(socket)
+                path == "/api/memory" && method == "POST" -> handleMemorySet(socket, body)
+                path == "/api/config" && method == "GET" -> handleConfigGet(socket)
+                path == "/api/config" && method == "POST" -> handleConfigSet(socket, body)
+                path.startsWith("/api/config/") && method == "DELETE" -> {
+                    val key = path.removePrefix("/api/config/")
+                    handleConfigDelete(socket, key)
+                }
+                path == "/api/openclaw/cli.sh" -> handleCliScript(socket)
                 path == "/" || path == "/index.html" -> handleIndex(socket)
-                else -> sendJson(socket, "404 Not Found", mapOf("error" to "Not found"))
+                else -> sendJson(socket, "404 Not Found", mapOf("error" to "Not found: $method $path"))
             }
         }
     }
@@ -214,9 +262,165 @@ class ConsoleServer(
                 val json = gson.toJson(data)
                 val bytes = json.toByteArray(Charsets.UTF_8)
                 val out = socket.getOutputStream()
-                out.write("HTTP/1.1 $status\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: ${bytes.size}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n".toByteArray())
+                out.write((
+                    "HTTP/1.1 $status\r\n" +
+                    "Content-Type: application/json; charset=utf-8\r\n" +
+                    "Content-Length: ${bytes.size}\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n" +
+                    "Access-Control-Allow-Headers: Content-Type\r\n" +
+                    "Connection: close\r\n\r\n"
+                ).toByteArray())
                 out.write(bytes)
                 out.flush()
+            }
+        }
+    }
+
+    // ── OpenClaw bridge handlers ──────────────────────────────────────────────
+
+    private fun handleInfo(socket: Socket) {
+        val ip = getLanIp()
+        sendJson(socket, "200 OK", mapOf(
+            "app" to "MobileClaw",
+            "api_version" to 1,
+            "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+            "android" to Build.VERSION.RELEASE,
+            "lan_ip" to ip,
+            "port" to PORT,
+            "base_url" to "http://$ip:$PORT",
+            "capabilities" to listOf("send", "sessions", "messages", "events", "skills", "memory", "config"),
+            "cli_url" to "http://$ip:$PORT/api/openclaw/cli.sh",
+        ))
+    }
+
+    private fun handleSkillsList(socket: Socket) {
+        val skills = skillRegistry?.all()?.map { skill ->
+            mapOf(
+                "id" to skill.meta.id,
+                "name" to skill.meta.name,
+                "nameZh" to (skill.meta.nameZh ?: skill.meta.name),
+                "description" to skill.meta.description,
+                "type" to skill.meta.type.name.lowercase(),
+                "injectionLevel" to skill.meta.injectionLevel,
+                "isBuiltin" to skill.meta.isBuiltin,
+                "tags" to skill.meta.tags,
+            )
+        } ?: emptyList<Any>()
+        sendJson(socket, "200 OK", mapOf("skills" to skills, "total" to skills.size))
+    }
+
+    private fun handleSkillsExport(socket: Socket) {
+        val defs = skillLoader?.allDynamic() ?: emptyList<SkillDefinition>()
+        sendJson(socket, "200 OK", mapOf("definitions" to defs, "total" to defs.size))
+    }
+
+    private fun handleSkillDefinition(socket: Socket, id: String) {
+        val defs = skillLoader?.allDynamic() ?: emptyList()
+        val def = defs.firstOrNull { it.meta.id == id }
+        if (def != null) sendJson(socket, "200 OK", def)
+        else sendJson(socket, "404 Not Found", mapOf("error" to "Skill not found: $id"))
+    }
+
+    private fun handleSkillInstall(socket: Socket, body: String) {
+        val loader = skillLoader ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Skill management not available")); return
+        }
+        runCatching {
+            val def = gson.fromJson(body, SkillDefinition::class.java)
+            loader.persist(def)
+            sendJson(socket, "200 OK", mapOf("success" to true, "id" to def.meta.id))
+        }.onFailure { e ->
+            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Invalid skill definition")))
+        }
+    }
+
+    private fun handleSkillDelete(socket: Socket, id: String) {
+        val loader = skillLoader ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Skill management not available")); return
+        }
+        loader.delete(id)
+        sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to id))
+    }
+
+    private fun handleMemoryGet(socket: Socket) {
+        val facts = runBlocking { runCatching { semanticMemory?.all() }.getOrNull() ?: emptyMap<String, String>() }
+        sendJson(socket, "200 OK", mapOf("memory" to facts, "total" to facts.size))
+    }
+
+    private fun handleMemorySet(socket: Socket, body: String) {
+        val mem = semanticMemory ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Memory not available")); return
+        }
+        runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val req = gson.fromJson(body, Map::class.java) as Map<String, Any>
+            val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
+            val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
+            runBlocking { mem.set(key, value) }
+            sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
+        }.onFailure { e ->
+            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        }
+    }
+
+    private fun handleConfigGet(socket: Socket) {
+        val entries = runBlocking { runCatching { userConfig?.all() }.getOrNull() ?: emptyMap<String, Any>() }
+        sendJson(socket, "200 OK", mapOf("config" to entries, "total" to entries.size))
+    }
+
+    private fun handleConfigSet(socket: Socket, body: String) {
+        val cfg = userConfig ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
+        }
+        runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val req = gson.fromJson(body, Map::class.java) as Map<String, Any>
+            val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
+            val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
+            val desc = req["description"] as? String ?: ""
+            runBlocking { cfg.set(key, value, desc) }
+            sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
+        }.onFailure { e ->
+            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        }
+    }
+
+    private fun handleConfigDelete(socket: Socket, key: String) {
+        val cfg = userConfig ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
+        }
+        runBlocking { runCatching { cfg.delete(key) } }
+        sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to key))
+    }
+
+    private fun handleCliScript(socket: Socket) {
+        val ip = getLanIp()
+        val script = buildOpenClawCliScript(ip)
+        val bytes = script.toByteArray(Charsets.UTF_8)
+        runCatching {
+            val out = socket.getOutputStream()
+            out.write((
+                "HTTP/1.1 200 OK\r\nContent-Type: text/x-shellscript; charset=utf-8\r\n" +
+                "Content-Disposition: attachment; filename=\"openclaw.sh\"\r\n" +
+                "Content-Length: ${bytes.size}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n"
+            ).toByteArray())
+            out.write(bytes)
+            out.flush()
+            socket.close()
+        }
+    }
+
+    private fun sendCorsOk(socket: Socket) {
+        runCatching {
+            socket.use {
+                socket.getOutputStream().write((
+                    "HTTP/1.1 204 No Content\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n" +
+                    "Access-Control-Allow-Headers: Content-Type\r\n" +
+                    "Connection: close\r\n\r\n"
+                ).toByteArray())
             }
         }
     }
@@ -232,6 +436,112 @@ class ConsoleServer(
         val file = File(filesDir, "console_web/index.html")
         return if (file.exists()) file.readText() else DEFAULT_CONSOLE_HTML
     }
+
+    private fun buildOpenClawCliScript(ip: String): String = """
+#!/usr/bin/env bash
+# openclaw — CLI bridge to MobileClaw
+# Usage: openclaw <command> [args]
+# Download: curl -o openclaw.sh http://$ip:$PORT/api/openclaw/cli.sh && chmod +x openclaw.sh
+# Install:  sudo cp openclaw.sh /usr/local/bin/openclaw
+
+CLAW_HOST="${"$"}{CLAW_HOST:-http://$ip:$PORT}"
+
+_require_curl() { command -v curl >/dev/null 2>&1 || { echo "error: curl is required"; exit 1; }; }
+
+_get()  { _require_curl; curl -sf "${"$"}{CLAW_HOST}$1"; }
+_post() { _require_curl; curl -sf -X POST -H "Content-Type: application/json" -d "$2" "${"$"}{CLAW_HOST}$1"; }
+_del()  { _require_curl; curl -sf -X DELETE "${"$"}{CLAW_HOST}$1"; }
+_pp()   { command -v python3 >/dev/null 2>&1 && python3 -m json.tool || cat; }
+
+cmd_info()     { _get /api/info | _pp; }
+cmd_send()     { [ -z "$1" ] && echo "Usage: openclaw send <message>" && exit 1; _post /api/send "{\"message\":\"$1\"}" | _pp; }
+cmd_events()   { _require_curl; echo "Streaming events (Ctrl+C to stop)..."; curl -sN "${"$"}{CLAW_HOST}/api/events"; }
+cmd_sessions() { _get /api/sessions | _pp; }
+cmd_messages() { [ -z "$1" ] && echo "Usage: openclaw messages <sessionId>" && exit 1; _get "/api/messages?sessionId=$1" | _pp; }
+
+cmd_skills() {
+  case "${"$"}{1:-list}" in
+    list)     _get /api/skills | _pp ;;
+    export)   _get /api/skills/definitions | _pp ;;
+    install)  [ -z "$2" ] && echo "Usage: openclaw skills install <file.json>" && exit 1
+              _post /api/skill "$(cat "$2")" | _pp ;;
+    delete)   [ -z "$2" ] && echo "Usage: openclaw skills delete <id>" && exit 1
+              _del "/api/skill/$2" | _pp ;;
+    get)      [ -z "$2" ] && echo "Usage: openclaw skills get <id>" && exit 1
+              _get "/api/skill/$2/definition" | _pp ;;
+    *)        echo "Usage: openclaw skills [list|export|install <file>|delete <id>|get <id>]" ;;
+  esac
+}
+
+cmd_memory() {
+  case "${"$"}{1:-list}" in
+    list)  _get /api/memory | _pp ;;
+    set)   [ -z "$2" ] || [ -z "$3" ] && echo "Usage: openclaw memory set <key> <value>" && exit 1
+           _post /api/memory "{\"key\":\"$2\",\"value\":\"$3\"}" | _pp ;;
+    *)     echo "Usage: openclaw memory [list|set <key> <value>]" ;;
+  esac
+}
+
+cmd_config() {
+  case "${"$"}{1:-list}" in
+    list)   _get /api/config | _pp ;;
+    set)    [ -z "$2" ] || [ -z "$3" ] && echo "Usage: openclaw config set <key> <value>" && exit 1
+            _post /api/config "{\"key\":\"$2\",\"value\":\"$3\"}" | _pp ;;
+    delete) [ -z "$2" ] && echo "Usage: openclaw config delete <key>" && exit 1
+            _del "/api/config/$2" | _pp ;;
+    *)      echo "Usage: openclaw config [list|set <key> <value>|delete <key>]" ;;
+  esac
+}
+
+cmd_help() {
+  cat <<'EOF'
+openclaw — MobileClaw CLI bridge
+
+Commands:
+  info                          Show device info and API version
+  send <message>                Send a task to the AI agent
+  events                        Stream real-time agent events (SSE)
+  sessions                      List recent chat sessions
+  messages <sessionId>          Show messages for a session
+  skills list                   List all registered skills
+  skills export                 Download all dynamic skill definitions (JSON)
+  skills install <file.json>    Install a skill from a local JSON file
+  skills delete <id>            Delete a dynamic skill
+  skills get <id>               Get a specific skill definition
+  memory list                   Show all semantic memory facts
+  memory set <key> <value>      Set a memory fact
+  config list                   Show all user config entries
+  config set <key> <value>      Set a config entry
+  config delete <key>           Delete a config entry
+  help                          Show this help
+
+Environment:
+  CLAW_HOST    Override device URL (default: http://$ip:$PORT)
+
+Examples:
+  openclaw info
+  openclaw send "搜索今天的科技新闻"
+  openclaw skills export > skills.json
+  CLAW_HOST=http://192.168.1.100:$PORT openclaw info
+EOF
+}
+
+COMMAND="${"$"}{1:-help}"
+shift 2>/dev/null || true
+
+case "${"$"}COMMAND" in
+  info)     cmd_info ;;
+  send)     cmd_send "$@" ;;
+  events)   cmd_events ;;
+  sessions) cmd_sessions ;;
+  messages) cmd_messages "$@" ;;
+  skills)   cmd_skills "$@" ;;
+  memory)   cmd_memory "$@" ;;
+  config)   cmd_config "$@" ;;
+  help|--help|-h) cmd_help ;;
+  *)        echo "Unknown command: ${"$"}COMMAND"; cmd_help; exit 1 ;;
+esac
+""".trimIndent()
 }
 
 private val DEFAULT_CONSOLE_HTML = """<!DOCTYPE html>
