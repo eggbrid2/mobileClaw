@@ -62,6 +62,7 @@ import com.mobileclaw.skill.builtin.WebJsSkill
 import com.mobileclaw.skill.builtin.WebSearchSkill
 import com.mobileclaw.server.PrivilegedClient
 import com.mobileclaw.skill.builtin.PipInstallSkill
+import com.mobileclaw.skill.builtin.RunPythonSkill
 import com.mobileclaw.skill.executor.ShellSkill
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1284,6 +1285,7 @@ $relevantFacts
             // System
             ShellSkill(),
             PipInstallSkill(),
+            RunPythonSkill(),
             MemorySkill(app.semanticMemory),
             PermissionSkill(app.permissionManager),
             // Skill management
