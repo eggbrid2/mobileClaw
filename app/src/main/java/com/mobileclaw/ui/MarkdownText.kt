@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -153,6 +154,16 @@ private fun renderProse(
                         .background(c.border),
                 )
 
+            // Markdown table: consecutive lines containing |
+            line.trimStart().startsWith("|") -> {
+                val tableLines = mutableListOf(line)
+                while (i + 1 < lines.size && lines[i + 1].trimStart().startsWith("|")) {
+                    i++
+                    tableLines.add(lines[i])
+                }
+                MarkdownTable(tableLines, c)
+            }
+
             line.isBlank() -> Spacer(Modifier.height(2.dp))
 
             else ->
@@ -165,12 +176,91 @@ private fun renderProse(
     }
 }
 
+// ── Markdown table renderer ───────────────────────────────────────────────────
+
+@Composable
+private fun MarkdownTable(lines: List<String>, c: ClawColors) {
+    // Parse each line into cells
+    fun parseLine(line: String): List<String> =
+        line.trim().removeSuffix("|").removePrefix("|").split("|").map { it.trim() }
+
+    // Separator rows look like |---|---| or |:--|--:|
+    fun isSeparator(cells: List<String>) = cells.isNotEmpty() && cells.all { it.matches(Regex("[:\\-]+")) }
+
+    val parsed = lines.map { parseLine(it) }
+    val nonSep = parsed.filter { !isSeparator(it) }
+    if (nonSep.isEmpty()) return
+
+    val headers = nonSep.first()
+    val rows = nonSep.drop(1)
+    val colCount = headers.size.coerceAtLeast(1)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(0.5.dp, c.border, RoundedCornerShape(8.dp))
+            .background(c.card, RoundedCornerShape(8.dp)),
+    ) {
+        // Header row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.cardAlt, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)),
+        ) {
+            headers.forEachIndexed { idx, cell ->
+                if (idx > 0) Box(Modifier.width(0.5.dp).defaultMinSize(minHeight = 1.dp).background(c.border))
+                Text(
+                    inlineAnnotated(cell, c),
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 7.dp),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = c.subtext,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+        HorizontalDivider(color = c.border, thickness = 0.5.dp)
+
+        // Data rows
+        rows.forEachIndexed { rowIdx, row ->
+            if (rowIdx > 0) HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(if (rowIdx % 2 == 1) c.cardAlt.copy(alpha = 0.4f) else Color.Transparent),
+            ) {
+                for (ci in 0 until colCount) {
+                    if (ci > 0) Box(Modifier.width(0.5.dp).defaultMinSize(minHeight = 1.dp).background(c.border.copy(alpha = 0.5f)))
+                    val cell = row.getOrElse(ci) { "" }
+                    Text(
+                        inlineAnnotated(cell, c),
+                        modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp),
+                        fontSize = 12.sp,
+                        color = c.text,
+                        lineHeight = 17.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ── Inline style parser ───────────────────────────────────────────────────────
 
 private fun inlineAnnotated(text: String, c: ClawColors): AnnotatedString = buildAnnotatedString {
     var i = 0
     while (i < text.length) {
         when {
+            // Bold-italic: ***...*** (must check before ** and *)
+            text.startsWith("***", i) -> {
+                val end = text.indexOf("***", i + 3)
+                if (end > i + 2) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                        append(text.substring(i + 3, end))
+                    }
+                    i = end + 3
+                } else { append(text[i]); i++ }
+            }
             // Bold: **...**
             text.startsWith("**", i) -> {
                 val end = text.indexOf("**", i + 2)
@@ -200,16 +290,6 @@ private fun inlineAnnotated(text: String, c: ClawColors): AnnotatedString = buil
                         )
                     ) { append(text.substring(i + 1, end)) }
                     i = end + 1
-                } else { append(text[i]); i++ }
-            }
-            // Bold-italic: ***...*** → bold
-            text.startsWith("***", i) -> {
-                val end = text.indexOf("***", i + 3)
-                if (end > i + 2) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
-                        append(text.substring(i + 3, end))
-                    }
-                    i = end + 3
                 } else { append(text[i]); i++ }
             }
             else -> { append(text[i]); i++ }

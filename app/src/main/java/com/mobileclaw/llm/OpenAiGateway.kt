@@ -91,6 +91,12 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     private fun buildRequestBody(request: ChatRequest): JsonObject {
         val snapshot = config.snapshot()
+        // New OpenAI Responses API models (gpt-4.1+, gpt-5.x, o3, o4-mini) use
+        // {type:"input_image", image_url:"data:..."} — a flat string, not a nested object.
+        // Older models use {type:"image_url", image_url:{url:"...", detail:"auto"}}.
+        val useNewImageFormat = snapshot.model.matches(
+            Regex("gpt-4\\.1.*|gpt-4\\.5.*|gpt-5.*|o3.*|o4.*", RegexOption.IGNORE_CASE)
+        )
         val messages = JsonArray()
         request.messages.forEach { msg ->
             val obj = JsonObject()
@@ -127,11 +133,17 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                         })
                     }
                     contentArr.add(JsonObject().apply {
-                        addProperty("type", "image_url")
-                        add("image_url", JsonObject().apply {
-                            addProperty("url", msg.imageBase64)
-                            addProperty("detail", "auto")
-                        })
+                        if (useNewImageFormat) {
+                            // New Responses API format: flat string value
+                            addProperty("type", "input_image")
+                            addProperty("image_url", msg.imageBase64)
+                        } else {
+                            // Legacy Chat Completions format: nested object
+                            addProperty("type", "image_url")
+                            add("image_url", JsonObject().apply {
+                                addProperty("url", msg.imageBase64)
+                            })
+                        }
                     })
                     obj.add("content", contentArr)
                 }
@@ -153,7 +165,8 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                             "parameters" to mapOf(
                                 "type" to "object",
                                 "properties" to tool.parameters.properties.mapValues { (_, p) ->
-                                    mapOf("type" to p.type, "description" to p.description)
+                                    if (p.type == "array") mapOf("type" to p.type, "description" to p.description, "items" to emptyMap<String, Any>())
+                                    else mapOf("type" to p.type, "description" to p.description)
                                 },
                                 "required" to tool.parameters.required,
                             )

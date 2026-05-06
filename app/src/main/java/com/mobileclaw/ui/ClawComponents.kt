@@ -55,7 +55,8 @@ fun GradientAvatar(
     shape: androidx.compose.ui.graphics.Shape = CircleShape,
     fontSize: TextUnit = (size.value * 0.46f).sp,
 ) {
-    val isImageUri = emoji.startsWith("content://") || emoji.startsWith("file://") || emoji.startsWith("data:")
+    val isImageUri = emoji.startsWith("content://") || emoji.startsWith("file://") ||
+        emoji.startsWith("data:") || emoji.startsWith("/")
     val context = LocalContext.current
     val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = emoji) {
         if (isImageUri) {
@@ -66,6 +67,10 @@ fun GradientAvatar(
                             val base64Data = emoji.substringAfter(",")
                             val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
                             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        }
+                        emoji.startsWith("/") -> {
+                            // Bare file system path — decode directly
+                            BitmapFactory.decodeFile(emoji)?.asImageBitmap()
                         }
                         else -> {
                             context.contentResolver.openInputStream(Uri.parse(emoji))?.use { stream ->

@@ -56,8 +56,20 @@ class HttpSkillExecutor(
 
         return suspendCancellableCoroutine { cont ->
             client.newCall(request).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) =
-                    cont.resumeWithException(e)
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                    val msg = when {
+                        e.message?.contains("No address associated", ignoreCase = true) == true ||
+                        e.message?.contains("Unable to resolve", ignoreCase = true) == true ->
+                            "Network error: cannot resolve host. Check internet connection. (${e.message})"
+                        e.message?.contains("timeout", ignoreCase = true) == true ||
+                        e.message?.contains("timed out", ignoreCase = true) == true ->
+                            "Network error: request timed out. (${e.message})"
+                        e.message?.contains("Connection refused", ignoreCase = true) == true ->
+                            "Network error: connection refused. (${e.message})"
+                        else -> "Network error: ${e.message}"
+                    }
+                    cont.resume(SkillResult(success = false, output = msg))
+                }
 
                 override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                     val body = response.body?.string() ?: ""

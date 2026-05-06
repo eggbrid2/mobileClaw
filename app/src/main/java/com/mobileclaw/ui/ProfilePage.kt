@@ -219,8 +219,8 @@ fun ProfilePage(
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             when (section) {
                 ProfileSection.PORTRAIT -> {
-                    item { Spacer(Modifier.height(4.dp)) }
-                    item {
+                    item(key = "portrait_top_spacer") { Spacer(Modifier.height(4.dp)) }
+                    item(key = "portrait_summary") {
                         PersonalitySummaryCard(
                             summary = personalitySummary,
                             isLoading = personalitySummaryLoading,
@@ -229,11 +229,11 @@ fun ProfilePage(
                         )
                     }
                     if (totalSkillCount > 0 || episodes.isNotEmpty()) {
-                        item { Spacer(Modifier.height(4.dp)) }
-                        item { SkillExplorationCard(episodes = episodes, totalSkillCount = totalSkillCount) }
+                        item(key = "portrait_skill_spacer") { Spacer(Modifier.height(4.dp)) }
+                        item(key = "portrait_skill_card") { SkillExplorationCard(episodes = episodes, totalSkillCount = totalSkillCount) }
                     }
-                    item { Spacer(Modifier.height(4.dp)) }
-                    item {
+                    item(key = "portrait_dim_spacer") { Spacer(Modifier.height(4.dp)) }
+                    item(key = "portrait_dimensions") {
                         DimensionsListSection(
                             dimensions = dimensions,
                             facts = facts,
@@ -242,12 +242,12 @@ fun ProfilePage(
                     }
                 }
                 ProfileSection.MEMORY -> {
-                    item { Spacer(Modifier.height(4.dp)) }
-                    item { MemoryBrowserCard(facts) }
+                    item(key = "memory_spacer") { Spacer(Modifier.height(4.dp)) }
+                    item(key = "memory_browser") { MemoryBrowserCard(facts) }
                 }
                 ProfileSection.HISTORY -> {
                     if (episodes.isEmpty()) {
-                        item {
+                        item(key = "history_empty") {
                             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("📚", fontSize = 32.sp)
@@ -257,8 +257,8 @@ fun ProfilePage(
                             }
                         }
                     } else {
-                        item { Spacer(Modifier.height(4.dp)) }
-                        items(episodes.size) { i -> EpisodeCard(episodes[i]) }
+                        item(key = "history_spacer") { Spacer(Modifier.height(4.dp)) }
+                        items(episodes.size, key = { i -> "ep_${episodes[i].id}" }) { i -> EpisodeCard(episodes[i]) }
                     }
                 }
             }

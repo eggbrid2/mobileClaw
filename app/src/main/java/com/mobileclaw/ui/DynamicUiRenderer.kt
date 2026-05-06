@@ -12,30 +12,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.ripple
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -48,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -56,6 +49,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,13 +72,14 @@ fun DynamicUiRenderer(json: String, onAction: (String) -> Unit) {
     val inputState = remember(json) { mutableStateMapOf<String, String>() }
     val c = LocalClawColors.current
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(c.card)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .padding(12.dp),
+            .border(0.5.dp, c.border, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         RenderNode(root, onAction, inputState)
     }
@@ -148,14 +143,21 @@ private fun RenderNode(
             val title = node["title"]?.asString
             Column(
                 modifier = Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(c.cardAlt)
-                    .border(1.dp, c.border, RoundedCornerShape(8.dp))
-                    .padding(10.dp).then(padMod),
+                    .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+                    .padding(12.dp).then(padMod),
                 verticalArrangement = Arrangement.spacedBy(gap.dp),
             ) {
                 if (!title.isNullOrBlank()) {
-                    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.subtext)
+                    Text(
+                        title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = c.accent,
+                        letterSpacing = 0.2.sp,
+                    )
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp)
                 }
                 children(node["children"]?.asJsonArray)
             }
@@ -175,7 +177,8 @@ private fun RenderNode(
             Text(
                 text = content,
                 fontSize = size.sp,
-                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                lineHeight = (size * 1.5f).sp,
+                fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal,
                 fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
                 color = textColor,
                 textAlign = align,
@@ -198,13 +201,52 @@ private fun RenderNode(
                 }
             }
             when (style) {
-                "outline" -> OutlinedButton(onClick = handleClick, modifier = padMod) { Text(label) }
-                "text"    -> TextButton(onClick = handleClick, modifier = padMod) { Text(label, color = c.accent) }
-                else      -> Button(
-                    onClick = handleClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = c.accent),
-                    modifier = padMod,
-                ) { Text(label) }
+                "outline" -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth().then(padMod)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, c.accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = c.accent),
+                            onClick = handleClick,
+                        )
+                        .padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, fontSize = 14.sp, color = c.accent, fontWeight = FontWeight.Medium)
+                }
+                "text" -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth().then(padMod)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = c.accent),
+                            onClick = handleClick,
+                        )
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, fontSize = 14.sp, color = c.accent)
+                }
+                else -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth().then(padMod)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.85f), c.accent))
+                        )
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = Color.White),
+                            onClick = handleClick,
+                        )
+                        .padding(vertical = 13.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, fontSize = 15.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
 
@@ -213,15 +255,35 @@ private fun RenderNode(
             val placeholder = node["label"]?.asString ?: node["placeholder"]?.asString ?: ""
             val multiline = node["multiline"]?.asBoolean ?: false
             val value = inputState[key] ?: ""
-            OutlinedTextField(
-                value = value,
-                onValueChange = { inputState[key] = it },
-                label = { Text(placeholder) },
-                modifier = Modifier.fillMaxWidth().then(padMod),
-                singleLine = !multiline,
-                minLines = if (multiline) 2 else 1,
-                maxLines = if (multiline) 4 else 1,
-            )
+            Column(modifier = Modifier.fillMaxWidth().then(padMod), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (placeholder.isNotBlank()) {
+                    Text(placeholder, fontSize = 12.sp, color = c.subtext)
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = { inputState[key] = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = !multiline,
+                    minLines = if (multiline) 2 else 1,
+                    maxLines = if (multiline) 5 else 1,
+                    textStyle = TextStyle(color = c.text, fontSize = 14.sp, lineHeight = 20.sp),
+                    decorationBox = { inner ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(c.cardAlt)
+                                .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            if (value.isEmpty()) {
+                                Text("输入内容…", fontSize = 14.sp, color = c.subtext.copy(alpha = 0.5f))
+                            }
+                            inner()
+                        }
+                    },
+                )
+            }
         }
 
         "select" -> {
@@ -229,20 +291,39 @@ private fun RenderNode(
             val options = node["options"]?.asJsonArray?.map { it.asString } ?: return
             var expanded by remember { mutableStateOf(false) }
             val selected = inputState.getOrPut(key) { options.firstOrNull() ?: "" }
-            ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                OutlinedTextField(
-                    value = selected,
-                    onValueChange = {},
-                    readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable).then(padMod),
-                )
-                ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    for (opt in options) {
-                        DropdownMenuItem(
-                            text = { Text(opt) },
-                            onClick = { inputState[key] = opt; expanded = false },
-                        )
+            val label = node["label"]?.asString ?: node["placeholder"]?.asString
+
+            Column(modifier = Modifier.fillMaxWidth().then(padMod), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!label.isNullOrBlank()) {
+                    Text(label, fontSize = 12.sp, color = c.subtext)
+                }
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                    OutlinedTextField(
+                        value = selected,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = c.text,
+                            unfocusedTextColor = c.text,
+                            focusedBorderColor = c.accent,
+                            unfocusedBorderColor = c.border,
+                            focusedContainerColor = c.cardAlt,
+                            unfocusedContainerColor = c.cardAlt,
+                        ),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.background(c.card),
+                    ) {
+                        for (opt in options) {
+                            DropdownMenuItem(
+                                text = { Text(opt, color = c.text, fontSize = 14.sp) },
+                                onClick = { inputState[key] = opt; expanded = false },
+                            )
+                        }
                     }
                 }
             }
@@ -266,39 +347,45 @@ private fun RenderNode(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().height(heightDp.dp)
-                        .clip(RoundedCornerShape(6.dp)).then(padMod),
+                        .clip(RoundedCornerShape(8.dp)).then(padMod),
                 )
             } else {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(heightDp.dp)
-                        .clip(RoundedCornerShape(6.dp)).background(c.cardAlt).then(padMod),
+                        .clip(RoundedCornerShape(8.dp)).background(c.cardAlt).then(padMod),
                     contentAlignment = Alignment.Center,
-                ) { Text(src.take(60), fontSize = 10.sp, color = c.subtext) }
+                ) { Text("🖼️ ${src.take(50)}", fontSize = 11.sp, color = c.subtext) }
             }
         }
 
-        "divider" -> Box(
-            modifier = Modifier.fillMaxWidth().height(0.5.dp).background(c.border).then(padMod),
+        "divider" -> HorizontalDivider(
+            modifier = Modifier.then(padMod),
+            color = c.border,
+            thickness = 0.5.dp,
         )
 
-        "spacer" -> Spacer(Modifier.height((node["size"]?.asInt ?: 8).dp))
+        "spacer" -> Spacer(Modifier.height((node["size"]?.asInt ?: 4).dp))
 
         "progress" -> {
             val value = (node["value"]?.asFloat ?: 0f).coerceIn(0f, 1f)
             val label = node["label"]?.asString
-            Column(modifier = Modifier.fillMaxWidth().then(padMod), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().then(padMod), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 if (label != null) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(label, fontSize = 12.sp, color = c.subtext)
-                        Text("${(value * 100).roundToInt()}%", fontSize = 12.sp, color = c.accent)
+                        Text(label, fontSize = 13.sp, color = c.text)
+                        Text("${(value * 100).roundToInt()}%", fontSize = 13.sp, color = c.accent, fontWeight = FontWeight.Medium)
                     }
                 }
-                LinearProgressIndicator(
-                    progress = { value },
-                    modifier = Modifier.fillMaxWidth(),
-                    color = c.accent,
-                    trackColor = c.border,
-                )
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)).background(c.border),
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(value).height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Brush.horizontalGradient(listOf(c.accent.copy(0.8f), c.accent))),
+                    )
+                }
             }
         }
 
@@ -307,12 +394,12 @@ private fun RenderNode(
             val bgColor = if (node["color"] != null) nodeColor(node, "color", c) else c.accent
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(bgColor.copy(alpha = 0.15f))
-                    .border(1.dp, bgColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                    .border(0.5.dp, bgColor.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp)
                     .then(padMod),
-            ) { Text(text, fontSize = 11.sp, color = bgColor, fontWeight = FontWeight.Medium) }
+            ) { Text(text, fontSize = 12.sp, color = bgColor, fontWeight = FontWeight.Medium) }
         }
 
         "table" -> {
@@ -322,35 +409,36 @@ private fun RenderNode(
             } ?: emptyList()
             Column(
                 modifier = Modifier.fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, c.border, RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(0.5.dp, c.border, RoundedCornerShape(8.dp))
                     .then(padMod),
             ) {
                 if (headers.isNotEmpty()) {
-                    Row(modifier = Modifier.background(c.cardAlt).height(IntrinsicSize.Min)) {
+                    Row(modifier = Modifier.fillMaxWidth().background(c.cardAlt)) {
                         for ((i, h) in headers.withIndex()) {
-                            if (i > 0) Box(Modifier.width(1.dp).background(c.border))
+                            if (i > 0) Box(Modifier.width(0.5.dp).defaultMinSize(minHeight = 1.dp).background(c.border))
                             Text(
                                 h,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).width(100.dp),
+                                modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 7.dp),
                                 fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.subtext,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp)
                 }
                 for ((ri, row) in rows.withIndex()) {
-                    if (ri > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(c.border))
-                    Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                    if (ri > 0) HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .background(if (ri % 2 == 1) c.cardAlt.copy(alpha = 0.4f) else Color.Transparent),
+                    ) {
                         for ((ci, cell) in row.withIndex()) {
-                            if (ci > 0) Box(Modifier.width(0.5.dp).background(c.border))
+                            if (ci > 0) Box(Modifier.width(0.5.dp).defaultMinSize(minHeight = 1.dp).background(c.border.copy(alpha = 0.5f)))
                             Text(
                                 cell,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp).width(100.dp),
-                                fontSize = 12.sp, color = c.text,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp),
+                                fontSize = 12.sp, color = c.text, lineHeight = 17.sp,
                             )
                         }
                     }
@@ -372,32 +460,51 @@ private fun ChartBar(node: JsonObject, c: ClawColors) {
     val title = node["title"]?.asString
     val maxVal = data.maxOrNull()?.takeIf { it > 0f } ?: 1f
 
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!title.isNullOrBlank()) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.subtext)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         }
-        Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-            val labelHeightPx = 20f
-            val chartH = size.height - labelHeightPx
+        Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+            val labelH = 22f
+            val chartH = size.height - labelH
             val slotW = size.width / data.size
-            val barW = slotW * 0.55f
+            val barW = slotW * 0.52f
             val textPaint = Paint().apply {
-                color = android.graphics.Color.argb(160, 128, 128, 128)
+                color = android.graphics.Color.argb(140, 170, 170, 200)
                 textSize = 9.dp.toPx()
                 textAlign = Paint.Align.CENTER
             }
-
+            val accentArgb = android.graphics.Color.argb(
+                (c.accent.alpha * 255).toInt(),
+                (c.accent.red * 255).toInt(),
+                (c.accent.green * 255).toInt(),
+                (c.accent.blue * 255).toInt(),
+            )
+            val accentDimArgb = android.graphics.Color.argb(
+                (c.accent.alpha * 150).toInt(),
+                (c.accent.red * 255).toInt(),
+                (c.accent.green * 255).toInt(),
+                (c.accent.blue * 255).toInt(),
+            )
             for ((i, v) in data.withIndex()) {
-                val x = slotW * i + slotW / 2f - barW / 2f
+                val x = slotW * i + (slotW - barW) / 2f
                 val barH = (v / maxVal) * chartH
-                drawRect(
-                    color = c.accent.copy(alpha = 0.8f),
-                    topLeft = Offset(x, chartH - barH),
-                    size = Size(barW, barH),
-                )
+                // Gradient bar via drawIntoCanvas
+                drawIntoCanvas { canvas ->
+                    val barPaint = Paint().apply {
+                        shader = android.graphics.LinearGradient(
+                            x, chartH - barH, x, chartH,
+                            accentArgb, accentDimArgb,
+                            android.graphics.Shader.TileMode.CLAMP,
+                        )
+                    }
+                    canvas.nativeCanvas.drawRoundRect(
+                        x, chartH - barH, x + barW, chartH, 4.dp.toPx(), 4.dp.toPx(), barPaint
+                    )
+                }
                 val label = labels.getOrNull(i)?.takeIf { it.isNotBlank() } ?: continue
                 drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawText(label, x + barW / 2f, size.height, textPaint)
+                    canvas.nativeCanvas.drawText(label, x + barW / 2f, size.height - 3.dp.toPx(), textPaint)
                 }
             }
         }
@@ -415,16 +522,16 @@ private fun ChartLine(node: JsonObject, c: ClawColors) {
     val minVal = data.minOrNull() ?: 0f
     val range = max(maxVal - minVal, 0.001f)
 
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!title.isNullOrBlank()) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.subtext)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         }
-        Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
-            val labelHeightPx = 20f
-            val chartH = size.height - labelHeightPx
+        Canvas(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+            val labelH = 22f
+            val chartH = size.height - labelH
             val step = if (data.size > 1) size.width / (data.size - 1) else size.width
             val textPaint = Paint().apply {
-                color = android.graphics.Color.argb(160, 128, 128, 128)
+                color = android.graphics.Color.argb(140, 170, 170, 200)
                 textSize = 9.dp.toPx()
                 textAlign = Paint.Align.CENTER
             }
@@ -442,16 +549,17 @@ private fun ChartLine(node: JsonObject, c: ClawColors) {
                 lineTo(0f, chartH)
                 close()
             }
-            drawPath(fillPath, color = c.accent.copy(alpha = 0.12f))
+            drawPath(fillPath, color = c.accent.copy(alpha = 0.1f))
             drawPath(linePath, color = c.accent, style = Stroke(width = 2.dp.toPx()))
 
             for ((i, v) in data.withIndex()) {
                 val x = step * i
                 val y = chartH - ((v - minVal) / range) * chartH
+                drawCircle(c.cardAlt, radius = 4.5.dp.toPx(), center = Offset(x, y))
                 drawCircle(c.accent, radius = 3.dp.toPx(), center = Offset(x, y))
                 val label = labels.getOrNull(i)?.takeIf { it.isNotBlank() } ?: continue
                 drawIntoCanvas { canvas ->
-                    canvas.nativeCanvas.drawText(label, x, size.height, textPaint)
+                    canvas.nativeCanvas.drawText(label, x, size.height - 3.dp.toPx(), textPaint)
                 }
             }
         }

@@ -83,12 +83,19 @@ fun SkillsPage(
     }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    // Clamp when tagGroups shrinks (e.g. after skill deletion empties a tag group).
+    // Use safeTabIndex everywhere so ScrollableTabRow never receives an out-of-bounds value.
+    val safeTabIndex = selectedTabIndex.coerceIn(0, tagGroups.size)
+    LaunchedEffect(tagGroups.size) {
+        if (selectedTabIndex > tagGroups.size) selectedTabIndex = tagGroups.size
+    }
+
     // tabs: tag groups + market tab
     val tabCount = tagGroups.size + 1
-    val isMarketTab = selectedTabIndex == tagGroups.size
+    val isMarketTab = safeTabIndex == tagGroups.size
 
-    val selectedGroup = if (!isMarketTab) tagGroups.getOrNull(selectedTabIndex) else null
-    val byLevel = remember(selectedTabIndex, tagGroups) {
+    val selectedGroup = if (!isMarketTab) tagGroups.getOrNull(safeTabIndex) else null
+    val byLevel = remember(safeTabIndex, tagGroups) {
         selectedGroup?.third?.groupBy { it.injectionLevel }?.toSortedMap()
     }
     val multiLevel = (byLevel?.size ?: 0) > 1
@@ -167,14 +174,14 @@ fun SkillsPage(
 
         // ── Horizontal tab row ───────────────────────────────────────────────
         ScrollableTabRow(
-            selectedTabIndex = selectedTabIndex,
+            selectedTabIndex = safeTabIndex,
             containerColor = c.surface,
             contentColor = c.accent,
             edgePadding = 4.dp,
             divider = { HorizontalDivider(color = c.border, thickness = 0.5.dp) },
         ) {
             tagGroups.forEachIndexed { index, (tag, emoji, skills) ->
-                val selected = selectedTabIndex == index
+                val selected = safeTabIndex == index
                 Tab(
                     selected = selected,
                     onClick = { selectedTabIndex = index },

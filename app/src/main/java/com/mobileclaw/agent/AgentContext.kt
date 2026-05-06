@@ -162,30 +162,75 @@ Rules:
 Example: "任务完成，你想要什么？ [[查看结果|再来一次|没了]]"
 
 ## Embedded UI Components
-Embed interactive UI anywhere in your reply using a ```ui block containing a JSON tree.
-Supported types and their key props:
-- column / row: layout containers — gap (dp), padding (dp), children:[]
-- card: styled box — title, gap, padding, children:[]
+**PREFER embedded UI over plain text** whenever you return structured results, options, forms, data summaries, or anything the user might interact with. UI blocks make the chat feel like a real app — use them proactively.
+
+Embed interactive UI anywhere in your reply using a ` + "```" + `ui block containing a single-line JSON tree. The screen is ~360dp wide — design accordingly.
+
+### Component reference
+Layout:
+- column: gap (dp), padding (dp), children:[]  — DEFAULT wrapper for any multi-element UI
+- row: gap (dp), padding (dp), children:[]  — use sparingly, max 3 children on mobile
+- card: title, gap (dp), children:[]  — elevated section with title bar
+
+Content:
 - text: content, size (sp, default 14), bold, italic, color (accent/subtext/red/green/blue/#hex), align (start/center/end)
-- button: label, action (see below), style (filled/outline/text)
-- input: key (unique id), placeholder — user types a value; reference as {key} in button actions
-- select: key, options:["A","B","C"]
-- image: src (data:image/... base64), height (dp)
-- table: headers:["Col1","Col2"], rows:[["A","1"],["B","2"]]
-- progress: value (0.0–1.0), label
-- chart_line / chart_bar: data:[1,2,3], labels:["Mon","Tue","Wed"], title
-- divider — horizontal rule
+- badge: text, color (accent/red/green/blue/#hex)  — pill label
+- divider  — thin separator line
 - spacer: size (dp)
-- badge: text, color (accent/red/green/#hex)
-Action protocol for buttons:
-- "send:text to send" — sends the literal text as a user message
-- "submit:Search for {q}" — replaces {q} with the current value of input[key="q"], then sends
-- "copy:text to copy" — copies text to clipboard (no message sent)
-Example (city weather form):
-```ui
-{"type":"column","gap":10,"children":[{"type":"text","content":"城市天气查询","bold":true,"size":16},{"type":"input","key":"city","placeholder":"输入城市名"},{"type":"button","label":"查询天气","action":"submit:查询{city}的今日天气"}]}
-```
-Use embedded UI when structured display or interactive input (forms, dashboards, option pickers) would be clearer than plain text. Keep JSON compact — one line is fine.
+- progress: value (0.0–1.0), label
+- image: src (data:image/... or https URL), height (dp)
+
+Data display:
+- table: headers:["Col1","Col2"], rows:[["A","1"],["B","2"]]  — for tabular data
+- chart_line: data:[floats], labels:[strings], title  — trend over time
+- chart_bar: data:[floats], labels:[strings], title  — category comparison
+
+Input & actions:
+- input: key (unique id), placeholder, label  — user types; reference as {key} in button actions
+- select: key, options:["A","B","C"]  — dropdown picker
+- button: label, action (see below), style (filled/outline/text)  — filled is primary CTA
+
+### Action protocol
+- "send:text" — sends literal text as user message
+- "submit:Do {q} for {city}" — replaces {key} placeholders from input/select values, then sends
+- "copy:text" — copies to clipboard silently
+
+### Design principles (IMPORTANT — follow these for attractive UI)
+1. Always wrap everything in a top-level column — never bare children
+2. Use card to group related content with a title; nest cards inside columns for sections
+3. Use text with bold:true and size:16–18 for section headings
+4. Use badge for status chips (green=ok, red=error, accent=info)
+5. Separate logical sections with divider or spacer:8
+6. For forms: label at top → inputs → full-width filled button at bottom
+7. For results: show a summary text first, then a table or chart, then action buttons
+8. For choices: use select + submit button rather than multiple send buttons
+9. Buttons: style filled for primary action, outline for secondary, text for tertiary
+10. Never put more than 3 items in a row — column is safer on narrow screens
+
+### When to use embedded UI (use liberally)
+- Any data lookup result (weather, prices, search results) → table or cards
+- Any multi-step process → progress bar + status text
+- Any choices or options the user needs to select → select or buttons
+- Any form or input needed → input + button
+- Summaries with metrics → card grid with text + badge
+- Comparisons → table or chart_bar
+- Time series → chart_line
+
+### Examples
+Simple search form:
+` + "```" + `ui
+{"type":"column","gap":10,"children":[{"type":"text","content":"城市天气查询","bold":true,"size":16},{"type":"input","key":"city","placeholder":"输入城市名"},{"type":"button","label":"查询","action":"submit:查询{city}的今日天气","style":"filled"}]}
+` + "```" + `
+
+Result card with actions:
+` + "```" + `ui
+{"type":"column","gap":8,"children":[{"type":"card","title":"北京天气","children":[{"type":"text","content":"☀️ 晴，26°C","size":18,"bold":true},{"type":"text","content":"湿度 45% · 东风 3级","color":"subtext"},{"type":"badge","text":"空气优","color":"green"}]},{"type":"row","gap":8,"children":[{"type":"button","label":"7日预报","action":"send:北京7日天气预报","style":"outline"},{"type":"button","label":"穿衣建议","action":"send:今天北京穿什么","style":"text"}]}]}
+` + "```" + `
+
+Data dashboard:
+` + "```" + `ui
+{"type":"column","gap":10,"children":[{"type":"text","content":"本周运动统计","bold":true,"size":16},{"type":"chart_bar","data":[3.2,5.1,2.0,6.8,4.5,7.2,1.5],"labels":["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],"title":"公里/天"},{"type":"row","gap":8,"children":[{"type":"card","title":"总计","children":[{"type":"text","content":"30.3 km","bold":true,"size":18,"color":"accent"}]},{"type":"card","title":"最佳","children":[{"type":"text","content":"7.2 km","bold":true,"size":18,"color":"green"}]}]}]}
+` + "```"
 
 ## Self-Upgrade API (Local)
 The app exposes a local HTTP API at http://127.0.0.1:52732 for self-modification:

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -122,6 +124,21 @@ class MainActivity : ComponentActivity() {
                     BackHandler(enabled = uiState.canNavigateBack) {
                         vm.navigateBack()
                     }
+                    // HOME → CHAT: pressing back on the launcher goes to chat
+                    BackHandler(enabled = !uiState.canNavigateBack && uiState.currentPage == AppPage.HOME) {
+                        vm.navigate(AppPage.CHAT)
+                    }
+                    // CHAT → exit: double-press within 2 s to exit
+                    var lastBackPressMs by remember { mutableStateOf(0L) }
+                    BackHandler(enabled = !uiState.canNavigateBack && uiState.currentPage == AppPage.CHAT) {
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastBackPressMs < 2000L) {
+                            finish()
+                        } else {
+                            lastBackPressMs = now
+                            Toast.makeText(this@MainActivity, "再按一次退出", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                     // Drawer close: highest priority (registered last → wins when both are enabled)
                     BackHandler(enabled = drawerState.isOpen) {
                         scope.launch { drawerState.close() }
@@ -158,7 +175,7 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         },
-                        gesturesEnabled = uiState.currentPage == AppPage.CHAT,
+                        gesturesEnabled = uiState.currentPage == AppPage.CHAT && uiState.openHtmlAttachment == null,
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             // Block all touches to ChatScreen when another page is active.

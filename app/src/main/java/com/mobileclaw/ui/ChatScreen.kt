@@ -1,8 +1,13 @@
 package com.mobileclaw.ui
 
+import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Base64
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.GetContent
@@ -27,6 +32,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -284,7 +290,7 @@ fun ChatScreen(
                         }
                     }
                 }
-                items(runState.messages, key = { it.hashCode() }) { msg ->
+                itemsIndexed(runState.messages, key = { idx, _ -> "msg_$idx" }) { _, msg ->
                     when (msg.role) {
                         MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
                         MessageRole.AGENT -> AgentBubble(
@@ -1459,6 +1465,7 @@ private fun ShellCommandCard(text: String) {
 
 @Composable
 private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1466,8 +1473,7 @@ private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.92f))
-                .clickable(onClick = onDismiss),
+                .background(Color.Black.copy(alpha = 0.92f)),
             contentAlignment = Alignment.Center,
         ) {
             Image(
@@ -1475,10 +1481,67 @@ private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .clickable(onClick = onDismiss),
                 contentScale = ContentScale.Fit,
             )
+            // Save button (bottom-center)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+                    .navigationBarsPadding(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                        .clickable {
+                            saveBitmapToGallery(context, bitmap)
+                        }
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                ) {
+                    Text("⬇ 保存图片", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                        .clickable(onClick = onDismiss)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                ) {
+                    Text("关闭", fontSize = 14.sp, color = Color.White)
+                }
+            }
         }
+    }
+}
+
+private fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap) {
+    val filename = "MobileClaw_${System.currentTimeMillis()}.jpg"
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, filename)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MobileClaw")
+            }
+            val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            uri?.let { context.contentResolver.openOutputStream(it) }?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+        } else {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+            val file = java.io.File(dir, filename)
+            file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out) }
+            android.media.MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
+        }
+        Toast.makeText(context, "图片已保存到相册", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
     }
 }
 

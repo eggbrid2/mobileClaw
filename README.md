@@ -60,24 +60,75 @@ No special setup. No coding. Just ask.
 
 | Feature | Description |
 |---------|-------------|
+| **Interactive Chat UI** | AI proactively embeds live buttons, forms, cards, charts, and data tables inside chat messages using a JSON DSL — the chat becomes an interactive app surface |
+| **Rich Markdown** | Full markdown in AI replies: pipe tables, code fences, bold/italic/inline-code, blockquotes, ordered/unordered lists, and horizontal rules |
 | **Screen Understanding** | Set-of-Mark annotated screenshots — works on native, Flutter, React Native, WebView, and games |
 | **Gesture Control** | Tap, long-press, scroll, swipe, type with pixel-perfect accuracy |
 | **Web Access** | Search, fetch, browse, and run JavaScript in a hidden WebView |
-| **Mini-App Builder** | AI generates full interactive HTML apps with native Android bridge (SQLite, Python, files, clipboard, device APIs) |
+| **Mini-App Builder** | AI generates full interactive HTML apps with native Android bridge (SQLite, Python, files, clipboard, device APIs, launch 3rd-party apps) |
 | **Role / Persona System** | Switch between specialist agents (Coder, Web Agent, Phone Operator, Creator) with forced skills and model overrides |
-| **Multi-Agent Group Chat** | Pull any combination of AI roles into one conversation — they @mention each other, stream responses live, and stop automatically when consensus is reached |
+| **Multi-Agent Group Chat** | Pull any combination of AI roles into one conversation — they @mention each other, stream responses live, and stop automatically |
 | **Persistent Sessions** | Full conversation history in Room DB — pick up any past task exactly where you left off |
 | **Dynamic Model Switching** | Agent autonomously switches LLM mid-task when it needs vision, reasoning, or image generation |
 | **User Config** | Agent reads and writes your personal config — preferences persist across sessions |
 | **Multi-Layer Memory** | Semantic facts · Episodic task log · Conversation history · Working context window |
+| **Local Embedding** | Episodic memory retrieval uses on-device n-gram embedding — no embedding API required |
 | **Virtual Display** | Run apps invisibly in the background on a hidden 1080×1920 display |
 | **Python Runtime** | Execute Python on-device (Chaquopy) — data processing, scraping, math, file parsing |
 | **Image Generation** | Generate images via DALL-E or any compatible API, returned as attachments |
 | **Privileged Server** | Self-contained shell-UID server bundled in the APK — no Shizuku needed |
-| **Personalised Console** | Agent rewrites the LAN web console for each user — custom themes, widgets, and shortcuts via `console_editor` |
+| **Personalised Console** | Agent rewrites the LAN web console for each user — custom themes, widgets, and shortcuts |
 | **Skill Self-Extension** | Agent creates new skills from natural language; promotes them to the skill library with one tap |
 | **Chain-of-Thought** | Native DeepSeek-R1 `reasoning_content` streaming; thinking shown live in UI |
+| **User Profile** | AI builds a live model of who you are — habits, goals, preferences — with a skill exploration progress tracker |
 | **ROM Compatible** | Handles MIUI, EMUI, ColorOS, OriginOS, One UI, and stock Android |
+
+---
+
+## 💬 Interactive Chat UI
+
+The AI can embed live, interactive components directly inside its chat replies — not just plain text or static markdown.
+
+When the AI wants to offer choices, collect input, show a table, or display a chart, it outputs a ` ```ui ` block with a compact JSON tree. MobileClaw renders it inline as native Compose components.
+
+```
+User: "Show me the top 3 search engines and let me pick one"
+
+AI:
+```ui
+{"type":"column","gap":10,"children":[
+  {"type":"text","content":"Choose a search engine","bold":true},
+  {"type":"button","label":"Google","action":"send:Use Google"},
+  {"type":"button","label":"DuckDuckGo","action":"send:Use DuckDuckGo","style":"outline"},
+  {"type":"button","label":"Bing","action":"send:Use Bing","style":"outline"}
+]}
+```
+```
+
+**Supported component types:**
+
+| Type | Key props |
+|------|-----------|
+| `column` / `row` | `gap`, `padding`, `children` |
+| `card` | `title`, `children` |
+| `text` | `content`, `size`, `bold`, `italic`, `color`, `align` |
+| `button` | `label`, `action`, `style` (filled / outline / text) |
+| `input` | `key`, `placeholder` — value referenced as `{key}` in button actions |
+| `select` | `key`, `options` |
+| `table` | `headers`, `rows` |
+| `chart_bar` / `chart_line` | `data`, `labels`, `title` |
+| `progress` | `value` (0–1), `label` |
+| `badge` | `text`, `color` |
+| `image` | `src` (base64 data URI), `height` |
+| `divider` / `spacer` | — |
+
+**Action protocol:**
+
+| Prefix | Behaviour |
+|--------|-----------|
+| `send:text` | Sends text as the user's next message |
+| `submit:template {key}` | Replaces `{key}` with the current input value, then sends |
+| `copy:text` | Copies text to clipboard silently |
 
 ---
 
@@ -90,10 +141,11 @@ No special setup. No coding. Just ask.
 │  ┌─────────────────┐   ┌──────────────────────┐  ┌───────────────┐  │
 │  │   Chat UI        │   │    Agent Runtime      │  │ Memory System │  │
 │  │  (Compose)       │◄──┤  ReAct Loop           ├─►│ Semantic      │  │
-│  │  Sessions        │   │  Role-aware           │  │ Episodic      │  │
-│  │  Drawer Nav      │   │  Dynamic model        │  │ Conversation  │  │
-│  └─────────────────┘   └──────────┬───────────┘  │ Working Window│  │
-│                                   │               └───────────────┘  │
+│  │  Dynamic UI DSL  │   │  Role-aware           │  │ Episodic      │  │
+│  │  Sessions        │   │  Single system prompt │  │ Conversation  │  │
+│  │  Drawer Nav      │   │  per task             │  │ Working Window│  │
+│  └─────────────────┘   └──────────┬───────────┘  └───────────────┘  │
+│                                   │                                   │
 │  ┌────────────────────────────────▼──────────────────────────────┐  │
 │  │                       Skill Registry                           │  │
 │  │                                                                │  │
@@ -119,7 +171,7 @@ No special setup. No coding. Just ask.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The agent follows a **ReAct loop**: reason about the next action → call a skill → observe the result → repeat. Each iteration hits the LLM once. The active Role determines which skills are always available and whether a specific model is forced.
+The agent follows a **ReAct loop**: reason about the next action → call a skill → observe the result → repeat. The system prompt and skill list are built once per task (not per step), keeping token usage efficient.
 
 ---
 
@@ -157,7 +209,8 @@ cd mobileClaw
    | API Endpoint | `https://api.openai.com` or `http://192.168.1.x:11434` |
    | API Key | Your service key |
    | Chat Model | `gpt-4o` (switchable from top bar) |
-   | Embedding Model | `text-embedding-3-small` (for episodic memory) |
+
+   > Embedding is handled locally — no embedding model or API key required.
 
 3. Tap **Save** — the status dot turns green when ready
 
@@ -175,7 +228,7 @@ Roles are specialist agent personas that come pre-loaded with targeted skills, a
 | **Phone Operator** | 📱 | `see_screen`, `tap`, `scroll` | UI automation, app control |
 | **Creator** | 🎨 | `generate_image`, `create_html` | Visual content, mini-apps |
 
-Create your own custom roles: give them a name, emoji, system prompt, any combination of skills, and an optional model override. Save them and activate them via the drawer.
+Create your own custom roles: give them a name, emoji, system prompt, any combination of skills, and an optional model override. All roles — including built-ins — are editable; built-in roles have a **Restore** button.
 
 ---
 
@@ -202,7 +255,6 @@ Claw.files.read("notes.txt")
 
 // Full SQLite database
 await Claw.sql("CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, title TEXT)")
-await Claw.sql("INSERT INTO tasks VALUES (null, ?)", ["Buy milk"])
 const res = await Claw.sql("SELECT * FROM tasks")
 
 // Python backend (on-device, no server)
@@ -210,6 +262,11 @@ const r = await Claw.python({ action: "analyze", data: [1, 2, 3, 4, 5] })
 
 // HTTP requests (no CORS)
 const r = await Claw.fetch("https://api.example.com/data", { method: "GET" })
+
+// Native Android integration
+Claw.launchApp("com.tencent.mm")         // open WeChat (or any installed app)
+Claw.openUrl("https://example.com")      // open in browser / associated app
+Claw.shareText("check this out", "tip")  // Android share sheet
 
 // Device integration
 Claw.toast("Saved!")
@@ -221,7 +278,9 @@ Claw.ask("Summarize my tasks for today")
 Claw.close()
 ```
 
-Mini-apps are persisted under the **Apps** section of the drawer and can be re-opened, updated, or deleted at any time.
+> **Note:** `window.fetch` and `XMLHttpRequest` are blocked by CORS in WebView. The bridge redirects any accidental `fetch()` calls to `Claw.fetch()` with a visible warning, and global error handlers surface silent Promise rejections as Toast messages.
+
+Mini-apps are persisted under the **Apps** section and can be re-opened, updated, or deleted at any time.
 
 ---
 
@@ -261,11 +320,11 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 | `generate_image` | Generate images via DALL-E or compatible API |
 | `generate_icon` | Generate AI app icons (DashScope/CogView/OpenAI-compat) |
 | `create_html` | Build and persist a full interactive mini-app |
-| `console_editor` | Personalise the LAN console web page — full rewrite, CSS theme injection, or JS widget injection |
+| `console_editor` | Personalise the LAN console — full rewrite, CSS/JS injection |
 | `user_config` | Read/write the user's personal configuration store |
 | `role_manager` | Create, update, delete, and activate agent roles |
 | `session_manager` | Create, switch, rename, and delete chat sessions |
-| `switch_role` | Switch the active role persona |
+| `app_manager` | Create, update, delete, and launch HTML mini-apps |
 
 ### Level 2 — On-Demand
 
@@ -277,7 +336,6 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 | `skill_check` | List all registered skills with parameters |
 | `skill_notes` | Read/write user notes and AI-generated remarks per skill |
 | `check_permissions` | Inspect and request app permissions |
-| `app_manager` | Create, update, delete, and launch HTML mini-apps with native Android bridge |
 | `create_file` | Read and write files in app storage |
 | `vd_setup` | Configure virtual display parameters |
 
@@ -285,93 +343,42 @@ Skills are the agent's action primitives. Each exposes a typed JSON schema and r
 
 ## 🧠 Memory System
 
-```
-Task Goal
-    │
-    ▼
-┌──────────────────────────────────────────────┐
-│            System Prompt Builder              │
-│                                               │
-│  ┌─────────────────┐  ┌─────────────────────┐ │
-│  │  Semantic Memory │  │   Episodic Memory   │ │
-│  │  "Known facts:   │  │  "Past tasks like   │ │
-│  │   your timezone, │  │   this taught you:  │ │
-│  │   preferred apps,│  │   swipe right on    │ │
-│  │   writing style" │  │   feed to refresh…" │ │
-│  └─────────────────┘  └─────────────────────┘ │
-└──────────────────────────────────────────────┘
-    │
-    ▼
-┌──────────────────────────────────────────────┐
-│              Working Memory                   │
-│   (sliding window · 4096-token budget)        │
-│   Step 1 → Step 2 → … → Step N               │
-└──────────────────────────────────────────────┘
-```
-
 | Layer | Storage | Retention | Purpose |
 |-------|---------|-----------|---------|
 | **Semantic** | Room DB | Permanent | Device facts, app info, user preferences — injected every task |
-| **Episodic** | Room DB + embeddings | 100 tasks / 90 days | Task experiences with cosine-similarity retrieval |
+| **Episodic** | Room DB + local vectors | 100 tasks / 90 days | Task experiences; retrieved by cosine similarity using on-device n-gram embedding (no API) |
 | **Conversation** | Room DB | 80 messages / 90 days | Chat history for user profile auto-extraction |
-| **Working** | In-memory deque | Current task only | Recent steps within LLM context window |
+| **Working** | In-memory deque | Current task only | Recent steps within token budget; screenshots capped to last 2 steps to prevent large requests |
 
-**User Profile Page**: MobileClaw builds a live model of who you are — your habits, goals, timezone, preferences — extracted automatically from conversation history via LLM. View and edit it in **Profile → Facts**.
-
----
-
-## 💬 Sessions
-
-Every conversation is persisted to Room DB with full message history, log lines, and attachments. Switch between past conversations from the left drawer — each session remembers exactly where you left off.
-
-The agent can also manage sessions programmatically: create a new session for a task, rename it when it discovers the topic, and archive it when done.
+**User Profile Page**: MobileClaw builds a live model of who you are — habits, goals, timezone, preferences — extracted automatically from conversation history. Includes a **Skill Exploration** progress bar showing how many of the available skills you've actually used, with milestone labels.
 
 ---
 
 ## 👥 Multi-Agent Group Chat
 
-Stop talking to one AI at a time. Create a **Group**, invite multiple roles, and watch them collaborate — or argue — until the job is done.
-
-```
-"Start a group with Coder, Web Agent, and General.
- Research the best Python web scraping library, then implement it."
-```
+Stop talking to one AI at a time. Create a **Group**, invite multiple roles, and watch them collaborate until the job is done.
 
 **How it works:**
 
 1. **Create a group** — pick a name, emoji, and any subset of your roles
 2. **Send a message** — all members see the full conversation history
-3. **Agents chain naturally** — when an agent finishes, it @mentions the next relevant member; the loop continues until an agent responds without an @mention (meaning: done)
-4. **@mention manually** — type `@RoleName` in your message to direct a question to a specific agent
-5. **Stop any time** — hit the ■ button; the running agent finishes its current response and the loop halts
-
-**What makes it different:**
+3. **Agents chain naturally** — an agent @mentions the next relevant member; the loop continues until someone finishes without an @mention
+4. **@mention manually** — type `@RoleName` to direct a question to a specific agent
+5. **Stop any time** — hit the ■ button
 
 | Feature | Detail |
 |---------|--------|
-| **Live streaming** | Each agent's response streams token-by-token; you see them think |
-| **Loop guard** | Max 5 chained agent turns per message — prevents infinite AI debates |
-| **Per-agent color coding** | Every role gets a distinct accent color so you always know who's speaking |
-| **Full history context** | Each agent sees the complete conversation, not just the last message |
-| **@mention highlighting** | `@mentions` are rendered in the speaker's color inside bubbles |
-| **Persistent** | Group messages stored in Room DB — reopen any group and continue exactly where you left off |
-
-**Example groups you can build:**
-
-| Group | Members | Use case |
-|-------|---------|---------|
-| 🛠️ Dev Squad | Coder + Web Agent | Research → implement → test cycle |
-| 🔬 Research Panel | General + Web Agent | Multi-angle deep research with cross-checking |
-| 🎨 Creative Studio | Creator + General | Brainstorm → generate → review |
-| 📱 Phone Squad | Phone Operator + Web Agent | Look something up then act on it |
+| **Live streaming** | Each agent's response streams token-by-token |
+| **Loop guard** | Max 5 chained agent turns per message |
+| **Per-agent color coding** | Every role gets a distinct accent color |
+| **Full history context** | Each agent sees the complete conversation |
+| **Persistent** | Group messages stored in Room DB |
 
 ---
 
 ## 🖥️ Virtual Display
 
-MobileClaw launches apps on a hidden 1080×1920 virtual display, invisible to you. The agent reads and controls them via the accessibility tree and screenshots — without touching your main screen.
-
-**Three-tier launch strategy:**
+MobileClaw launches apps on a hidden 1080×1920 virtual display. Three-tier launch strategy:
 
 ```
 1. Standard API  ─── setLaunchDisplayId()  ──► blocked on MIUI / ColorOS / EMUI
@@ -395,7 +402,7 @@ adb shell 'CLASSPATH=$(pm path com.mobileclaw | cut -d: -f2) \
   </dev/null >/dev/null 2>&1 &'
 ```
 
-Runs as **shell UID (2000)** — enough to bypass ROM restrictions on `am start --display N`. Listens on **TCP 127.0.0.1:52730**. Only accepts `am start …` commands; all else is rejected.
+Runs as **shell UID (2000)**. Listens on **TCP 127.0.0.1:52730**. Only accepts `am start …` commands.
 
 ---
 
@@ -404,58 +411,17 @@ Runs as **shell UID (2000)** — enough to bypass ROM restrictions on `am start 
 | Provider | Notes |
 |----------|-------|
 | **OpenAI** | `gpt-4o`, `gpt-4o-mini`, `o1`, `o3-mini` — full tool use + vision |
-| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` — native `reasoning_content` streaming shown in UI |
+| **DeepSeek** | `deepseek-chat`, `deepseek-reasoner` — native `reasoning_content` streaming |
 | **Anthropic** | Via OpenAI-compatible proxy (e.g. litellm) |
 | **Ollama** | Point endpoint to `http://localhost:11434` |
 | **LocalAI / vLLM** | Any OpenAI-compatible local inference server |
 | **Azure OpenAI** | Set endpoint to your Azure deployment URL |
 
-Switch models without Settings: tap the model chip in the top bar → pick from list or hit ↻ to fetch from the API. Or just tell the agent: *"switch to deepseek-reasoner for this"*.
-
 ---
 
-## 🖥️ LAN Console — Personalised for Every User
+## 🖥️ LAN Console
 
-MobileClaw runs a local HTTP server (port 52733) that anyone on the same Wi-Fi can open in a browser. Out of the box it's a clean chat interface — but the agent can **completely rewrite it** to create a personalised dashboard for each individual user.
-
-```
-"Redesign my console with a dark purple theme and add shortcut buttons for my top 5 tasks"
-
-"Add a live clock widget and show my today's task list at the top"
-
-"Make the console look like a terminal — monospace font, green on black"
-
-"Add a button 'Send daily report' that pre-fills the input"
-```
-
-The `console_editor` skill gives the agent four tools:
-
-| Action | What it does |
-|--------|-------------|
-| `write` | Replace the entire page with a fully custom HTML dashboard |
-| `patch_css` | Inject CSS to retheme colours, fonts, layout without touching the HTML |
-| `patch_js` | Inject JS to add live widgets, keyboard shortcuts, or dynamic content |
-| `reset` | Restore the factory-default console page |
-
-The agent keeps the `/api/events` SSE stream, `/api/send`, `/api/sessions`, and `/api/messages` endpoints intact so the console stays fully functional after any edit. The result is a **千人千面** console: every user ends up with a console that matches their personality, workflow, and aesthetic — generated automatically from their conversation history and preferences.
-
----
-
-## 🔭 Roadmap
-
-Things we're building next — contributions welcome:
-
-- **Scheduled Tasks** — cron-style task scheduling, run agent jobs while you sleep
-- **Group Roles** — assign a dedicated coordinator role that plans and delegates to other group members
-- **Proactive Notifications** — agent monitors conditions and alerts you without being asked
-- **Live Screen Mirroring** — stream virtual display to the UI for visibility
-- **Voice Interface** — wake word + STT/TTS so you can give tasks by speaking
-- **Skill Marketplace** — community-curated skill packs installable in one tap
-- **Cross-Device Sync** — share memory, sessions, mini-apps, and group histories across phones
-- **On-Device LLM** — first-class integration with llama.cpp / MLC-LLM for fully offline operation
-- **Computer Use API** — native Anthropic Computer Use support when Claude gains mobile support
-- **Workflow Chains** — visual node editor to wire skills into reusable automation pipelines
-- **Group Voting** — structured consensus mechanism where agents vote on options before proceeding
+MobileClaw runs a local HTTP server (port 52733). The agent can **completely rewrite it** to create a personalised dashboard for each user via the `console_editor` skill (full rewrite / CSS patch / JS patch / reset).
 
 ---
 
@@ -465,56 +431,53 @@ Things we're building next — contributions welcome:
 app/src/main/java/com/mobileclaw/
 ├── agent/
 │   ├── AgentRuntime.kt          # ReAct loop — Reason → Act → Observe
-│   ├── AgentContext.kt          # Task state, step list, loop-guard
-│   ├── Role.kt                  # Role / persona data model
-│   ├── RoleManager.kt           # Built-in + custom role management
-│   ├── Group.kt                 # Group data model (name, emoji, member role IDs)
-│   └── GroupManager.kt          # JSON-backed group CRUD (filesDir/groups/)
+│   ├── AgentContext.kt          # Task state, step list, message builder
+│   ├── Role.kt / RoleManager.kt # Role data model + CRUD (built-in override support)
+│   ├── Group.kt / GroupManager.kt
+│   └── ChatRouter.kt            # Fast CHAT vs AGENT classifier (no LLM call)
 ├── app/
-│   └── MiniAppStore.kt          # Mini-app metadata + HTML persistence + JS bridge injection
+│   └── MiniAppStore.kt          # Mini-app metadata + HTML + JS bridge injection
 ├── llm/
-│   ├── LlmGateway.kt            # Unified interface (chat + embed)
-│   └── OpenAiGateway.kt         # OpenAI-compatible backend (streaming, tools, vision)
+│   ├── LlmGateway.kt
+│   └── OpenAiGateway.kt         # Streaming, tools, vision
 ├── skill/
-│   ├── Skill.kt                 # Skill interface & SkillMeta
-│   ├── SkillRegistry.kt         # Runtime skill management
-│   ├── SkillLoader.kt           # Load/save user-generated skills
-│   ├── executor/                # Python & HTTP skill executor (Chaquopy)
+│   ├── Skill.kt / SkillRegistry.kt / SkillLoader.kt
+│   ├── executor/                # Python & HTTP executors (Chaquopy)
 │   └── builtin/                 # 35+ built-in skills
 ├── memory/
-│   ├── SemanticMemory.kt        # Persistent key-value fact store
-│   ├── EpisodicMemory.kt        # Task experience log with embedding retrieval
-│   ├── ConversationMemory.kt    # Chat history for profile extraction
-│   ├── WorkingMemory.kt         # Sliding-window context budget
-│   ├── UserProfileExtractor.kt  # LLM-powered user profile extraction
-│   └── db/                      # Room DB — entities, DAOs, migrations, sessions, group messages
+│   ├── SemanticMemory.kt
+│   ├── EpisodicMemory.kt        # Cosine-similarity retrieval
+│   ├── LocalEmbedder.kt         # On-device n-gram embedding (no API)
+│   ├── WorkingMemory.kt         # Sliding-window; counts image sizes in budget
+│   ├── UserProfileExtractor.kt
+│   └── db/
 ├── config/
-│   ├── AgentConfig.kt           # DataStore-backed config (endpoint, model, theme…)
-│   ├── UserConfig.kt            # User's personal key-value config store
-│   └── SkillNotesStore.kt       # Per-skill notes persistence
+│   ├── AgentConfig.kt
+│   └── UserConfig.kt
 ├── perception/
-│   ├── ClawAccessibilityService.kt  # Core perception — reads UI trees, injects gestures
-│   ├── ClawIME.kt                   # Input Method for reliable text injection
-│   ├── ActionController.kt          # Gesture execution (tap, scroll, long-press)
-│   ├── ScreenshotController.kt      # Frame capture & Set-of-Mark annotation
-│   └── VirtualDisplayManager.kt    # Hidden display creation & app launching
+│   ├── ClawAccessibilityService.kt
+│   ├── ClawIME.kt
+│   ├── ActionController.kt
+│   ├── ScreenshotController.kt
+│   └── VirtualDisplayManager.kt
 ├── server/
-│   ├── PrivilegedServer.kt      # Shell-UID server (app_process entry point)
-│   └── PrivilegedClient.kt      # TCP client for privileged commands
+│   ├── PrivilegedServer.kt
+│   └── PrivilegedClient.kt
 └── ui/
-    ├── MainActivity.kt          # Root — ModalNavigationDrawer + page stack
-    ├── ChatScreen.kt            # Main chat (streaming, log cards, attachments)
-    ├── DrawerContent.kt         # Left drawer — sessions + role badge + nav
-    ├── HtmlAttachmentViewer.kt  # Full-screen mini-app viewer (Activity-level WebView)
-    ├── AppLauncherPage.kt       # Mini-app library & launcher
-    ├── GroupsPage.kt            # Group list, creation dialog, group cards
-    ├── GroupChatScreen.kt       # Multi-agent streaming chat — @mentions, color coding, stop button
-    ├── RolesPage.kt             # Role browser, creator, editor
-    ├── SkillsPage.kt            # Skill browser, notes, promotion
-    ├── ProfilePage.kt           # User profile facts + episode timeline
-    ├── UserConfigPage.kt        # User config CRUD
-    ├── SettingsPage.kt          # LLM config, virtual display, privileged server
-    └── ClawTheme.kt             # Dark/light theme + accent color system
+    ├── MainActivity.kt
+    ├── ChatScreen.kt
+    ├── MarkdownText.kt          # Markdown renderer; routes ```ui fences to DynamicUiRenderer
+    ├── DynamicUiRenderer.kt     # JSON DSL → native Compose components
+    ├── DrawerContent.kt
+    ├── MiniAppActivity.kt       # Full-screen mini-app WebView host
+    ├── AppJsBridge.kt           # window.Android bridge (fetch, sql, python, launchApp…)
+    ├── AppLauncherPage.kt
+    ├── GroupsPage.kt / GroupChatScreen.kt
+    ├── RolesPage.kt / RoleEditPage.kt
+    ├── SkillsPage.kt
+    ├── ProfilePage.kt           # User profile + skill exploration progress
+    ├── SettingsPage.kt
+    └── ClawTheme.kt
 ```
 
 ---
@@ -535,11 +498,9 @@ app/src/main/java/com/mobileclaw/
 
 ## 🧩 Writing a Custom Skill
 
-**Option A — Ask the agent** (recommended):
+**Option A — Ask the agent:**
 
 *"Create a skill that reads my battery level and tells me if I should charge."*
-
-The agent calls `quick_skill`, generates a Python/HTTP skill, tests it, and registers it — all automatically. You can then promote it to permanent from the Skills page.
 
 **Option B — Write it in Kotlin:**
 
@@ -548,12 +509,9 @@ class WeatherSkill : Skill {
     override val meta = SkillMeta(
         id             = "get_weather",
         description    = "Fetch current weather for a city",
-        parameters     = listOf(
-            SkillParam("city", "string", "City name", required = true)
-        ),
-        injectionLevel = 1,   // 0=always, 1=task-aware, 2=on-demand
+        parameters     = listOf(SkillParam("city", "string", "City name", required = true)),
+        injectionLevel = 1,
     )
-
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         val city = params["city"] as? String ?: return SkillResult.error("city required")
         return SkillResult.success(fetchWeatherApi(city))
@@ -561,17 +519,21 @@ class WeatherSkill : Skill {
 }
 ```
 
-Register in `MainViewModel.registerBuiltinSkills()`.
-
-**Option C — JSON definition** (HTTP or Python, no recompile):
-
-Drop a `.json` file in the skill directory or use the `meta` skill at runtime. Supports both HTTP endpoints and inline Python (executed via Chaquopy on-device).
+**Option C — JSON definition** (HTTP or Python, no recompile): drop a `.json` file in the skill directory or use the `meta` skill at runtime.
 
 ---
 
-## ⭐ Star History
+## 🔭 Roadmap
 
-[![Star History Chart](https://api.star-history.com/svg?repos=eggbrid2/mobileClaw&type=Date)](https://star-history.com/#eggbrid2/mobileClaw&Date)
+- **Scheduled Tasks** — cron-style task scheduling
+- **Group Coordinator Role** — dedicated planner that delegates to group members
+- **Proactive Notifications** — agent monitors conditions and alerts without being asked
+- **Live Screen Mirroring** — stream virtual display to the UI
+- **Voice Interface** — wake word + STT/TTS
+- **Skill Marketplace** — community-curated skill packs
+- **Cross-Device Sync** — share memory, sessions, mini-apps across phones
+- **On-Device LLM** — first-class llama.cpp / MLC-LLM integration
+- **Workflow Chains** — visual node editor to wire skills into automation pipelines
 
 ---
 
@@ -583,14 +545,7 @@ git commit -m "feat: add battery monitor skill"
 git push origin feature/my-new-skill
 ```
 
-**Good first contributions:**
-
-- 📦 New built-in skills for common apps (WhatsApp, YouTube, Maps, Calendar)
-- 🎭 New role presets for specialized use cases
-- 🌐 Additional LLM backends (Gemini native, Claude native)
-- 🌍 Translations (`values-XX/strings.xml`)
-- 🐛 ROM compatibility fixes and reports
-- 📝 Mini-app templates and example tasks
+Good first contributions: new built-in skills for popular apps, role presets, LLM backend adapters, translations (`values-XX/strings.xml`), ROM compatibility fixes, mini-app templates.
 
 Open an issue before starting a large feature.
 
