@@ -211,6 +211,11 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                 }
                 try {
                     val json = JsonParser.parseString(data).asJsonObject
+                    json["error"]?.takeIf { !it.isJsonNull }?.let { err ->
+                        val msg = runCatching { err.asJsonObject["message"]?.asString }.getOrNull() ?: err.toString()
+                        cont.resumeWithException(RuntimeException("API error: $msg"))
+                        return
+                    }
                     val delta = json["choices"]?.asJsonArray?.get(0)?.asJsonObject?.get("delta")?.asJsonObject ?: return
                     // reasoning_content: DeepSeek-R1 style separate thinking stream
                     delta["reasoning_content"]?.let { rc ->
@@ -230,7 +235,13 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                 } catch (_: Exception) {}
             }
             override fun onFailure(es: EventSource, t: Throwable?, r: okhttp3.Response?) {
-                cont.resumeWithException(t ?: RuntimeException("SSE failed: ${r?.code}"))
+                val body = runCatching { r?.body?.string()?.take(500) }.getOrNull()
+                val msg = when {
+                    body != null -> "API error ${r?.code}: $body"
+                    t != null -> t.message ?: "Connection failed"
+                    else -> "SSE connection failed"
+                }
+                cont.resumeWithException(RuntimeException(msg))
             }
         })
         cont.invokeOnCancellation { source.cancel() }
@@ -268,7 +279,12 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                     cont.resumeWithException(e)
                 override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                     try {
-                        val json = JsonParser.parseString(response.body!!.string()).asJsonObject
+                        val bodyStr = response.body!!.string()
+                        if (!response.isSuccessful) {
+                            cont.resumeWithException(RuntimeException("API error ${response.code}: ${bodyStr.take(500)}"))
+                            return
+                        }
+                        val json = JsonParser.parseString(bodyStr).asJsonObject
                         val choice = json["choices"].asJsonArray[0].asJsonObject
                         val msg = choice["message"].asJsonObject
                         val content = msg["content"]?.asString
