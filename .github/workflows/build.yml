@@ -49,6 +49,8 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # ← 加这行
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     env:
