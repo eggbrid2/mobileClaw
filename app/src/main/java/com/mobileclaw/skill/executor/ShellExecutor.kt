@@ -21,10 +21,13 @@ class ShellExecutor {
                         .redirectErrorStream(true)
                         .start()
                     val output = process.inputStream.bufferedReader().readText().take(8192)
-                    process.waitFor()
-                    output
+                    val exitCode = process.waitFor()
+                    if (exitCode != 0)
+                        SkillResult(success = false, output = "Exit $exitCode: $output")
+                    else
+                        SkillResult(success = true, output = output)
                 }.fold(
-                    onSuccess = { SkillResult(success = true, output = it) },
+                    onSuccess = { it },
                     onFailure = { SkillResult(success = false, output = "Shell error: ${it.message}") }
                 )
             }
@@ -38,15 +41,15 @@ class ShellSkill(private val executor: ShellExecutor = ShellExecutor()) : Skill 
     override val meta = SkillMeta(
         id = "shell",
         name = "Shell Command",
-        description = "Runs any shell command or script via sh -c. Supports pipes, redirects, loops, pip install, etc. Timeout 30s.",
+        description = "Runs any shell command via sh -c. Supports pipes, redirects, loops. NOTE: no system Python/pip — use Claw.pip() in mini-apps or the python skill for Python. Timeout 30s.",
         parameters = listOf(
-            SkillParam("command", "string", "Shell command or script (e.g. 'pip install requests && python -c \"import requests; print(requests.__version__)\"')"),
+            SkillParam("command", "string", "Shell command or script to execute"),
             SkillParam("args", "string", "Extra arguments appended to command (optional)", required = false),
         ),
         type = SkillType.SHELL,
         injectionLevel = 1,
         nameZh = "Shell 命令",
-        descriptionZh = "执行任意 Shell 命令或脚本，支持管道、pip install 等，超时 30 秒。",
+        descriptionZh = "执行任意 Shell 命令，支持管道和重定向。注意：没有系统 Python/pip，Python 需通过 python skill 或 Claw.pip() 使用，超时 30 秒。",
         tags = listOf("系统"),
     )
 

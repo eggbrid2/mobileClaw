@@ -57,6 +57,8 @@ chaquopy {
         pip {
             install("requests==2.31.0")
             install("beautifulsoup4")
+            install("numpy")
+            install("pillow")
         }
     }
 }

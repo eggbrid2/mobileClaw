@@ -82,6 +82,35 @@ class AppJsBridge(
     }
 
     @JavascriptInterface
+    fun pipInstallAsync(packageName: String, callbackId: String) {
+        bgExecutor.submit { fireCallback(callbackId, pipInstall(packageName)) }
+    }
+
+    private fun pipInstall(packageName: String): String {
+        return runCatching {
+            if (!Python.isStarted()) {
+                Python.start(AndroidPlatform(context.applicationContext))
+            }
+            val py = Python.getInstance()
+            val sys = py.getModule("sys")
+            val subprocess = py.getModule("subprocess")
+            val result = subprocess.callAttr(
+                "run",
+                arrayOf(sys["executable"], "-m", "pip", "install", packageName),
+                com.chaquo.python.Kwarg("capture_output", true),
+                com.chaquo.python.Kwarg("text", true),
+                com.chaquo.python.Kwarg("timeout", 120),
+            )
+            val ok = result["returncode"]?.toJava(Int::class.java) == 0
+            val stdout = result["stdout"]?.toString() ?: ""
+            val stderr = result["stderr"]?.toString() ?: ""
+            gson.toJson(mapOf("ok" to ok, "output" to (stdout + stderr).trim().takeLast(2000)))
+        }.getOrElse { e ->
+            gson.toJson(mapOf("ok" to false, "output" to (e.message ?: "pip error")))
+        }
+    }
+
+    @JavascriptInterface
     fun shellExec(cmd: String): String = runCatching {
         val process = ProcessBuilder("sh", "-c", cmd)
             .redirectErrorStream(true)

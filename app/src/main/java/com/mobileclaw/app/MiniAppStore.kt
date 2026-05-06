@@ -116,6 +116,7 @@ class MiniAppStore(private val context: Context) {
     sql:_async(function(q,p,id){A.sqliteAsync(q,JSON.stringify(p||[]),id);}),
     python:_async(function(d,id){A.callPythonAsync(typeof d==='string'?d:JSON.stringify(d),id);}),
     shell:_async(function(cmd,id){A.shellExecAsync(cmd,id);}),
+    pip:_async(function(pkg,id){A.pipInstallAsync(pkg,id);}),
     // ── Config / Memory (sync — fast, no I/O wait) ────────────────────────
     config:{
       get:function(k){try{return A.getConfig(k)||''}catch(e){return ''}},
