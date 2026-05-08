@@ -24,7 +24,7 @@ class RoleManager(private val context: Context) {
     fun all(): List<Role> {
         val fileMap = rolesDir.listFiles { f -> f.extension == "json" }
             ?.associate { f ->
-                f.nameWithoutExtension to runCatching { gson.fromJson(f.readText(), Role::class.java) }.getOrNull()
+                f.nameWithoutExtension to runCatching { normalize(gson.fromJson(f.readText(), Role::class.java)) }.getOrNull()
             } ?: emptyMap()
 
         // Built-ins: use override file if present, otherwise use canonical definition.
@@ -45,7 +45,7 @@ class RoleManager(private val context: Context) {
 
     fun customRoles(): List<Role> = rolesDir.listFiles { f -> f.extension == "json" }
         ?.mapNotNull { file ->
-            runCatching { gson.fromJson(file.readText(), Role::class.java) }.getOrNull()
+            runCatching { normalize(gson.fromJson(file.readText(), Role::class.java)) }.getOrNull()
                 ?.takeIf { it.id !in builtinIds }
         } ?: emptyList()
 
@@ -66,5 +66,14 @@ class RoleManager(private val context: Context) {
         if (id in builtinIds) return  // use restore() to reset built-ins
         File(rolesDir, "$id.json").takeIf { it.exists() }?.delete()
         _rolesFlow.value = all()
+    }
+
+    private fun normalize(role: Role): Role {
+        return role.copy(
+            systemPromptAddendum = role.systemPromptAddendum ?: "",
+            forcedSkillIds = role.forcedSkillIds ?: emptyList(),
+            preferredTaskTypes = role.preferredTaskTypes ?: emptyList(),
+            keywords = role.keywords ?: emptyList(),
+        )
     }
 }

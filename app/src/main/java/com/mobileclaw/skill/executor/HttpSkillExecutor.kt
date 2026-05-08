@@ -5,6 +5,7 @@ import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillResult
+import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -22,6 +23,7 @@ class HttpSkillExecutor(
 ) : Skill {
 
     private val client = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()

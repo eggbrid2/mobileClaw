@@ -38,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -47,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mobileclaw.R
+import com.mobileclaw.str
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -86,7 +86,7 @@ fun BrowserPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_close), tint = c.text, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Close, contentDescription = str(R.string.btn_close), tint = c.text, modifier = Modifier.size(18.dp))
                 }
                 // Address bar
                 Box(
@@ -115,7 +115,7 @@ fun BrowserPage(
                         ),
                         decorationBox = { inner ->
                             if (addressBarText.isEmpty()) {
-                                Text(stringResource(R.string.browser_address_hint), color = c.subtext, fontSize = 13.sp)
+                                Text(str(R.string.browser_address_hint), color = c.subtext, fontSize = 13.sp)
                             }
                             inner()
                         },
@@ -152,8 +152,8 @@ fun BrowserPage(
                     Box(modifier = Modifier.weight(1f))
                 }
                 // Send page to agent button
-                val sendAgentMsgTemplate = stringResource(R.string.browser_send_agent_message)
-                val sendAgentLabel = stringResource(R.string.browser_send_agent)
+                val sendAgentMsgTemplate = str(R.string.browser_send_agent_message)
+                val sendAgentLabel = str(R.string.browser_send_agent)
                 androidx.compose.material3.TextButton(
                     onClick = {
                         val url = webViewRef?.url ?: currentUrl

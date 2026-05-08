@@ -46,15 +46,16 @@ class UserStorageManager(private val context: Context) {
 
     fun wellKnownDirs(): List<StorageDir> {
         val root = Environment.getExternalStorageDirectory().absolutePath
+        val r = context.resources
         return listOf(
-            StorageDir("下载 (Downloads)", "$root/Download", "📥"),
-            StorageDir("文档 (Documents)", "$root/Documents", "📄"),
-            StorageDir("图片 (Pictures)", "$root/Pictures", "🖼️"),
-            StorageDir("截图 (Screenshots)", "$root/Pictures/Screenshots", "📸"),
-            StorageDir("相机 (Camera)", "$root/DCIM/Camera", "📷"),
-            StorageDir("音乐 (Music)", "$root/Music", "🎵"),
-            StorageDir("视频 (Movies)", "$root/Movies", "🎬"),
-            StorageDir("根目录 (Root)", root, "📱"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_downloads), "$root/Download", "📥"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_documents), "$root/Documents", "📄"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_pictures), "$root/Pictures", "🖼️"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_screenshots), "$root/Pictures/Screenshots", "📸"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_camera), "$root/DCIM/Camera", "📷"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_music), "$root/Music", "🎵"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_movies), "$root/Movies", "🎬"),
+            StorageDir(r.getString(com.mobileclaw.R.string.storage_root), root, "📱"),
         ).filter { File(it.path).exists() }
     }
 

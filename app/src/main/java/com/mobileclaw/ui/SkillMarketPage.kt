@@ -65,6 +65,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 private data class RemoteSkillEntry(
     val id: String,
@@ -86,7 +88,7 @@ fun SkillMarketPage(
 ) {
     val c = LocalClawColors.current
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("⭐ 推荐", "🌐 ClawHub", "📦 SkillsMP")
+    val tabs = listOf(str(R.string.skill_market_228a7d), "🌐 ClawHub", "📦 SkillsMP")
 
     BackHandler { onBack() }
 
@@ -117,7 +119,7 @@ fun SkillMarketPage(
                     )
                 }
                 Text(
-                    text = "技能市场",
+                    text = str(R.string.skill_market_5917e2),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = c.text,
@@ -233,8 +235,8 @@ private fun RemoteSearchTab(
             }
             loading = false
             when {
-                found == null -> error = "无法连接到 $platform，请检查网络"
-                found.isEmpty() -> error = "没有找到相关技能"
+                found == null -> error = str(R.string.platform_unreachable, platform)
+                found.isEmpty() -> error = str(R.string.skill_market_none)
                 else -> results.addAll(found)
             }
         }
@@ -270,7 +272,7 @@ private fun RemoteSearchTab(
                 keyboardActions = KeyboardActions(onSearch = { doSearch() }),
                 decorationBox = { inner ->
                     if (query.isEmpty()) {
-                        Text("搜索 $platform 技能...", fontSize = 14.sp, color = c.subtext)
+                        Text(str(R.string.search_skills_hint, platform), fontSize = 14.sp, color = c.subtext)
                     }
                     inner()
                 },
@@ -283,7 +285,7 @@ private fun RemoteSearchTab(
                         .clickable { doSearch() }
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
-                    Text("搜索", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.profile_search), fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -310,7 +312,7 @@ private fun RemoteSearchTab(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "可通过「创建技能」手动配置",
+                        str(R.string.skill_market_94507e),
                         fontSize = 12.sp,
                         color = c.subtext.copy(alpha = 0.6f),
                     )
@@ -338,13 +340,13 @@ private fun RemoteSearchTab(
                     Text("🔍", fontSize = 40.sp)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "搜索 $platform 上的技能",
+                        str(R.string.search_skills_placeholder, platform),
                         fontSize = 14.sp,
                         color = c.subtext,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "支持按名称、功能关键词搜索",
+                        str(R.string.skill_market_6a2070),
                         fontSize = 12.sp,
                         color = c.subtext.copy(alpha = 0.6f),
                     )
@@ -447,7 +449,7 @@ private fun MarketSkillRow(
                         modifier = Modifier.size(12.dp),
                     )
                     Spacer(Modifier.width(3.dp))
-                    Text("已安装", fontSize = 11.sp, color = c.accent, fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.skill_market_done), fontSize = 11.sp, color = c.accent, fontWeight = FontWeight.SemiBold)
                 }
             }
         } else {
@@ -458,7 +460,7 @@ private fun MarketSkillRow(
                     .clickable { onInstall() }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Text("安装", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(str(R.string.skill_market_e655a4), fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
     }

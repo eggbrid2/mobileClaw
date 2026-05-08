@@ -28,6 +28,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 // ── Quiz data per dimension ───────────────────────────────────────────────────
 
@@ -39,56 +41,56 @@ private data class QuizQuestion(
 
 private val DIMENSION_QUIZ: Map<String, List<QuizQuestion>> = mapOf(
     "physio" to listOf(
-        QuizQuestion("你最近一周的运动频率？", listOf("每天运动", "每周 2-3 次", "偶尔运动", "基本不运动"), "profile.physio.fitness"),
-        QuizQuestion("你的睡眠质量如何？", listOf("很好，每天 7-8 小时", "还可以，偶有失眠", "较差，经常失眠", "严重睡眠不足"), "profile.physio.sleep"),
-        QuizQuestion("你的饮食习惯？", listOf("规律均衡", "基本健康但不规律", "较不健康", "不太注意饮食"), "profile.physio.nutrition"),
+        QuizQuestion(str(R.string.dimension_f7128f), listOf(str(R.string.dimension_914499), str(R.string.dimension_3969d8), str(R.string.dimension_e2d313), str(R.string.dimension_a51796)), "profile.physio.fitness"),
+        QuizQuestion(str(R.string.dimension_fddd0d), listOf(str(R.string.dimension_aaf597), str(R.string.dimension_d919e4), str(R.string.dimension_8e1e76), str(R.string.dimension_0ace65)), "profile.physio.sleep"),
+        QuizQuestion(str(R.string.dimension_c6ef63), listOf(str(R.string.dimension_f3ba54), str(R.string.dimension_cc0f27), str(R.string.dimension_f6d5da), str(R.string.dimension_4598ac)), "profile.physio.nutrition"),
     ),
     "personality" to listOf(
-        QuizQuestion("参加社交活动后，你通常感觉？", listOf("精力充沛，很享受", "还好，但需要恢复", "有些疲惫，偏好小圈子", "消耗大，需要大量独处"), "profile.personality.extraversion"),
-        QuizQuestion("面对新事物，你的第一反应是？", listOf("充满好奇，主动尝试", "感兴趣但先观察", "谨慎，适应后才接受", "倾向于熟悉的方式"), "profile.personality.openness"),
-        QuizQuestion("完成重要任务时，你的风格？", listOf("有详细计划，严格执行", "大致规划，灵活调整", "边做边想，随机应变", "等到最后再冲刺"), "profile.personality.conscientiousness"),
+        QuizQuestion(str(R.string.dimension_e96b8c), listOf(str(R.string.dimension_9e7ee6), str(R.string.dimension_bafd16), str(R.string.dimension_e30aad), str(R.string.dimension_42d61c)), "profile.personality.extraversion"),
+        QuizQuestion(str(R.string.dimension_696c35), listOf(str(R.string.dimension_a0061b), str(R.string.dimension_58c570), str(R.string.dimension_9b2809), str(R.string.dimension_df4184)), "profile.personality.openness"),
+        QuizQuestion(str(R.string.dimension_done), listOf(str(R.string.dimension_c2b1fd), str(R.string.dimension_8ac978), str(R.string.dimension_ab778b), str(R.string.dimension_c70631)), "profile.personality.conscientiousness"),
     ),
     "cognitive" to listOf(
-        QuizQuestion("你更倾向于哪种学习方式？", listOf("系统学习，理论到实践", "边做边学，解决问题", "看视频/听讲解", "阅读文档/书籍"), "profile.cognitive.learning"),
-        QuizQuestion("做重要决策时，你通常？", listOf("大量收集数据后理性分析", "依靠直觉和经验判断", "广泛征询他人意见", "快速决策，边走边调整"), "profile.cognitive.decision"),
-        QuizQuestion("你的思维风格偏向？", listOf("逻辑分析，注重因果", "整体直觉，关注模式", "创意联想，跳跃思维", "务实具体，关注细节"), "profile.cognitive.thinking"),
+        QuizQuestion(str(R.string.dimension_b47f5b), listOf(str(R.string.dimension_e82939), str(R.string.dimension_49a62e), str(R.string.dimension_7174b1), str(R.string.dimension_6e2427)), "profile.cognitive.learning"),
+        QuizQuestion(str(R.string.dimension_f9cede), listOf(str(R.string.dimension_bebd03), str(R.string.dimension_a236e3), str(R.string.dimension_10a70f), str(R.string.dimension_a62843)), "profile.cognitive.decision"),
+        QuizQuestion(str(R.string.dimension_b4372a), listOf(str(R.string.dimension_3bd0c2), str(R.string.dimension_1116af), str(R.string.dimension_2d68a2), str(R.string.dimension_fa26ba)), "profile.cognitive.thinking"),
     ),
     "emotional" to listOf(
-        QuizQuestion("遇到高压或突发困难时，你通常？", listOf("保持冷静，系统处理", "有些焦虑但能应对", "情绪波动较大，需时间平复", "容易崩溃，需要支持"), "profile.emotional.stability"),
-        QuizQuestion("你对他人情绪的感知程度？", listOf("极强，容易感同身受", "适中，能察觉但不过分投入", "较弱，偏理性处理", "基本不关注他人情绪"), "profile.emotional.empathy"),
-        QuizQuestion("面对挫折和失败，你的恢复速度？", listOf("很快，挫折反而激励我", "需要几天但会反弹", "需要较长时间调整", "很慢，负面情绪持续较久"), "profile.emotional.resilience"),
+        QuizQuestion(str(R.string.dimension_1325ed), listOf(str(R.string.dimension_55cdc0), str(R.string.dimension_c59119), str(R.string.dimension_e2168f), str(R.string.dimension_79cc92)), "profile.emotional.stability"),
+        QuizQuestion(str(R.string.dimension_e0d663), listOf(str(R.string.dimension_bd6f06), str(R.string.dimension_a6768d), str(R.string.dimension_204292), str(R.string.dimension_a32f6d)), "profile.emotional.empathy"),
+        QuizQuestion(str(R.string.dimension_ed9901), listOf(str(R.string.dimension_dd9f5e), str(R.string.dimension_56a883), str(R.string.dimension_d6babd), str(R.string.dimension_89b4e6)), "profile.emotional.resilience"),
     ),
     "social" to listOf(
-        QuizQuestion("你的社交风格？", listOf("热情主动，喜欢大场合", "适中，视情况而定", "小圈子深度交往", "倾向于独处，按需社交"), "profile.social.style"),
-        QuizQuestion("你更擅长哪种沟通方式？", listOf("直接表达，开门见山", "委婉表达，照顾他人感受", "倾听为主，引导对方", "书面沟通更有把握"), "profile.social.communication"),
-        QuizQuestion("在人际关系中，你通常扮演？", listOf("主导者，带动氛围", "协调者，化解矛盾", "支持者，默默付出", "独立者，保持距离"), "profile.social.relationships"),
+        QuizQuestion(str(R.string.dimension_94d8ec), listOf(str(R.string.dimension_d5e417), str(R.string.dimension_360e1e), str(R.string.dimension_46472a), str(R.string.dimension_c2c8e9)), "profile.social.style"),
+        QuizQuestion(str(R.string.dimension_d92b67), listOf(str(R.string.dimension_015c17), str(R.string.dimension_9a853b), str(R.string.dimension_772ccb), str(R.string.dimension_727218)), "profile.social.communication"),
+        QuizQuestion(str(R.string.dimension_0cb2d1), listOf(str(R.string.dimension_2ea9ef), str(R.string.dimension_1d2a3f), str(R.string.dimension_1d5ba5), str(R.string.dimension_a3f6a8)), "profile.social.relationships"),
     ),
     "values" to listOf(
-        QuizQuestion("对你目前最重要的是什么？", listOf("家庭与亲情", "事业成就与社会认可", "个人成长与自由", "物质安全与稳定"), "profile.values.core"),
-        QuizQuestion("面对利益与原则冲突时，你会？", listOf("坚守原则，绝不妥协", "原则优先，但留有弹性", "视情况灵活处理", "偏向实际利益"), "profile.values.principles"),
-        QuizQuestion("你的成就取向偏向？", listOf("超越他人，追求领先", "超越自我，持续进步", "团队共赢，一起成功", "安稳舒适，减少压力"), "profile.values.achievement"),
+        QuizQuestion(str(R.string.dimension_5fef09), listOf(str(R.string.dimension_85a2bb), str(R.string.dimension_149e38), str(R.string.dimension_1eef63), str(R.string.dimension_d5851c)), "profile.values.core"),
+        QuizQuestion(str(R.string.dimension_d51d34), listOf(str(R.string.dimension_63e0cb), str(R.string.dimension_a12dfd), str(R.string.dimension_913232), str(R.string.dimension_231ba7)), "profile.values.principles"),
+        QuizQuestion(str(R.string.dimension_ffa5e3), listOf(str(R.string.dimension_4336a8), str(R.string.dimension_5d28e0), str(R.string.dimension_c7319e), str(R.string.dimension_788407)), "profile.values.achievement"),
     ),
     "capability" to listOf(
-        QuizQuestion("你的核心专业技能领域？", listOf("技术/编程/工程", "设计/创意/艺术", "管理/商业/运营", "研究/分析/学术"), "profile.capability.skills"),
-        QuizQuestion("你的执行力风格？", listOf("完美主义，精益求精", "高效快速，80分完成", "持续推进，保持节奏", "灵活应变，随机调整"), "profile.capability.execution"),
-        QuizQuestion("你的内在驱动力来自？", listOf("好奇心与探索欲", "竞争与超越欲望", "责任感与使命感", "认可与成就感"), "profile.capability.intrinsic"),
+        QuizQuestion(str(R.string.dimension_00ef6c), listOf(str(R.string.dimension_53d0d4), str(R.string.dimension_ba5f7e), str(R.string.dimension_a851cb), str(R.string.dimension_814654)), "profile.capability.skills"),
+        QuizQuestion(str(R.string.dimension_f4c59c), listOf(str(R.string.dimension_0c6ec6), str(R.string.dimension_f3dd1d), str(R.string.dimension_76a648), str(R.string.dimension_f4d7c3)), "profile.capability.execution"),
+        QuizQuestion(str(R.string.dimension_66f088), listOf(str(R.string.dimension_1ab25b), str(R.string.dimension_306f1d), str(R.string.dimension_3aa5e3), str(R.string.dimension_da2ad6)), "profile.capability.intrinsic"),
     ),
     "spiritual" to listOf(
-        QuizQuestion("你的人生意义主要来源于？", listOf("对他人和社会的贡献", "个人成长与自我突破", "创造有价值的事物", "内心平静与真实自在"), "profile.spiritual.purpose"),
-        QuizQuestion("面对无法改变的困境，你的内心？", listOf("接受现实，专注可控之处", "持续抗争，不轻易放弃", "寻找意义，转化为成长", "需要时间，慢慢释怀"), "profile.spiritual.resilience"),
-        QuizQuestion("你如何看待个人信念？", listOf("有明确的世界观和价值体系", "相信科学与理性", "开放多元，持续更新", "淡泊名利，顺其自然"), "profile.spiritual.beliefs"),
+        QuizQuestion(str(R.string.dimension_47b93d), listOf(str(R.string.dimension_1c22c9), str(R.string.dimension_c1642a), str(R.string.dimension_e858d6), str(R.string.dimension_fd1720)), "profile.spiritual.purpose"),
+        QuizQuestion(str(R.string.dimension_55e742), listOf(str(R.string.dimension_0ee9a0), str(R.string.dimension_7d1d63), str(R.string.dimension_6e45c6), str(R.string.dimension_f88c9e)), "profile.spiritual.resilience"),
+        QuizQuestion(str(R.string.dimension_99058a), listOf(str(R.string.dimension_660470), str(R.string.dimension_f0eafb), str(R.string.dimension_383dc0), str(R.string.dimension_72f605)), "profile.spiritual.beliefs"),
     ),
 )
 
 private val DIMENSION_FRAMEWORK: Map<String, Pair<String, String>> = mapOf(
-    "physio"      to ("生物心理社会模型（BPS Model）" to "身体是一切的基础。健康状态、体能、睡眠和饮食共同影响认知效率和情绪稳定性。"),
-    "personality" to ("大五人格模型（Big Five / OCEAN）" to "McCrae & Costa（1992）提出的五大人格维度：开放性 O、尽责性 C、外向性 E、宜人性 A、神经质 N。"),
-    "cognitive"   to ("认知风格理论 + Holland 职业兴趣模型" to "思维方式、学习策略和决策风格共同构成认知画像，影响问题解决和知识吸收的效率。"),
-    "emotional"   to ("Ryff 心理幸福感模型（1989）" to "情绪稳定性、共情能力、抗压能力和心理韧性决定了在逆境中的适应性与幸福感。"),
-    "social"      to ("社会心理学 + 依恋理论" to "社交风格和沟通方式影响人际质量。内外向不决定好坏，而是影响能量来源与社交策略。"),
-    "values"      to ("Schwartz 价值理论（1992）" to "价值观是行为的深层驱动器，涵盖普世主义、慈善、成就、安全、自主等 10 个核心类型。"),
-    "capability"  to ("自我决定理论 SDT（Deci & Ryan）" to "能力感、自主感、归属感共同支撑内在动机，驱动持续学习与高效执行。"),
-    "spiritual"   to ("Ryff 人生意义 + 积极心理学" to "精神维度关注人生意义、信念体系和个人成长，是应对虚无与逆境的根本支撑。"),
+    "physio"      to (str(R.string.dimension_d0afdf) to str(R.string.dimension_e930d2)),
+    "personality" to (str(R.string.dimension_b59201) to str(R.string.dimension_971207)),
+    "cognitive"   to (str(R.string.dimension_3bfb84) to str(R.string.dimension_89510d)),
+    "emotional"   to (str(R.string.dimension_ae7f7a) to str(R.string.dimension_471f92)),
+    "social"      to (str(R.string.dimension_26397d) to str(R.string.dimension_85ae46)),
+    "values"      to (str(R.string.dimension_eaa0b0) to str(R.string.dimension_a480ff)),
+    "capability"  to (str(R.string.dimension_3ae13a) to str(R.string.dimension_640488)),
+    "spiritual"   to (str(R.string.dimension_ffc6f7) to str(R.string.dimension_f7fc48)),
 )
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -141,7 +143,7 @@ fun DimensionDetailPage(
                 )
                 val known = dimension.aspects.count { facts[it.key] != null }
                 Text(
-                    "$known/${dimension.aspects.size} 已知",
+                    str(R.string.aspects_known, known, dimension.aspects.size),
                     color = dimension.color.copy(alpha = 0.7f),
                     fontSize = 11.sp,
                 )
@@ -156,7 +158,7 @@ fun DimensionDetailPage(
             // ── Aspects list ─────────────────────────────────────────────
             item {
                 Text(
-                    "📋 维度指标",
+                    str(R.string.dimension_c7008e),
                     color = c.subtext,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -187,7 +189,7 @@ fun DimensionDetailPage(
                             .border(1.dp, dimension.color.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                             .padding(14.dp),
                     ) {
-                        Text("📚 理论框架", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                        Text(str(R.string.dimension_f8111e), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
                         Spacer(Modifier.height(6.dp))
                         Text(framework.first, color = dimension.color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
@@ -206,7 +208,7 @@ fun DimensionDetailPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "🧩 自我评估",
+                        str(R.string.dimension_d4454a),
                         color = c.subtext,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -220,7 +222,7 @@ fun DimensionDetailPage(
                             color = dimension.color,
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("AI 生成中…", color = c.subtext.copy(alpha = 0.5f), fontSize = 10.sp)
+                        Text(str(R.string.dimension_926106), color = c.subtext.copy(alpha = 0.5f), fontSize = 10.sp)
                     } else {
                         IconButton(
                             onClick = onRegenerateQuiz,
@@ -228,17 +230,17 @@ fun DimensionDetailPage(
                         ) {
                             Icon(
                                 Icons.Default.Refresh,
-                                contentDescription = "换一批",
+                                contentDescription = str(R.string.dimension_0e0b0d),
                                 tint = dimension.color.copy(alpha = 0.7f),
                                 modifier = Modifier.size(15.dp),
                             )
                         }
-                        Text("换一批", color = dimension.color.copy(alpha = 0.7f), fontSize = 10.sp)
+                        Text(str(R.string.dimension_0e0b0d), color = dimension.color.copy(alpha = 0.7f), fontSize = 10.sp)
                     }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (generatedQuiz != null) "AI 为你定制的深度问题，答案自动写入画像" else "选择答案后，结果会自动写入你的画像",
+                    if (generatedQuiz != null) str(R.string.dimension_adfbef) else str(R.string.dimension_select),
                     color = c.subtext.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     fontStyle = FontStyle.Italic,
@@ -276,7 +278,7 @@ fun DimensionDetailPage(
         var editValue by remember(editing.key) { mutableStateOf(facts[editing.key] ?: "") }
         AlertDialog(
             onDismissRequest = { editAspect = null },
-            title = { Text("编辑 · ${editing.label}", fontSize = 15.sp) },
+            title = { Text(str(R.string.edit_label_title, editing.label), fontSize = 15.sp) },
             text = {
                 OutlinedTextField(
                     value = editValue,
@@ -291,10 +293,10 @@ fun DimensionDetailPage(
                 TextButton(onClick = {
                     if (editValue.isNotBlank()) onSetFact(editing.key, editValue)
                     editAspect = null
-                }) { Text("保存") }
+                }) { Text(str(R.string.role_save)) }
             },
             dismissButton = {
-                TextButton(onClick = { editAspect = null }) { Text("取消") }
+                TextButton(onClick = { editAspect = null }) { Text(str(R.string.btn_cancel)) }
             },
         )
     }
@@ -330,10 +332,10 @@ private fun AspectRow(
                 Spacer(Modifier.height(2.dp))
                 Text(value, color = c.text, fontSize = 13.sp, lineHeight = 18.sp)
             } else {
-                Text("待观察", color = c.subtext.copy(alpha = 0.4f), fontSize = 12.sp, fontStyle = FontStyle.Italic)
+                Text(str(R.string.dimension_27b347), color = c.subtext.copy(alpha = 0.4f), fontSize = 12.sp, fontStyle = FontStyle.Italic)
             }
         }
-        Icon(Icons.Default.Edit, contentDescription = "编辑", tint = c.subtext.copy(alpha = 0.3f), modifier = Modifier.size(14.dp))
+        Icon(Icons.Default.Edit, contentDescription = str(R.string.dimension_edit), tint = c.subtext.copy(alpha = 0.3f), modifier = Modifier.size(14.dp))
     }
     HorizontalDivider(color = c.border.copy(alpha = 0.3f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
 }

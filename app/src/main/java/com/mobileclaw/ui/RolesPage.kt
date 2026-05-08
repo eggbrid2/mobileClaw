@@ -28,13 +28,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.str
 
 @Composable
 fun RolesPage(
@@ -55,12 +55,12 @@ fun RolesPage(
     Box(modifier = Modifier.fillMaxSize().background(c.bg)) {
         Column(modifier = Modifier.fillMaxSize()) {
             ClawPageHeader(
-                title = stringResource(R.string.drawer_roles),
+                title = str(R.string.drawer_roles),
                 onBack = onBack,
             )
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item { RoleSectionHeader("内置角色") }
+                item { RoleSectionHeader(str(R.string.roles_2a7543)) }
                 items(builtins, key = { it.id }) { role ->
                     RoleRow(
                         role = role,
@@ -72,7 +72,7 @@ fun RolesPage(
                     HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = c.border, thickness = 0.5.dp)
                 }
                 if (custom.isNotEmpty()) {
-                    item { RoleSectionHeader("自定义角色") }
+                    item { RoleSectionHeader(str(R.string.help_fddab2)) }
                     items(custom, key = { it.id }) { role ->
                         RoleRow(
                             role = role,
@@ -105,7 +105,7 @@ fun RolesPage(
             containerColor = c.accent,
             contentColor = c.bg,
         ) {
-            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.role_create_title))
+            Icon(Icons.Default.Add, contentDescription = str(R.string.role_create_title))
         }
     }
 }

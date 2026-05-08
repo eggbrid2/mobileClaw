@@ -46,14 +46,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.TaskType
 import com.mobileclaw.skill.SkillMeta
 import java.util.UUID
+import com.mobileclaw.str
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,8 @@ fun RoleEditPage(
     var avatar by remember { mutableStateOf(initial.avatar) }
     var description by remember { mutableStateOf(initial.description) }
     var addendum by remember { mutableStateOf(initial.systemPromptAddendum) }
+    var schedulerKeywords by remember { mutableStateOf(initial.keywords.joinToString(", ")) }
+    var selectedTaskTypes by remember { mutableStateOf(initial.preferredTaskTypes.toSet()) }
     var selectedModel by remember { mutableStateOf(initial.modelOverride ?: "") }
     var selectedSkillIds by remember { mutableStateOf(initial.forcedSkillIds.toSet()) }
     var modelDropdownExpanded by remember { mutableStateOf(false) }
@@ -100,7 +103,7 @@ fun RoleEditPage(
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg)) {
         ClawPageHeader(
-            title = stringResource(if (initial.isBuiltin) R.string.role_edit_title else R.string.role_create_title),
+            title = str(if (initial.isBuiltin) R.string.role_edit_title else R.string.role_create_title),
             onBack = onBack,
             actions = {
                 TextButton(onClick = {
@@ -114,11 +117,17 @@ fun RoleEditPage(
                             systemPromptAddendum = addendum.trim(),
                             forcedSkillIds = selectedSkillIds.toList(),
                             modelOverride = selectedModel.trim().ifBlank { null },
+                            preferredTaskTypes = selectedTaskTypes.toList(),
+                            keywords = schedulerKeywords
+                                .split(",", "，", "\n")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .distinct(),
                             isBuiltin = initial.isBuiltin,
                         )
                     )
                 }) {
-                    Text(stringResource(R.string.role_save), color = c.accent, fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.role_save), color = c.accent, fontWeight = FontWeight.SemiBold)
                 }
             },
         )
@@ -157,7 +166,7 @@ fun RoleEditPage(
                 Spacer(Modifier.height(6.dp))
                 if (isImageAvatar) {
                     TextButton(onClick = { avatar = "🤖" }) {
-                        Text("使用 Emoji", fontSize = 12.sp, color = c.subtext)
+                        Text(str(R.string.role_edit_74308d), fontSize = 12.sp, color = c.subtext)
                     }
                 } else {
                     OutlinedTextField(
@@ -174,7 +183,7 @@ fun RoleEditPage(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text(stringResource(R.string.role_field_name)) },
+                label = { Text(str(R.string.role_field_name)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -183,16 +192,67 @@ fun RoleEditPage(
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text(stringResource(R.string.role_field_description)) },
+                label = { Text(str(R.string.role_field_description)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
+
+            // ── Scheduler Metadata ───────────────────────────────────────────
+            OutlinedTextField(
+                value = schedulerKeywords,
+                onValueChange = { schedulerKeywords = it },
+                label = { Text("调度关键词") },
+                placeholder = { Text("股票, 财报, 小红书, 健身", fontSize = 12.sp, color = c.subtext) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 1,
+                maxLines = 3,
+            )
+
+            Text(
+                text = "适用任务类型",
+                fontSize = 12.sp,
+                color = c.subtext,
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(8.dp)),
+            ) {
+                TaskType.values().forEachIndexed { index, taskType ->
+                    if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
+                    val selected = taskType in selectedTaskTypes
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedTaskTypes = if (selected)
+                                    selectedTaskTypes - taskType
+                                else
+                                    selectedTaskTypes + taskType
+                            }
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { checked ->
+                                selectedTaskTypes = if (checked)
+                                    selectedTaskTypes + taskType
+                                else
+                                    selectedTaskTypes - taskType
+                            },
+                        )
+                        Text(taskType.name, fontSize = 13.sp, color = c.text)
+                    }
+                }
+            }
 
             // ── System Prompt Addendum ────────────────────────────────────────
             OutlinedTextField(
                 value = addendum,
                 onValueChange = { addendum = it },
-                label = { Text(stringResource(R.string.role_field_system_prompt)) },
+                label = { Text(str(R.string.role_field_system_prompt)) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 6,
@@ -202,11 +262,11 @@ fun RoleEditPage(
             when {
                 modelsLoading -> {
                     OutlinedTextField(
-                        value = "正在加载模型列表…",
+                        value = str(R.string.role_edit_loading),
                         onValueChange = {},
                         readOnly = true,
                         enabled = false,
-                        label = { Text(stringResource(R.string.role_field_model)) },
+                        label = { Text(str(R.string.role_field_model)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -216,10 +276,10 @@ fun RoleEditPage(
                         onExpandedChange = { modelDropdownExpanded = it },
                     ) {
                         OutlinedTextField(
-                            value = selectedModel.ifBlank { "默认模型" },
+                            value = selectedModel.ifBlank { str(R.string.role_edit_b11de2) },
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text(stringResource(R.string.role_field_model)) },
+                            label = { Text(str(R.string.role_field_model)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
                         )
@@ -228,7 +288,7 @@ fun RoleEditPage(
                             onDismissRequest = { modelDropdownExpanded = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text("默认模型") },
+                                text = { Text(str(R.string.role_edit_b11de2)) },
                                 onClick = { selectedModel = ""; modelDropdownExpanded = false },
                             )
                             availableModels.forEach { model ->
@@ -245,14 +305,14 @@ fun RoleEditPage(
                         OutlinedTextField(
                             value = selectedModel,
                             onValueChange = { selectedModel = it },
-                            label = { Text(stringResource(R.string.role_field_model)) },
-                            placeholder = { Text("从站点加载失败，可手动输入", fontSize = 12.sp, color = c.subtext) },
+                            label = { Text(str(R.string.role_field_model)) },
+                            placeholder = { Text(str(R.string.role_edit_2442c5), fontSize = 12.sp, color = c.subtext) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                         )
                         Spacer(Modifier.width(8.dp))
                         TextButton(onClick = onFetchModels) {
-                            Text("刷新", color = c.accent, fontSize = 13.sp)
+                            Text(str(R.string.role_edit_refresh), color = c.accent, fontSize = 13.sp)
                         }
                     }
                 }
@@ -261,7 +321,7 @@ fun RoleEditPage(
             // ── Force-Inject Skills ───────────────────────────────────────────
             if (allSkills.isNotEmpty()) {
                 Text(
-                    text = stringResource(R.string.role_field_skills),
+                    text = str(R.string.role_field_skills),
                     fontSize = 12.sp,
                     color = c.subtext,
                 )
@@ -312,7 +372,7 @@ fun RoleEditPage(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = c.red.copy(alpha = 0.15f)),
                 ) {
-                    Text("还原预制角色", color = c.red, fontWeight = FontWeight.Medium)
+                    Text(str(R.string.role_edit_a2ea09), color = c.red, fontWeight = FontWeight.Medium)
                 }
             }
 

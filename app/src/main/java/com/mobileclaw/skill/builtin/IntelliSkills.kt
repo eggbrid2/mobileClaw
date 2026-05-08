@@ -14,6 +14,7 @@ import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillRegistry
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -237,6 +238,7 @@ class SkillMarketSkill(
 
     private val gson = Gson()
     private val httpClient = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()

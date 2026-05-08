@@ -9,9 +9,15 @@ import com.mobileclaw.memory.db.EpisodeEntity
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.ui.aipage.AiPageDef
+import com.mobileclaw.vpn.VpnStatus
+import com.mobileclaw.vpn.VpnSubscription
 import kotlinx.coroutines.flow.Flow
 
-enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER }
+enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN }
+
+const val LATENCY_TESTING = -1L
+const val LATENCY_ERROR   = -2L
 
 /** Per-session running state — each session can have an independent task running. */
 data class SessionRunState(
@@ -37,6 +43,7 @@ data class MainUiState(
     val allSkills: List<SkillMeta> = emptyList(),
     val config: Flow<ConfigSnapshot>,
     val isConfigured: Boolean = false,
+    val supportsMultimodal: Boolean = true,
     val virtualDisplayTestResult: String? = null,
     val inputImageBase64: String? = null,
     val inputFileAttachment: FileAttachment? = null,
@@ -76,19 +83,31 @@ data class MainUiState(
     // Per-skill user notes
     val skillNotes: Map<String, String> = emptyMap(),
     val skillNoteGenerating: String? = null,
+    // Per-skill injection level overrides (built-in skills can be demoted to save tokens)
+    val skillLevelOverrides: Map<String, Int> = emptyMap(),
     // Built-in browser
     val browserUrl: String = "",
     // History pagination
     val historyLoading: Boolean = false,
     val historyHasMore: Boolean = false,
     val historyOffset: Int = 0,
+    // AI-created native pages
+    val aiPages: List<AiPageDef> = emptyList(),
+    val openAiPageId: String? = null,
+    // VPN
+    val vpnStatus: VpnStatus = VpnStatus.IDLE,
+    val vpnSubscriptions: List<VpnSubscription> = emptyList(),
+    val vpnActiveProxyName: String? = null,
+    val vpnAddingSubscription: Boolean = false,
+    // Speed test: proxyId -> latency ms; LATENCY_TESTING = in progress, LATENCY_ERROR = failed
+    val vpnLatencies: Map<String, Long> = emptyMap(),
     // Group chat
     val groups: List<Group> = emptyList(),
     val openGroup: Group? = null,
     val groupMessages: List<GroupMessage> = emptyList(),
     val groupRunning: Boolean = false,
-    val groupTypingAgentId: String? = null,   // role id currently streaming
-    val groupStreamingText: String = "",       // partial streamed text for typing agent
+    val groupTypingAgents: Set<String> = emptySet(),   // roleIds currently running inference
+    val groupPendingMessages: List<String> = emptyList(), // user msgs queued while agents are active
     val groupUnreadCount: Int = 0,            // messages received while away from GROUP_CHAT page
 )
 
@@ -106,6 +125,7 @@ data class GroupMessage(
     val senderName: String,
     val senderAvatar: String,
     val text: String,
+    val attachments: List<SkillAttachment> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
 )
 

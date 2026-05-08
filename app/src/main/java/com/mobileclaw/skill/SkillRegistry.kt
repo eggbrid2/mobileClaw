@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 class SkillRegistry {
 
     private val skills = ConcurrentHashMap<String, Skill>()
+    private val levelOverrides = ConcurrentHashMap<String, Int>()
 
     fun register(skill: Skill) {
         skills[skill.meta.id] = skill
@@ -22,11 +23,33 @@ class SkillRegistry {
 
     fun all(): List<Skill> = skills.values.toList()
 
-    /** Returns skills eligible for injection at the given level and below. */
+    fun setLevelOverride(skillId: String, level: Int) {
+        levelOverrides[skillId] = level
+    }
+
+    fun removeLevelOverride(skillId: String) {
+        levelOverrides.remove(skillId)
+    }
+
+    fun effectiveLevel(skillId: String): Int {
+        val skill = skills[skillId] ?: return Int.MAX_VALUE
+        return levelOverrides[skillId] ?: skill.meta.injectionLevel
+    }
+
+    /** Returns all SkillMeta with the effective injection level applied. */
+    fun allWithEffectiveLevel(): List<SkillMeta> = skills.values.map { skill ->
+        val override = levelOverrides[skill.meta.id]
+        if (override != null) skill.meta.copy(injectionLevel = override) else skill.meta
+    }
+
+    /** Returns skills eligible for injection at the given level and below (respects overrides). */
     fun forInjection(maxLevel: Int = 0): List<SkillMeta> =
         skills.values
-            .filter { it.meta.injectionLevel <= maxLevel }
-            .map { it.meta }
+            .filter { (levelOverrides[it.meta.id] ?: it.meta.injectionLevel) <= maxLevel }
+            .map { skill ->
+                val override = levelOverrides[skill.meta.id]
+                if (override != null) skill.meta.copy(injectionLevel = override) else skill.meta
+            }
 
     fun contains(id: String) = skills.containsKey(id)
 }

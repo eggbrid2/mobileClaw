@@ -19,11 +19,13 @@ class ScreenshotSkill : Skill {
     override val meta = SkillMeta(
         id = "screenshot",
         name = "Take Screenshot",
-        description = "Captures the current screen and sends the image directly to you for visual analysis. Use this for apps where read_screen returns no useful content.",
+        description = "Fallback screen perception tool. Captures a raw screenshot for visual analysis. " +
+            "Use this when read_screen/XML is empty, accessibility nodes are unavailable, or see_screen marker detection is not useful. " +
+            "For normal phone control, prefer see_screen first because it returns coordinates.",
         type = SkillType.NATIVE,
         injectionLevel = 0,
         nameZh = "截图",
-        descriptionZh = "对当前屏幕截图，将图片返回供视觉分析。",
+        descriptionZh = "屏幕感知兜底工具。XML/无障碍节点不可用，或视觉标注不可用时截图供分析。",
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -70,7 +72,8 @@ class SeeScreenSkill : Skill {
         description = "PRIMARY screen perception tool. Takes a screenshot with numbered red markers on interactive elements (Set-of-Mark). " +
             "Works on ALL app types: standard Android, Flutter, React Native, games, WebViews. " +
             "Returns the annotated image plus a coordinate list. Use the listed coordinates directly with tap(x=..., y=...), " +
-            "scroll(x=..., y=..., direction=...), or long_click(x=..., y=...). Call this before any screen interaction.",
+            "scroll(x=..., y=..., direction=...), or long_click(x=..., y=...). Call once to inspect the current UI; " +
+            "after this tool, take an action instead of calling see_screen again unless the UI has changed.",
         type = SkillType.NATIVE,
         injectionLevel = 0,
         nameZh = "看屏幕（视觉）",

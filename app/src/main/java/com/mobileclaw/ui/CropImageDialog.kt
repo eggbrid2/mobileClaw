@@ -53,6 +53,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 /** Full-screen image crop dialog that produces a square JPEG in cache dir. */
 @Composable
@@ -204,7 +206,7 @@ fun CropContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onCancel) {
-                    Text("取消", color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp)
+                    Text(str(R.string.btn_cancel), color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp)
                 }
                 Button(
                     onClick = {
@@ -218,7 +220,7 @@ fun CropContent(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = c.accent),
                 ) {
-                    Text("使用此裁剪", fontSize = 15.sp)
+                    Text(str(R.string.crop_ae0f8c), fontSize = 15.sp)
                 }
             }
         }

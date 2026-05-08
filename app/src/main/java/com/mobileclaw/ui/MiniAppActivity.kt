@@ -66,6 +66,8 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 class MiniAppActivity : ComponentActivity() {
 
@@ -301,7 +303,7 @@ private fun MiniAppInfoPanel(
             Text(miniApp?.icon ?: "📱", fontSize = 52.sp)
             Spacer(Modifier.height(8.dp))
             Text(
-                text = miniApp?.title ?: "应用",
+                text = miniApp?.title ?: str(R.string.drawer_apps),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = c.text,
@@ -326,14 +328,14 @@ private fun MiniAppInfoPanel(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("🐍", fontSize = 13.sp)
                     Spacer(Modifier.width(6.dp))
-                    Text("包含 Python 后端", fontSize = 12.sp, color = c.subtext)
+                    Text(str(R.string.activity_ae1a83), fontSize = 12.sp, color = c.subtext)
                 }
             }
             if (dateStr.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("🕐", fontSize = 13.sp)
                     Spacer(Modifier.width(6.dp))
-                    Text("创建于 $dateStr", fontSize = 12.sp, color = c.subtext)
+                    Text(str(R.string.created_at, dateStr), fontSize = 12.sp, color = c.subtext)
                 }
             }
         }
@@ -342,8 +344,8 @@ private fun MiniAppInfoPanel(
 
         // Actions
         Spacer(Modifier.height(6.dp))
-        PanelAction(label = "关闭应用", color = c.red, onClick = onClose)
-        PanelAction(label = "返回应用", color = c.text, onClick = onDismiss)
+        PanelAction(label = str(R.string.activity_close), color = c.red, onClick = onClose)
+        PanelAction(label = str(R.string.activity_back), color = c.text, onClick = onDismiss)
         Spacer(Modifier.height(4.dp))
     }
 }

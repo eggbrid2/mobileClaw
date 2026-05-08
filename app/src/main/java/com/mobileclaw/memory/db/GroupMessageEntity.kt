@@ -14,6 +14,7 @@ data class GroupMessageEntity(
     val senderName: String,
     val senderAvatar: String,
     val text: String,
+    val attachmentsJson: String = "[]",
     val createdAt: Long = System.currentTimeMillis(),
 )
 

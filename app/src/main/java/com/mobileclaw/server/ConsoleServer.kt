@@ -520,7 +520,7 @@ Environment:
 
 Examples:
   openclaw info
-  openclaw send "搜索今天的科技新闻"
+  openclaw send "Search today's tech news"
   openclaw skills export > skills.json
   CLAW_HOST=http://192.168.1.100:$PORT openclaw info
 EOF
@@ -652,24 +652,24 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','S
 <div id="topbar">
   <div class="logo">Mobile<em>Claw</em></div>
   <div id="sdot"></div>
-  <span id="stxt">连接中…</span>
-  <div id="url" title="点击复制地址">当前页</div>
+  <span id="stxt">Connecting…</span>
+  <div id="url" title="Click to copy address">This page</div>
 </div>
 <div id="main">
   <div id="sidebar">
-    <div class="sh">历史会话</div>
-    <div id="slist"><div class="sysmsg" style="margin:14px 8px">加载中…</div></div>
+    <div class="sh">History</div>
+    <div id="slist"><div class="sysmsg" style="margin:14px 8px">Loading…</div></div>
   </div>
   <div id="cw">
     <div id="msgs">
       <div id="empty">
         <div class="ico">🦀</div>
-        <div class="hint">在下方输入任务，MobileClaw 将在设备上执行</div>
+        <div class="hint">Enter a task below — MobileClaw will execute it on the device</div>
       </div>
     </div>
     <div id="ia">
-      <div id="iw"><textarea id="inp" rows="1" placeholder="输入任务… (Enter 发送，Shift+Enter 换行)" autocomplete="off" spellcheck="false"></textarea></div>
-      <button id="sbtn" onclick="send()" title="发送">
+      <div id="iw"><textarea id="inp" rows="1" placeholder="Enter task… (Enter to send, Shift+Enter for newline)" autocomplete="off" spellcheck="false"></textarea></div>
+      <button id="sbtn" onclick="send()" title="Send">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9z"/>
         </svg>
@@ -686,7 +686,7 @@ window.addEventListener('load',function(){
   document.getElementById('url').textContent=location.host;
   document.getElementById('url').onclick=function(){
     navigator.clipboard&&navigator.clipboard.writeText(location.href);
-    this.textContent='已复制!';setTimeout(function(){document.getElementById('url').textContent=location.host;},1500);
+    this.textContent='Copied!';setTimeout(function(){document.getElementById('url').textContent=location.host;},1500);
   };
   var inp=document.getElementById('inp');
   inp.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
@@ -695,23 +695,23 @@ window.addEventListener('load',function(){
 
 function connectSSE(){
   var es=new EventSource('/api/events');
-  es.onopen=function(){dot('on','已连接');};
+  es.onopen=function(){dot('on','Connected');};
   es.onmessage=function(e){var m=JSON.parse(e.data);onEvt(m.type,m.d);};
-  es.onerror=function(){dot('','重连中…');setTimeout(connectSSE,3000);es.close();};
+  es.onerror=function(){dot('','Reconnecting…');setTimeout(connectSSE,3000);es.close();};
 }
 
 function onEvt(t,d){
-  if(t==='connected'){dot('on','已连接');}
+  if(t==='connected'){dot('on','Connected');}
   else if(t==='task_started'){
     running=true;stBubble=null;stText='';
     document.getElementById('sbtn').disabled=true;
-    dot('run','执行中…');
+    dot('run','Running…');
     hideEmpty();
   }
   else if(t==='token'){appendTok(d);}
   else if(t==='skill_called'){addSkill(d);}
-  else if(t==='task_completed'){finalizeStream(false);running=false;document.getElementById('sbtn').disabled=false;dot('on','已连接');refreshSess();}
-  else if(t==='task_stopped'){finalizeStream(true);running=false;document.getElementById('sbtn').disabled=false;dot('on','已连接');refreshSess();}
+  else if(t==='task_completed'){finalizeStream(false);running=false;document.getElementById('sbtn').disabled=false;dot('on','Connected');refreshSess();}
+  else if(t==='task_stopped'){finalizeStream(true);running=false;document.getElementById('sbtn').disabled=false;dot('on','Connected');refreshSess();}
 }
 
 function send(){
@@ -753,7 +753,7 @@ function finalizeStream(stopped){
   if(stBubble){
     var c=document.getElementById('cur');if(c)c.remove();
     stBubble.classList.add('done');
-    if(stopped&&!stText)stBubble.textContent='⚠️ 已停止';
+    if(stopped&&!stText)stBubble.textContent='⚠️ Stopped';
     stBubble=null;stText='';
   }
 }
@@ -761,11 +761,11 @@ function finalizeStream(stopped){
 function loadSessions(){
   fetch('/api/sessions').then(function(r){return r.json();}).then(function(data){
     var list=document.getElementById('slist');list.innerHTML='';
-    if(!data.sessions||!data.sessions.length){list.innerHTML='<div class="sysmsg" style="margin:14px 8px">暂无历史</div>';return;}
+    if(!data.sessions||!data.sessions.length){list.innerHTML='<div class="sysmsg" style="margin:14px 8px">No history</div>';return;}
     data.sessions.forEach(function(s){
       var el=document.createElement('div');el.className='si'+(s.id===curSess?' active':'');el.dataset.id=s.id;
       var d=new Date(s.updatedAt);
-      var ts=d.toLocaleDateString('zh',{month:'numeric',day:'numeric'})+' '+d.toLocaleTimeString('zh',{hour:'2-digit',minute:'2-digit'});
+      var ts=d.toLocaleDateString(undefined,{month:'numeric',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
       el.innerHTML='<div class="t">'+esc(s.title)+'</div><div class="ts">'+ts+'</div>';
       el.onclick=function(){selectSess(s.id);};
       list.appendChild(el);

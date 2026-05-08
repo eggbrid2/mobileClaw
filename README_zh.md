@@ -1,665 +1,243 @@
 <div align="center">
 
-<img src="docs/logo.png" alt="MobileClaw" width="180" />
+<img src="docs/logo.png" alt="MobileClaw" width="150" />
 
-**住在你 Android 里的自主 AI Agent**
+# MobileClaw
 
-*能看、能想、能动、能造、能记忆——从不停歇*
+### 一个开放的 Android Agent Runtime：能看屏幕、能执行、能构建、能记忆，也能自己调度工具。
 
----
+MobileClaw 是一个运行在 Android 手机上的 LLM Agent 实验项目。它的目标不是再做一个聊天框，而是把手机上的可授权能力组织成一套 AI 可以调用、可以规划、可以复用的工具系统。
 
-[![Platform](https://img.shields.io/badge/平台-Android%2011%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+[![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/Jetpack%20Compose-2.0-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![API](https://img.shields.io/badge/接口-OpenAI%20兼容-412991?logo=openai&logoColor=white)](https://platform.openai.com)
-[![License](https://img.shields.io/badge/协议-MIT-22c55e)](LICENSE)
-[![minSdk](https://img.shields.io/badge/minSdk-30-f97316)](https://developer.android.com/tools/releases/platforms)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Python](https://img.shields.io/badge/Chaquopy-Python%203.11-3776AB?logo=python&logoColor=white)](https://chaquo.com/chaquopy/)
+[![LLM](https://img.shields.io/badge/OpenAI--compatible-111827?logo=openai&logoColor=white)](https://platform.openai.com)
+[![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
 
-**[English README →](README.md)**
+**[English README](README.md)**
 
 </div>
 
 ---
 
-## MobileClaw 是什么？
+## 为什么做这个
 
-MobileClaw 是一个完全运行在设备本地的**自主 AI Agent**。它能看懂屏幕、执行手势、浏览网页、运行 Python 代码、生成图片、构建交互式 Mini 应用——独立完成复杂的多步骤任务，即使在你睡觉时也不停工。
+大多数移动端 AI 应用只是一个聊天入口。MobileClaw 更像是一个给 Agent 用的手机操作层。
 
-> **无需云端中转，无需 Shizuku，无需 Root**（Root 为可选加分项）。  
-> 只需一个兼容 OpenAI 接口的 LLM 服务，立刻开始自动化。
+用户提出一个目标后，系统会先把它变成一次有边界的任务。任务会得到角色、短计划、受控工具集，然后进入执行循环：
 
-它不是聊天机器人，也不是宏录制器。它是一个**会思考、会决策、能自我扩展的 AI**——把你的 Android 当作运行环境，还能在运行时为自己升级能力。
-
----
-
-## 🔥 它到底能做什么？
-
-以下是你现在就可以对 MobileClaw 说的真实指令：
-
-```
-"打开京东，找到最便宜的 iPhone 16，告诉我值不值得买"
-
-"打开微博，滚动我的关注，总结今天大家在说什么"
-
-"搜索下个月去东京的机票，比较价格，给我一张表格"
-
-"帮我做一个带打卡连击和图表的习惯追踪 App"
-
-"切换到程序员模式，把我备忘录里这个 Python 文件重构一下"
-
-"截图我的微信对话，翻译成英文"
-
-"建一个群组，成员：网络代理 + 通用助手，一起调研最好的 AI 编程模型"
+```text
+用户目标 -> 任务类型 -> 角色调度 -> 规划 -> 允许的 skill -> 观察 -> 行动 -> 验证
 ```
 
-无需特殊设置，无需写代码，直接说就好。
+这个结构很关键。手机自动化如果把所有工具都塞进提示词，很快就会变成乱调用、重复读屏、上下文污染。MobileClaw 把手机控制、网页研究、文件处理、应用构建、图片生成、VPN 控制、skill 管理和代码执行拆成不同任务模式。
 
----
+项目还在快速变化。有些功能已经可以日常使用，有些功能仍然是研究和工程实验状态。代码开源，是因为 Android Agent 这件事必须面对真实设备、真实 ROM、真实网络和真实用户流程。
 
-## ✨ 核心特性一览
+## 当前已经实现的能力
 
-| 特性 | 说明 |
-|------|------|
-| **交互式聊天 UI** | AI 主动在消息中嵌入可交互的按钮、表单、卡片、图表和数据表——聊天框变身交互式应用界面 |
-| **丰富 Markdown** | AI 回复支持完整 Markdown：管道表格、代码围栏、粗体/斜体/行内代码、引用块、有序/无序列表 |
-| **图片保存** | 点击聊天中的任意图片可全屏查看；一键保存到相册（支持 Android 9+） |
-| **屏幕理解** | Set-of-Mark 标注截图，兼容原生 App、Flutter、React Native、WebView、游戏 |
-| **手势控制** | 点击、长按、滑动、输入，坐标或节点 ID 双模式定位 |
-| **网络访问** | 搜索、抓取、WebView 浏览、JavaScript 执行，全链路打通 |
-| **Mini 应用构建器** | AI 生成完整交互式 HTML 应用，内置原生 Android 桥（SQLite、Python、文件、剪贴板、设备接口） |
-| **角色 / 人格系统** | 在专家代理人之间切换（程序员、网络代理、手机操控者、创作者），带强制技能和模型覆盖 |
-| **多智能体群组对话** | 把任意角色拉进一个群组——它们互相 @提及、实时流式输出、达成共识后自动停止 |
-| **持久化会话** | 完整对话历史存储至 Room DB，随时从左侧抽屉切换到任意历史对话 |
-| **动态模型切换** | Agent 在任务中途自主切换 LLM（视觉、推理、图像生成） |
-| **用户配置** | Agent 可读写你的个人配置，偏好设置跨会话持久保存 |
-| **多层记忆** | 语义记忆 · 情节记忆 · 对话记忆 · 工作记忆，四层协同 |
-| **虚拟屏后台** | 在隐藏的 1080×1920 虚拟显示器上无感知运行目标 App |
-| **Python 运行时** | 本地执行 Python（Chaquopy），数据处理、爬取、数学计算、文件解析 |
-| **图像生成** | 通过 DALL-E 或兼容 API 生成图片，以附件形式返回 |
-| **内置特权服务** | APK 内捆绑 Shell-UID 服务器，无需安装 Shizuku |
-| **千人千面控制台** | Agent 为每位用户重写局域网控制台——自定义主题、控件和快捷指令（`console_editor`） |
-| **Skill 自我扩展** | Agent 从自然语言描述创建新 Skill，一键提升到 Skill 库；用户生成的 Skill 支持删除或降级 |
-| **本地 Embedding** | 情节记忆检索使用设备端 n-gram Embedding，无需 Embedding API |
-| **用户画像** | MobileClaw 自动构建你的画像模型——习惯、目标、偏好——并展示 Skill 探索进度 |
-| **思维链展示** | 原生支持 DeepSeek-R1 `reasoning_content` 流式，UI 实时呈现思考过程 |
-| **全 ROM 适配** | 已适配 MIUI / EMUI / ColorOS / OriginOS / One UI / 原生系统 |
+### 手机控制
 
----
+- 通过无障碍读取 Android UI XML。
+- 通过 `see_screen` 做视觉读屏：截图、标记可操作目标，并返回可直接点击/滑动的坐标。
+- 当 XML 为空或误导模型时，保留 `screenshot` 作为原始视觉兜底，适合 Flutter、React Native、WebView、游戏类界面。
+- 支持点击、长按、滑动、输入文字、返回、Home、启动 App、列出已安装 App。
+- 内置轻量 IME，为更可靠的文本输入链路预留能力。
 
-## 📐 架构概览
+### 后台手机任务
 
+- 支持隐藏虚拟显示器，把 App 启动到用户主屏之外。
+- 提供 `bg_launch`、`bg_read_screen`、`bg_screenshot`、`bg_stop` 等后台观察和操作工具。
+- 提供 ROM 相关配置指引；如果系统拦截虚拟屏启动，可尝试 root 或一次性 ADB 激活的 shell uid 特权服务。
+
+### 任务运行时
+
+- `TaskClassifier` 把请求分类成 `PHONE_CONTROL`、`WEB_RESEARCH`、`APP_BUILD`、`VPN_CONTROL`、`SKILL_MANAGEMENT`、`CODE_EXECUTION` 等任务类型。
+- `TaskPlanner` 在执行前做一次规划。
+- `TaskToolPolicy` 按任务类型控制工具可见性。
+- `RoleScheduler` 在内置角色和用户自定义角色中自动选择执行者。
+- `AgentRuntime` 运行 ReAct 循环，带重复感知保护、截图上下文裁剪、结构化观察和任务事件。
+
+### 角色和调度
+
+内置角色包括：
+
+- 通用助手
+- 代码专家
+- 网络助手
+- 手机操作员
+- 创作助手
+- Skill 管理员
+- VPN 管理员
+
+角色不只是人设。角色可以声明适合的任务类型、关键词、调度优先级、强制注入的 skill，以及模型覆盖。用户创建的角色也会进入同一套调度器。
+
+### Skill 系统
+
+MobileClaw 有原生 skill 注册表和注入等级：
+
+- Level 0：核心运行时默认可见。
+- Level 1：按任务类型注入。
+- Level 2：按需调用，通常是用户创建或尚未提升的 skill。
+
+内置 skill 大致包括：
+
+- 手机和感知：`see_screen`、`screenshot`、`read_screen`、`tap`、`scroll`、`input_text`、`navigate`、`list_apps`。
+- 网络：`web_search`、`fetch_url`、隐藏 WebView 浏览、网页正文读取、网页 JS 执行。
+- 文件和附件：创建/读取/列出文件，生成 HTML 页面，用户存储访问，文件卡片、图片、HTML、网页和搜索结果附件。
+- 创作：图片生成、视频生成、文档生成、图标生成。
+- 应用：HTML mini app 创建，原生 Compose AI Page 创建。
+- 代码：内置 Python 执行、运行时安装纯 Python 包、shell 执行、控制台编辑。
+- 记忆和用户数据：语义记忆、用户画像、用户配置、skill notes。
+- 元工具：创建 skill、根据描述生成 skill、搜索/安装 skill 市场、管理角色、切换模型、切换角色、管理会话。
+- VPN：通过 `vpn_control` 启停和查看状态。
+
+动态 skill 支持 Python 和 HTTP 定义。通过普通 meta-skill 路径不会让 AI 生成 Native 或 Shell skill，这是有意的边界。
+
+### Mini App 和 AI Page
+
+MobileClaw 有两条“AI 创建应用”的路径：
+
+- HTML mini app 运行在 WebView 中，带 `Claw` JS bridge，支持 HTTP、SQLite、Python、shell、记忆、配置、文件、剪贴板、设备信息、启动 App、打开 URL、分享文本和回调 Agent。
+- AI Page 是原生 Compose 页面，以 JSON 保存。它渲染组件 DSL，并执行 HTTP、shell、通知、震动、启动 App、打开 URL、剪贴板、Intent、拨号、短信编辑、闹钟、页面跳转等 action step。
+
+两者都能从聊天中创建。mini app 更适合快速做 Web 风格工具，AI Page 更适合做原生工作流。
+
+### VPN 和代理运行时
+
+MobileClaw 内置了一套面向 Android Agent 的 VPN 链路：
+
+- 支持导入 Clash/Mihomo 订阅。
+- 保存原始 YAML，不需要每次运行都重新订阅。
+- 解析 HTTP、SOCKS5、Shadowsocks、YAML 中的 SSR、VMess、Trojan、VLESS 等节点。
+- 节点延迟测试通过短生命周期 mihomo 进程完成。
+- 运行时根据选中节点生成 `MATCH,GLOBAL` 配置。
+- Android `VpnService` 创建 TUN。
+- mihomo 提供本地 mixed proxy。
+- `hev-socks5-tunnel` 将 Android TUN 流量桥接到 mihomo。
+- 应用内 HTTP 和 WebView 可以走当前代理链路。
+
+当前方案不使用 Xray。代理协议由 mihomo 处理；hev 仍然保留，因为 Android 全局 VPN 还需要 TUN 到 SOCKS 的桥。
+
+### 聊天、群聊和附件
+
+- 单聊支持文本、图片附件、文件附件、流式输出、任务日志、详情面板、长内容折叠、附件独立消息。
+- 群聊支持用户和 AI 发送附件。
+- 群聊有一个小型任务池。长任务只占用执行它的那个 Agent 和一个池槽，不会锁死整个群。
+- 如果任务池还有容量，新的用户消息可以插队让其他 Agent 回复。
+
+### 记忆
+
+- Semantic memory 保存长期键值事实。
+- Conversation memory 保存近期用户和 AI 对话。
+- Episodic memory 记录任务结果、使用过的 skill 和反思摘要，并用本地字符 n-gram embedding 检索相似历史任务。
+- User profile extractor 从对话和任务历史中抽取用户画像事实。
+- Working memory 会裁剪当前任务步骤，避免上下文无限膨胀。
+
+### 本地和局域网 API
+
+- Loopback API 暴露 skill、动态 skill 安装/删除、memory、config，供本地 HTTP skill 调用。
+- LAN console 提供浏览器控制台、SSE 任务事件、会话/消息 API、skill 导入导出、memory/config API，以及 OpenClaw CLI 脚本下载。
+- Agent 可以通过 `console_editor` 读取、重写或 patch 控制台页面。
+
+## 架构
+
+```text
+app/src/main/java/com/mobileclaw
+├─ agent
+│  ├─ TaskSession.kt       任务类型、任务规划、工具策略
+│  ├─ AgentRuntime.kt      ReAct 循环和任务事件
+│  ├─ AgentContext.kt      prompt 构造
+│  ├─ Role.kt              内置角色和角色元数据
+│  └─ RoleScheduler.kt     自动角色调度
+├─ skill
+│  ├─ SkillRegistry.kt     注册、注入等级、覆盖
+│  ├─ SkillLoader.kt       动态 Python/HTTP skill 持久化
+│  ├─ builtin/             内置原生 skill
+│  └─ executor/            Python、HTTP、shell 执行器
+├─ perception
+│  ├─ ClawAccessibilityService.kt
+│  ├─ ScreenshotController.kt
+│  ├─ ActionController.kt
+│  ├─ VirtualDisplayManager.kt
+│  └─ ClawIME.kt
+├─ ui
+│  ├─ ChatScreen.kt        主聊天
+│  ├─ GroupChatScreen.kt   多 Agent 群聊
+│  ├─ DynamicUiRenderer.kt 聊天内动态 UI 渲染
+│  ├─ MiniAppActivity.kt   WebView mini app
+│  └─ aipage/              原生 AI Page 运行时
+├─ vpn
+│  ├─ VpnManager.kt
+│  ├─ ClashParser.kt
+│  ├─ MihomoConfigBuilder.kt
+│  ├─ MihomoProcess.kt
+│  └─ ClawVpnService.kt
+├─ memory
+│  ├─ SemanticMemory.kt
+│  ├─ EpisodicMemory.kt
+│  ├─ ConversationMemory.kt
+│  └─ UserProfileExtractor.kt
+└─ server
+   ├─ ConsoleServer.kt
+   ├─ LocalApiServer.kt
+   ├─ PrivilegedServer.kt
+   └─ PrivilegedClient.kt
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                         MobileClaw App                              │
-│                                                                      │
-│  ┌─────────────────┐   ┌──────────────────────┐  ┌───────────────┐  │
-│  │   聊天 UI        │   │    Agent 运行时        │  │   记忆系统    │  │
-│  │  (Compose)       │◄──┤  ReAct 循环           ├─►│ 语义 · 情节  │  │
-│  │  持久化会话      │   │  角色感知              │  │ 对话 · 工作  │  │
-│  │  抽屉导航        │   │  动态模型切换          │  └───────────────┘  │
-│  └─────────────────┘   └──────────┬───────────┘                      │
-│                                   │                                   │
-│  ┌────────────────────────────────▼──────────────────────────────┐   │
-│  │                        Skill 注册中心                           │   │
-│  │                                                                │   │
-│  │  Level 0（始终）      Level 1（任务感知）    Level 2（按需）    │   │
-│  │  see_screen · tap    web_* · bg_* · shell  quick_skill        │   │
-│  │  scroll · input      generate_image        meta · market      │   │
-│  │  memory · navigate   create_html · python  skill_notes        │   │
-│  │  switch_model        role_manager          session_manager    │   │
-│  │  page_control        user_config                              │   │
-│  └────────────────┬───────────────────────────────────────────── ┘   │
-│                   │                                                    │
-│  ┌────────────────▼────────┐    ┌──────────────────────────────────┐  │
-│  │      LLM 网关            │    │           感知层                  │  │
-│  │  OpenAI 兼容接口         │    │  AccessibilityService + IME       │  │
-│  │  流式 · 工具调用          │    │  ActionController                 │  │
-│  │  视觉 · 思维链            │    │  VirtualDisplayManager            │  │
-│  └─────────────────────────┘    └──────────────────┬───────────────┘  │
-│                                                    │                   │
-│                                   ┌────────────────▼─────────────┐    │
-│                                   │  特权服务（Shell UID 进程）    │    │
-│                                   │  TCP 127.0.0.1:52730          │    │
-│                                   └──────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────────┘
-```
 
-Agent 遵循 **ReAct 循环**：推理下一步行动 → 调用 Skill → 观察结果 → 循环。每轮调用一次 LLM，当前激活的角色决定哪些 Skill 始终可用、是否强制指定模型。
+## 构建
 
----
+环境要求：
 
-## 💬 交互式聊天 UI
-
-AI 可以直接在聊天消息中嵌入可交互的原生组件——不只是纯文字或静态 Markdown。
-
-当 AI 需要提供选项、收集输入、展示表格或绘制图表时，它会输出一个带有紧凑 JSON 结构的 ` ```ui ` 代码块。MobileClaw 将其内联渲染为原生 Compose 组件。
-
-```
-用户："给我列出 3 个搜索引擎，让我选一个"
-
-AI:
-```ui
-{"type":"column","gap":10,"children":[
-  {"type":"text","content":"选择搜索引擎","bold":true},
-  {"type":"button","label":"Google","action":"send:使用 Google"},
-  {"type":"button","label":"DuckDuckGo","action":"send:使用 DuckDuckGo","style":"outline"},
-  {"type":"button","label":"Bing","action":"send:使用 Bing","style":"outline"}
-]}
-```
-```
-
-**支持的组件类型：**
-
-| 类型 | 关键属性 |
-|------|---------|
-| `column` / `row` | `gap`、`padding`、`children` |
-| `card` | `title`、`children` |
-| `text` | `content`、`size`、`bold`、`italic`、`color`、`align` |
-| `button` | `label`、`action`、`style`（filled / outline / text） |
-| `input` | `key`、`placeholder` — 值在按钮 action 中以 `{key}` 引用 |
-| `select` | `key`、`options` |
-| `table` | `headers`、`rows` |
-| `chart_bar` / `chart_line` | `data`、`labels`、`title` |
-| `progress` | `value`（0–1）、`label` |
-| `badge` | `text`、`color` |
-| `image` | `src`（Base64 Data URI）、`height` |
-| `divider` / `spacer` | — |
-
-**Action 协议：**
-
-| 前缀 | 行为 |
-|------|------|
-| `send:文本` | 以用户身份发送该文本 |
-| `submit:模板 {key}` | 将 `{key}` 替换为输入框当前值后发送 |
-| `copy:文本` | 静默复制到剪贴板 |
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Android 11（API 30）及以上
-- 可访问的 OpenAI 兼容 LLM 服务（云端或本地均可）
-
-### 安装方式
-
-**方式一：下载预编译 APK**
-
-1. 前往 [Releases](../../releases) 页面下载最新 APK
-2. 开启「安装未知来源应用」后直接安装
-
-**方式二：从源码编译**
+- Android Studio Ladybug 或更新版本
+- JDK 17
+- Android 11+ 设备或模拟器
+- 一个 OpenAI 兼容 Chat 接口和 API Key
 
 ```bash
 git clone https://github.com/eggbrid2/mobileClaw.git
 cd mobileClaw
-./gradlew :app:assembleRelease
+./gradlew :app:assembleDebug
 ```
 
-> 需要 Android Studio Ladybug 2024.2+ 和 JDK 17+
+Debug APK：
 
-### 初始配置
-
-1. 安装后，授予所有必要权限（辅助功能、悬浮窗、通知）
-2. 打开 **设置（Settings）** 页面，填写 LLM 配置：
-
-   | 字段 | 示例 |
-   |------|------|
-   | API Endpoint | `https://api.openai.com` 或本地 `http://192.168.1.x:11434` |
-   | API Key | 你的服务密钥 |
-   | Chat Model | `gpt-4o`（也可在 TopBar 芯片处快速切换） |
-   | Embedding Model | `text-embedding-3-small`（用于情节记忆检索） |
-
-3. 点击 **Save**，首页状态点变绿即可开始使用
-
----
-
-## 🎭 角色系统
-
-角色是专家型 AI 人格，每个角色预装了针对性的 Skill、可选的模型覆盖，以及自定义的系统提示补充。从抽屉切换角色，或直接让 Agent 在任务中途切换。
-
-| 角色 | 头像 | 强制 Skill | 最适合 |
-|------|------|------------|--------|
-| **通用助手** | 🦀 | 无 | 日常任务、对话 |
-| **程序员** | 👨‍💻 | `shell` | 文件操作、代码执行 |
-| **网络代理** | 🌐 | `web_search`, `web_browse`, `fetch_url` | 调研、比价、爬取 |
-| **手机操控者** | 📱 | `see_screen`, `tap`, `scroll` | UI 自动化、App 控制 |
-| **创作者** | 🎨 | `generate_image`, `create_html` | 视觉内容、Mini 应用 |
-
-你也可以创建完全自定义的角色：命名、选 Emoji、写系统提示、勾选任意 Skill 组合、指定专属模型。保存后，从抽屉一键激活。
-
----
-
-## 📱 Mini 应用平台
-
-MobileClaw 能在对话框内构建并运行**完整的交互式应用**——不是静态页面，而是真正可用的 App。
-
-当你说「帮我做一个习惯追踪器」，Agent 会：
-
-1. 生成完整的 HTML + JavaScript 应用
-2. 注入原生 Android 桥（`window.Claw`）
-3. 在全屏 Activity 级别的查看器中打开
-
-`window.Claw` 桥为每个 Mini 应用提供：
-
-```javascript
-// 持久化配置
-Claw.config.set("theme", "dark")
-Claw.config.get("theme")         // → "dark"
-
-// 应用沙箱文件系统
-Claw.files.write("notes.txt", "Hello")
-Claw.files.read("notes.txt")
-
-// 完整 SQLite 数据库
-const res = await Claw.sql("SELECT * FROM tasks")
-
-// Python 后端（本地运行，无需服务器）
-const r = await Claw.python({ action: "analyze", data: [1, 2, 3, 4, 5] })
-
-// HTTP 请求（无跨域限制）
-const r = await Claw.fetch("https://api.example.com/data", { method: "GET" })
-
-// 设备集成
-Claw.toast("已保存！")
-Claw.clipboard.set("复制内容")
-Claw.vibrate(100)
-
-// 与 Agent 对话
-Claw.ask("帮我总结今天的任务")
-Claw.close()
+```text
+app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Mini 应用持久保存在抽屉的 **应用（Apps）** 区域，随时可重新打开、更新或删除。
+项目使用 Kotlin、Jetpack Compose、Room、DataStore、WebView、OkHttp、Gson、Jsoup、SnakeYAML、Chaquopy Python 3.11、mihomo 和 hev-socks5-tunnel。
 
----
+## 权限和设备说明
 
-## 🛠️ Skill 系统
+MobileClaw 的原则是把用户授权过的 Android 能力变成显式 Agent 工具。不同功能可能需要：
 
-Skill 是 Agent 的行动能力单元，每个 Skill 向 LLM 暴露类型化的 JSON Schema，并在应用内沙箱执行。
+- 无障碍服务：读屏、截图、手势、输入。
+- VPN 权限：Android `VpnService`。
+- 通知权限：VPN 前台服务状态和 AI Page 通知。
+- 文件和媒体访问：用户选择的附件和用户存储工具。
+- 悬浮窗/后台相关权限：长任务和视觉助手能力。
+- 可选 ADB 激活：部分 ROM 拦截虚拟屏启动时，用于启动 shell uid 特权服务。
 
-### Level 0 — 始终注入
+Root 不是基础要求。但某些后台虚拟屏能力可能需要 ROM 设置、root 或内置 shell uid helper。
 
-| Skill | 说明 |
-|-------|------|
-| `see_screen` | 带 Set-of-Mark 标注的截图，对可交互元素添加编号红圈 |
-| `tap` | 通过坐标或节点 ID 点击 |
-| `long_click` | 长按节点（常用于触发上下文菜单） |
-| `scroll` | 上下左右滑动，支持自定义距离 |
-| `input_text` | 向焦点或指定节点输入文字 |
-| `navigate` | 系统导航：返回、Home、按包名启动应用 |
-| `memory` | 读写持久化键值记忆（get / set / delete / list） |
-| `list_apps` | 枚举已安装应用及包名 |
-| `switch_model` | 为后续步骤自主切换 LLM |
-| `page_control` | 导航到任意应用页面（设置、技能、角色、应用…） |
+## 适合贡献的方向
 
-### Level 1 — 任务感知注入
+- 更稳定的非标准 Android UI 自动化。
+- 更好的 VLM 定位和动作校验。
+- 更安全的动态 skill 审核和提升流程。
+- 更好的任务策略和角色调度启发式。
+- 更可复现的 VPN 订阅、mihomo 和代理边界问题修复。
+- 不同 ROM 的虚拟屏兼容性报告。
+- 文档、演示、小型角色和 skill 预设。
 
-| Skill | 说明 |
-|-------|------|
-| `web_search` | DuckDuckGo 搜索（无需 API Key） |
-| `fetch_url` | 抓取 URL 并提取正文为 Markdown |
-| `web_browse` | 在隐藏 WebView 中加载 URL（支持 JS 渲染页面） |
-| `web_content` | 提取已加载 WebView 的页面文本 |
-| `web_js` | 在 WebView 中执行 JavaScript |
-| `bg_launch` | 在虚拟屏上启动 App |
-| `bg_screenshot` | 截取虚拟屏画面 |
-| `bg_read_screen` | 读取虚拟屏的无障碍 UI 树 |
-| `bg_stop` | 释放虚拟屏 |
-| `shell` | 执行任意 Shell 命令 |
-| `generate_image` | 通过 DALL-E 或兼容 API 生成图片 |
-| `generate_icon` | AI 生成应用图标（DashScope/CogView/OpenAI 兼容） |
-| `create_html` | 构建并持久化完整交互式 Mini 应用 |
-| `console_editor` | 定制局域网控制台页面——完整重写、注入 CSS 主题或注入 JS 控件（千人千面） |
-| `user_config` | 读写用户个人配置项 |
-| `role_manager` | 创建、更新、删除、激活角色 |
-| `session_manager` | 创建、切换、重命名、删除会话 |
-| `switch_role` | 切换活跃的角色人格 |
+## 当前状态
 
-> **管理用户创建的 Skill：** 用户生成的 Skill 可在 Skill 页面通过删除按钮（🗑）彻底删除，也可通过降级按钮将 Level 1 Skill 降回 Level 2（按需加载）。内置 Skill 提供 **还原** 按钮。
+MobileClaw 不是一个已经打磨完成的商业助手。它是一个有完整 App 外壳的开源 Android Agent 实验室。权限、ROM 策略、VPN 配置和长任务自动化都会有边界和坑。
 
-### Level 2 — 按需加载
+如果你要贡献，建议保持行为可检查。小而清楚的工具，比一团看不见边界的“魔法”更有价值。
 
-| Skill | 说明 |
-|-------|------|
-| `quick_skill` | LLM 根据自然语言描述自动生成新 Skill |
-| `skill_market` | 浏览并安装社区 Skill（来自 GitHub） |
-| `meta` | 在运行时创建、更新或删除 Skill 定义 |
-| `skill_check` | 列出所有已注册 Skill 及其参数 |
-| `skill_notes` | 读写每个 Skill 的用户备注和 AI 生成摘要 |
-| `check_permissions` | 查看和申请应用权限 |
-| `app_manager` | 创建、更新、删除和启动 HTML Mini 应用（含原生 Android 桥） |
-| `create_file` | 读写应用存储中的文件 |
-| `vd_setup` | 配置虚拟屏参数 |
+## License
 
----
-
-## 🧠 记忆系统
-
-```
-任务目标
-    │
-    ▼
-┌──────────────────────────────────────────────┐
-│            系统提示构建器                      │
-│                                               │
-│  ┌─────────────────┐  ┌─────────────────────┐ │
-│  │   语义记忆       │  │      情节记忆         │ │
-│  │  "已知事实：     │  │  "类似的过去任务      │ │
-│  │   你的时区、     │  │   让你学到了：        │ │
-│  │   常用 App、     │  │   下拉刷新需要往      │ │
-│  │   写作风格…"     │  │   下滑到顶端…"        │ │
-│  └─────────────────┘  └─────────────────────┘ │
-└──────────────────────────────────────────────┘
-    │
-    ▼
-┌──────────────────────────────────────────────┐
-│              工作记忆                          │
-│   （滑动窗口 · 4096 Token 预算）               │
-│   步骤 1 → 步骤 2 → … → 步骤 N               │
-└──────────────────────────────────────────────┘
-```
-
-| 层级 | 存储 | 保留策略 | 用途 |
-|------|------|----------|------|
-| **语义记忆** | Room DB | 永久 | 设备事实、应用信息、用户偏好——每次任务注入 |
-| **情节记忆** | Room DB + 向量 | 100 条 / 90 天 | 任务经历与反思，余弦相似度检索相关历史 |
-| **对话记忆** | Room DB | 80 条消息 / 90 天 | 聊天历史，驱动用户画像自动提取 |
-| **工作记忆** | 内存双端队列 | 仅当前任务 | 近期步骤保留在 LLM 上下文窗口内 |
-
-**用户画像页面**：MobileClaw 会自动构建你的画像模型——你的习惯、目标、时区、偏好——通过 LLM 从对话历史中提取。在**画像 → 事实**页面查看和编辑。
-
----
-
-## 💬 持久化会话
-
-每次对话都以完整的消息历史、日志行和附件持久化到 Room DB。从左侧抽屉切换历史对话——每个会话都精确记住你离开时的位置。
-
-Agent 也可以用编程方式管理会话：为任务创建新会话，发现话题后重命名，完成后归档。
-
----
-
-## 👥 多智能体群组对话
-
-不用再一个 AI 一个 AI 地单独交流了。创建一个**群组**，邀请多个角色加入，然后看着它们合作——甚至争论——直到任务完成。
-
-```
-"建一个群组，成员：程序员、网络代理、通用助手。
- 先调研最佳的 Python 爬虫库，再把它实现出来。"
-```
-
-**运作机制：**
-
-1. **创建群组** — 起名、选 Emoji、勾选若干角色成员
-2. **发送消息** — 所有成员都能看到完整的对话历史
-3. **Agent 自然接力** — 一个 Agent 回复完毕后，会 @提及下一个最合适的成员；循环继续，直到某个 Agent 回复时不再 @任何人（代表：完成）
-4. **手动 @提及** — 在消息中输入 `@角色名`，将问题直接指向某个成员
-5. **随时停止** — 点击 ■ 按钮，当前 Agent 完成本轮回复后立即停止
-
-**与普通对话的区别：**
-
-| 特性 | 详情 |
-|------|------|
-| **实时流式** | 每个 Agent 的回复逐 Token 流式输出，你能看到它们"思考"的过程 |
-| **循环熔断** | 每条消息最多触发 5 轮 Agent 接力，防止 AI 无限互聊 |
-| **角色专属配色** | 每个角色分配独立的强调色，一眼知道是谁在说话 |
-| **完整上下文** | 每个 Agent 都能看到完整的对话历史，而非只有最后一条消息 |
-| **@提及高亮** | 消息气泡内的 `@提及` 以说话者对应的颜色高亮渲染 |
-| **持久化** | 群组消息存储在 Room DB——随时重新打开任意群组，从断点继续 |
-
-**你可以创建的群组示例：**
-
-| 群组 | 成员 | 使用场景 |
-|------|------|----------|
-| 🛠️ 开发小队 | 程序员 + 网络代理 | 调研 → 实现 → 测试 的完整闭环 |
-| 🔬 研究小组 | 通用助手 + 网络代理 | 多角度深度调研并交叉验证 |
-| 🎨 创意工作室 | 创作者 + 通用助手 | 头脑风暴 → 生成内容 → 点评优化 |
-| 📱 手机作战组 | 手机操控者 + 网络代理 | 先查资料，再在手机上行动 |
-
----
-
-## 🖥️ 虚拟屏技术
-
-MobileClaw 在隐藏的 1080×1920 虚拟显示器上启动 App，对你完全无感知。Agent 通过无障碍树和截图独立读取和操作目标 App——完全不干扰主屏幕。
-
-**三级启动策略（依次尝试）：**
-
-```
-1. 标准 API  ─── setLaunchDisplayId()  ──► 被 MIUI / ColorOS / EMUI 拦截
-       │
-       ▼ 失败
-2.  Root 模式 ─── su -c am start --display N  ──► 需要已 Root 设备
-       │
-       ▼ 失败
-3. 特权服务  ─── Shell UID（一次 ADB 激活）──► 全 ROM 通用，无需 Root
-```
-
----
-
-## 🔧 内置特权服务
-
-无需安装 Shizuku！MobileClaw 在 APK 内捆绑了自己的特权服务器，只需在电脑上执行一次 ADB 命令激活：
-
-```bash
-adb shell 'CLASSPATH=$(pm path com.mobileclaw | cut -d: -f2) \
-  /system/bin/app_process / com.mobileclaw.server.PrivilegedServer \
-  </dev/null >/dev/null 2>&1 &'
-```
-
-服务进程以 **Shell UID（2000）** 身份运行，在 ColorOS 等高度限制的 ROM 上也能正常调用 `am start --display N`。通信采用 **TCP `127.0.0.1:52730`**。仅接受 `am start …` 命令，其他所有输入均被拒绝。
-
----
-
-## 💬 模型兼容性
-
-| 服务商 | 说明 |
-|--------|------|
-| **OpenAI** | `gpt-4o`、`gpt-4o-mini`、`o3`、`o4-mini`、`gpt-4.1`、`gpt-5.x`——完整工具调用 + 视觉；新一代模型自动使用 Responses API 图片格式 |
-| **DeepSeek** | `deepseek-chat`、`deepseek-reasoner`——原生 `reasoning_content` 流式，思考过程实时展示；`<think>` 标签也自动过滤 |
-| **Anthropic** | 通过 OpenAI 兼容代理（如 litellm）接入 |
-| **Ollama** | Endpoint 填写 `http://localhost:11434`，支持任意本地模型 |
-| **LocalAI / vLLM** | 任意 OpenAI 兼容本地推理服务 |
-| **Azure OpenAI** | Endpoint 填写 Azure 部署 URL |
-
-无需进入设置即可切换模型：点击 TopBar 的模型芯片 → 从列表中选择，或点击 ↻ 从 API 实时拉取可用模型。也可以直接对 Agent 说：*"换成 deepseek-reasoner 做这个任务"*。
-
----
-
-## 🖥️ 局域网控制台 — 千人千面
-
-MobileClaw 在本地运行一个 HTTP 服务器（端口 52733），同一 Wi-Fi 下的任何人都能用浏览器打开。默认是一个简洁的聊天界面——但 Agent 可以**完全重写它**，为每个用户打造专属的个性化仪表盘。
-
-```
-"帮我把控制台改成暗紫色主题，并加上我最常用的 5 个任务快捷按钮"
-
-"在顶部加一个实时时钟和今日任务列表"
-
-"把控制台改成终端风格——等宽字体，绿字黑底"
-
-"加一个「发送日报」按钮，点击后自动填入固定内容"
-```
-
-`console_editor` Skill 为 Agent 提供四种工具：
-
-| 操作 | 说明 |
-|------|------|
-| `write` | 用完整的自定义 HTML 仪表盘替换整个页面 |
-| `patch_css` | 注入 CSS，修改主题颜色、字体、布局，无需改动 HTML |
-| `patch_js` | 注入 JS，添加实时控件、键盘快捷键或动态内容 |
-| `reset` | 恢复出厂默认控制台页面 |
-
-Agent 在任何编辑后都会保持 `/api/events` SSE 流、`/api/send`、`/api/sessions`、`/api/messages` 接口正常工作，控制台功能始终完整。结果就是**千人千面**——每个用户都拥有一个由 AI 根据自己的使用习惯、偏好和审美自动生成的专属控制台。
-
----
-
-## 🔭 未来路线图
-
-我们正在构建的下一批能力——欢迎贡献：
-
-- **定时任务** — Cron 风格的任务调度，趁你睡觉执行 Agent 任务
-- **群组协调者角色** — 专属的协调者角色，负责规划任务并将子任务派发给群组其他成员
-- **主动通知** — Agent 监控条件变化，在不被问及时主动提醒你
-- **虚拟屏实时镜像** — 将虚拟屏内容串流到 UI 界面供查看
-- **语音界面** — 唤醒词 + STT/TTS，说话下达任务
-- **Skill 应用市场** — 社区精选 Skill 包，一键安装
-- **跨设备同步** — 记忆、会话、Mini 应用、群组历史跨手机共享
-- **本地 LLM** — 深度集成 llama.cpp / MLC-LLM，实现完全离线运行
-- **Computer Use API** — Claude 获得移动端支持后原生对接 Anthropic Computer Use
-- **工作流编排** — 可视化节点编辑器，将 Skill 串联成可复用的自动化流水线
-- **群组投票机制** — 结构化共识系统：Agent 对选项投票，决策后再继续执行
-
----
-
-## 📂 项目结构
-
-```
-app/src/main/java/com/mobileclaw/
-├── agent/
-│   ├── AgentRuntime.kt          # ReAct 循环主体：推理→行动→观察
-│   ├── AgentContext.kt          # 任务状态、步骤列表、循环检测
-│   ├── Role.kt                  # 角色 / 人格数据模型
-│   ├── RoleManager.kt           # 内置 + 自定义角色管理
-│   ├── Group.kt                 # 群组数据模型（名称、Emoji、成员角色 ID 列表）
-│   └── GroupManager.kt          # 基于 JSON 文件的群组增删改查（filesDir/groups/）
-├── app/
-│   └── MiniAppStore.kt          # Mini 应用元数据 + HTML 持久化 + JS 桥注入
-├── llm/
-│   ├── LlmGateway.kt            # 统一接口（chat + embed）
-│   └── OpenAiGateway.kt         # OpenAI 兼容后端（流式、工具调用、视觉）
-├── skill/
-│   ├── Skill.kt                 # Skill 接口 & SkillMeta 定义
-│   ├── SkillRegistry.kt         # 运行时 Skill 管理
-│   ├── SkillLoader.kt           # 从存储加载/保存用户生成的 Skill
-│   ├── executor/                # Python & HTTP Skill 执行器（Chaquopy）
-│   └── builtin/                 # 35+ 内置 Skill
-├── memory/
-│   ├── SemanticMemory.kt        # 持久化键值事实存储
-│   ├── EpisodicMemory.kt        # 任务经历日志 + 向量检索
-│   ├── ConversationMemory.kt    # 聊天历史，驱动画像提取
-│   ├── WorkingMemory.kt         # 滑动窗口上下文预算
-│   ├── UserProfileExtractor.kt  # LLM 驱动的用户画像提取
-│   └── db/                      # Room 数据库（实体、DAO、迁移、会话、群组消息）
-├── config/
-│   ├── AgentConfig.kt           # DataStore 配置（端点、模型、主题等）
-│   ├── UserConfig.kt            # 用户个人键值配置存储
-│   └── SkillNotesStore.kt       # 每个 Skill 的备注持久化
-├── perception/
-│   ├── ClawAccessibilityService.kt  # 核心感知：读取 UI 树、注入手势
-│   ├── ClawIME.kt                   # 输入法，用于可靠文字注入
-│   ├── ActionController.kt          # 手势执行（点击、滑动、长按）
-│   ├── ScreenshotController.kt      # 截图 & Set-of-Mark 标注
-│   └── VirtualDisplayManager.kt    # 虚拟屏创建 & App 启动
-├── server/
-│   ├── PrivilegedServer.kt      # Shell-UID 服务器（app_process 入口）
-│   └── PrivilegedClient.kt      # 特权命令 TCP 客户端
-└── ui/
-    ├── MainActivity.kt          # 根界面——ModalNavigationDrawer + 页面栈
-    ├── ChatScreen.kt            # 主聊天界面（流式渲染、日志卡片、附件）
-    ├── DrawerContent.kt         # 左侧抽屉——会话列表 + 角色徽章 + 导航
-    ├── HtmlAttachmentViewer.kt  # 全屏 Mini 应用查看器（Activity 级 WebView）
-    ├── AppLauncherPage.kt       # Mini 应用库 & 启动器
-    ├── GroupsPage.kt            # 群组列表、创建对话框、群组卡片
-    ├── GroupChatScreen.kt       # 多智能体流式对话——@提及、专属配色、停止按钮
-    ├── RolesPage.kt             # 角色浏览、创建、编辑
-    ├── SkillsPage.kt            # Skill 浏览、备注、升级
-    ├── ProfilePage.kt           # 用户画像 + 近期任务时间线
-    ├── UserConfigPage.kt        # 用户配置增删改查
-    ├── SettingsPage.kt          # LLM 配置、虚拟屏、特权服务
-    └── ClawTheme.kt             # 深色/浅色主题 + 强调色系统
-```
-
----
-
-## 🔐 权限说明
-
-| 权限 | 用途 | 是否必需 |
-|------|------|:------:|
-| 辅助功能服务 | 读取屏幕 UI 树、注入手势 | ✅ |
-| 输入法服务 | 向任意输入框可靠输入文字 | ✅ |
-| 悬浮窗 | Agent 执行中的状态浮层 | ✅ |
-| 网络访问 | LLM API 调用、网页浏览、拉取模型列表 | ✅ |
-| 发送通知 | 任务完成提醒 | 推荐 |
-| 忽略电池优化 | 长时间后台任务不被系统杀死 | 推荐 |
-| 读取应用列表 | 查找目标 App 的包名 | 推荐 |
-
----
-
-## 🧩 自定义 Skill
-
-**方式 A — 让 Agent 帮你创建**（推荐）：
-
-直接说：*"帮我创建一个能读取电量并给出建议的 Skill。"*
-
-Agent 会自动调用 `quick_skill`，生成、测试并注册一个 Python 或 HTTP Skill。你可以在 Skill 页面一键将其提升为永久 Skill。
-
-**方式 B — 用 Kotlin 编写：**
-
-```kotlin
-class WeatherSkill : Skill {
-    override val meta = SkillMeta(
-        id             = "get_weather",
-        description    = "查询指定城市的当前天气",
-        parameters     = listOf(
-            SkillParam("city", "string", "城市名称", required = true)
-        ),
-        injectionLevel = 1,   // 0=始终 · 1=任务感知 · 2=按需
-    )
-
-    override suspend fun execute(params: Map<String, Any>): SkillResult {
-        val city = params["city"] as? String ?: return SkillResult.error("缺少 city 参数")
-        return SkillResult.success(fetchWeatherApi(city))
-    }
-}
-```
-
-在 `MainViewModel.registerBuiltinSkills()` 中注册即可。
-
-**方式 C — JSON Skill 定义**（HTTP 或 Python，无需重新编译）：
-
-将 `.json` 文件放入 App 的 Skill 目录，或在运行时通过 `meta` Skill 直接定义。格式支持 HTTP 端点和内联 Python 脚本（通过 Chaquopy 本地执行）。
-
----
-
-## ⭐ Star 历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=eggbrid2/mobileClaw&type=Date)](https://star-history.com/#eggbrid2/mobileClaw&Date)
-
----
-
-## 🤝 参与贡献
-
-```bash
-git checkout -b feature/my-new-skill
-git commit -m "feat: 添加天气查询 Skill"
-git push origin feature/my-new-skill
-```
-
-**适合新手的贡献方向：**
-
-- 📦 常用 App 的 Skill（微信、支付宝、抖音、淘宝、高德地图）
-- 🎭 专用场景的角色预设（学生、运营、程序员等）
-- 🌐 更多 LLM 后端适配（Gemini 原生、Claude 原生 API）
-- 🌍 多语言翻译（`values-XX/strings.xml`）
-- 🐛 ROM 兼容性 Bug 修复与机型报告
-- 📱 Mini 应用模板（记账、倒计时、待办、习惯打卡）
-
-**建议在动手开发大型功能前先开一个 Issue 讨论方案。**
-
----
-
-## 📄 开源协议
-
-MIT — 详见 [LICENSE](LICENSE) 文件
-
----
-
-<div align="center">
-
-<img src="docs/logo.png" alt="MobileClaw" width="80" />
-
-为那些相信口袋里的手机比它表现出来更聪明的人而打造
-
-**[⬆ 回到顶部](#)** · **[English →](README.md)**
-
-</div>
+MIT. See [LICENSE](LICENSE).

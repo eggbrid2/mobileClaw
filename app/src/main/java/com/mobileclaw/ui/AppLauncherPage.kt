@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import com.mobileclaw.vpn.AppHttpProxy
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayInputStream
@@ -67,6 +68,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.app.MiniApp
 import java.io.File
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -95,13 +98,13 @@ fun AppLauncherPage(
                     Icon(Icons.Default.Close, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
                 }
                 Text(
-                    "我的应用",
+                    str(R.string.app_launcher_0ecb7b),
                     color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
                 if (miniApps.isNotEmpty()) {
                     Text(
-                        if (isEditMode) "完成" else "${miniApps.size} 个",
+                        if (isEditMode) str(R.string.app_launcher_done) else "${miniApps.size} 个",
                         color = if (isEditMode) c.accent else c.subtext,
                         fontSize = 13.sp,
                         fontWeight = if (isEditMode) FontWeight.Medium else FontWeight.Normal,
@@ -122,9 +125,9 @@ fun AppLauncherPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text("📱", fontSize = 48.sp)
-                    Text("还没有应用", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(str(R.string.app_launcher_28c8d6), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        "让 AI 为你创建第一个应用\n例如：\"帮我创建一个带数据库的记账应用\"",
+                        str(R.string.app_launcher_d957e7),
                         color = c.subtext, fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp,
                     )
                 }
@@ -326,6 +329,7 @@ fun AppViewerDialog(
                     bridge.bindWebView(this)
 
                     val corsClient = OkHttpClient.Builder()
+                        .proxySelector(AppHttpProxy.proxySelector())
                         .connectTimeout(15, TimeUnit.SECONDS)
                         .readTimeout(30, TimeUnit.SECONDS)
                         .build()

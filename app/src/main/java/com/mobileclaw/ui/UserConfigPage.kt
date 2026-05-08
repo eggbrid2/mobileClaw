@@ -21,25 +21,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.config.ConfigEntry
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 // ── Preset catalog — well-known keys with usage hints ─────────────────────────
 
 private data class ConfigKeyMeta(val key: String, val hint: String, val example: String, val sensitive: Boolean = false)
 
 private val CONFIG_CATALOG = listOf(
-    ConfigKeyMeta("user.name",           "你的真实姓名，AI 会用于称呼你",                    "张三"),
-    ConfigKeyMeta("user.profession",     "职业/行业，帮助 AI 理解你的背景",                 "软件工程师"),
-    ConfigKeyMeta("user.location",       "所在城市，用于天气/位置类任务",                   "上海"),
-    ConfigKeyMeta("user.language",       "偏好语言代码（zh/en/ja）",                        "zh"),
-    ConfigKeyMeta("user.preferences",    "个人偏好和兴趣爱好，AI 会据此个性化回复",         "喜欢音乐,偏好简洁直接的沟通风格"),
+    ConfigKeyMeta("user.name",           str(R.string.user_config_2c631c),                    str(R.string.user_config_615db5)),
+    ConfigKeyMeta("user.profession",     str(R.string.user_config_0ad36d),                 str(R.string.user_config_982ed6)),
+    ConfigKeyMeta("user.location",       str(R.string.user_config_1b754d),                   str(R.string.user_config_e94e8b)),
+    ConfigKeyMeta("user.language",       str(R.string.user_config_d15af1),                        "zh"),
+    ConfigKeyMeta("user.preferences",    str(R.string.user_config_a3ff02),         str(R.string.user_config_8f357f)),
     ConfigKeyMeta("api.openai_key",      "OpenAI API Key",                                  "sk-...", sensitive = true),
-    ConfigKeyMeta("api.openai_base",     "OpenAI API Base URL（自定义端点时填写）",          "https://api.openai.com/v1"),
+    ConfigKeyMeta("api.openai_base",     str(R.string.user_config_32d606),          "https://api.openai.com/v1"),
     ConfigKeyMeta("api.deepseek_key",    "DeepSeek API Key",                                "sk-...", sensitive = true),
-    ConfigKeyMeta("task.default_lang",   "任务执行时默认语言（auto/zh/en）",                "zh"),
-    ConfigKeyMeta("task.max_steps",      "Agent 单次任务最大步骤数",                        "20"),
-    ConfigKeyMeta("notification.token",  "推送/Webhook Token（通知类技能使用）",            "token...", sensitive = true),
-    ConfigKeyMeta("app.custom_1",        "自定义配置项 1（供你的 Skill 脚本读取）",         ""),
-    ConfigKeyMeta("app.custom_2",        "自定义配置项 2",                                  ""),
+    ConfigKeyMeta("task.default_lang",   str(R.string.user_config_ecced9),                "zh"),
+    ConfigKeyMeta("task.max_steps",      str(R.string.user_config_34e485),                        "20"),
+    ConfigKeyMeta("notification.token",  str(R.string.user_config_0124ee),            "token...", sensitive = true),
+    ConfigKeyMeta("app.custom_1",        str(R.string.user_config_4b0faa),         ""),
+    ConfigKeyMeta("app.custom_2",        str(R.string.user_config_039747),                                  ""),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,9 +76,9 @@ fun UserConfigPage(
             ) {
                 androidx.compose.material3.Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
             }
-            Text("用户配置", color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 4.dp))
+            Text(str(R.string.drawer_user_config), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 4.dp))
             TextButton(onClick = { showCatalog = true }) {
-                Text("预设", color = c.accent, fontSize = 13.sp)
+                Text(str(R.string.user_config_9cdfce), color = c.accent, fontSize = 13.sp)
             }
             Box(
                 modifier = Modifier
@@ -86,7 +88,7 @@ fun UserConfigPage(
                     .clickable { showAdd = true },
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.compose.material3.Icon(Icons.Default.Add, contentDescription = "添加", tint = c.accent, modifier = Modifier.size(18.dp))
+                androidx.compose.material3.Icon(Icons.Default.Add, contentDescription = str(R.string.user_config_add), tint = c.accent, modifier = Modifier.size(18.dp))
             }
         }
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
@@ -99,7 +101,7 @@ fun UserConfigPage(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             Text(
-                "这里的配置可被 Agent Skill 通过 user_config 工具读取。添加说明帮助 AI 理解每项用途。",
+                str(R.string.user_config_6fc07d),
                 color = c.subtext,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
@@ -114,9 +116,9 @@ fun UserConfigPage(
             ) {
                 Text("⚙️", fontSize = 40.sp)
                 Spacer(Modifier.height(12.dp))
-                Text("暂无配置项", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(str(R.string.user_config_empty), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                Text("点击右上角「+」添加，或「预设」选择常用配置", color = c.subtext, fontSize = 12.sp)
+                Text(str(R.string.user_config_tap), color = c.subtext, fontSize = 12.sp)
             }
         } else {
             LazyColumn(
@@ -138,7 +140,7 @@ fun UserConfigPage(
 
     if (showAdd) {
         EntryDialog(
-            title = "添加配置项",
+            title = str(R.string.user_config_add_2),
             initialKey = "",
             initialValue = "",
             initialDescription = "",
@@ -174,7 +176,7 @@ private fun ConfigEntryRow(
 
     if (editing) {
         EntryDialog(
-            title = "编辑 · $entryKey",
+            title = str(R.string.edit_entry_title, entryKey),
             initialKey = entryKey,
             initialValue = entry.value,
             initialDescription = entry.description,
@@ -209,7 +211,7 @@ private fun ConfigEntryRow(
                 )
             }
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                androidx.compose.material3.Icon(Icons.Default.Delete, contentDescription = "删除", tint = c.red.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                androidx.compose.material3.Icon(Icons.Default.Delete, contentDescription = str(R.string.skills_delete_confirm), tint = c.red.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -239,8 +241,8 @@ private fun EntryDialog(
                     OutlinedTextField(
                         value = key,
                         onValueChange = { key = it },
-                        label = { Text("键 (key)") },
-                        placeholder = { Text("如 user.name 或 api.custom_key") },
+                        label = { Text(str(R.string.user_config_158342)) },
+                        placeholder = { Text(str(R.string.user_config_be31fe)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                     )
@@ -248,15 +250,15 @@ private fun EntryDialog(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
-                    label = { Text("值 (value)") },
+                    label = { Text(str(R.string.user_config_1a498c)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("说明（可选，帮助 AI 理解用途）") },
-                    placeholder = { Text("如：用于天气查询的城市默认值") },
+                    label = { Text(str(R.string.user_config_43d152)) },
+                    placeholder = { Text(str(R.string.user_config_5dfe9a)) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 3,
@@ -265,11 +267,11 @@ private fun EntryDialog(
         },
         confirmButton = {
             TextButton(onClick = { if (key.isNotBlank()) onConfirm(key.trim(), value, description) }) {
-                Text(if (keyReadOnly) "保存" else "添加", color = c.accent)
+                Text(if (keyReadOnly) str(R.string.role_save) else str(R.string.user_config_add), color = c.accent)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", color = c.subtext) }
+            TextButton(onClick = onDismiss) { Text(str(R.string.btn_cancel), color = c.subtext) }
         },
     )
 }
@@ -283,7 +285,7 @@ private fun CatalogDialog(
     val c = LocalClawColors.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("预设配置项", fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text(str(R.string.user_config_719f14), fontSize = 15.sp, fontWeight = FontWeight.SemiBold) },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
                 items(CONFIG_CATALOG) { meta ->
@@ -302,7 +304,7 @@ private fun CatalogDialog(
                             Text(meta.key, color = if (alreadyAdded) c.subtext else c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Text(meta.hint, color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
                         }
-                        if (alreadyAdded) Text("已添加", color = c.subtext, fontSize = 10.sp)
+                        if (alreadyAdded) Text(str(R.string.user_config_done), color = c.subtext, fontSize = 10.sp)
                     }
                     HorizontalDivider(color = c.border.copy(alpha = 0.3f), thickness = 0.5.dp)
                 }
@@ -310,7 +312,7 @@ private fun CatalogDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("关闭", color = c.subtext) }
+            TextButton(onClick = onDismiss) { Text(str(R.string.btn_close), color = c.subtext) }
         },
     )
 }

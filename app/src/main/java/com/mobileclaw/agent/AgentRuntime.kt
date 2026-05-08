@@ -10,6 +10,7 @@ import com.mobileclaw.memory.WorkingMemory
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillRegistry
+import com.mobileclaw.skill.SkillResult
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import java.util.UUID
@@ -29,6 +30,7 @@ class AgentRuntime(
 
     suspend fun run(
         goal: String,
+        taskType: TaskType = TaskType.GENERAL,
         priorContext: String = "",
         episodicContext: String = "",
         language: String = "auto",
@@ -38,17 +40,39 @@ class AgentRuntime(
         onToken: ((String) -> Unit)? = null,
         onThinkToken: ((String) -> Unit)? = null,
     ): AgentResult {
-        val ctx = AgentContext(taskId = UUID.randomUUID().toString(), goal = goal, imageBase64 = imageBase64)
+        val taskSession = TaskSession(goal = goal, type = taskType)
+        val ctx = AgentContext(
+            taskId = taskSession.id,
+            goal = goal,
+            maxSteps = taskSession.maxSteps,
+            imageBase64 = imageBase64,
+        )
         val workingMemory = WorkingMemory()
         emit(AgentEvent.Started(ctx.taskId, goal))
 
         // Build once per task — these don't change across steps
-        val baseSkills = registry.forInjection(maxLevel = 1)
-        val forcedSkills = role?.forcedSkillIds.orEmpty().mapNotNull { registry.get(it)?.meta }
-        val injectedSkills = (baseSkills + forcedSkills).distinctBy { it.id }
+        val injectedSkills = TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty())
         val tools = injectedSkills.toToolDefinitions()
         val semanticContext = runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
-        val systemPrompt = buildSystemPrompt(injectedSkills, priorContext, episodicContext, semanticContext, language, role, userProfileContext)
+        val taskPlan = TaskPlanner.plan(
+            llm = llm,
+            goal = goal,
+            taskType = taskType,
+            language = language,
+            priorContext = priorContext,
+        )
+        emit(AgentEvent.PlanCreated(taskPlan))
+        val systemPrompt = buildSystemPrompt(
+            skills = injectedSkills,
+            priorContext = priorContext,
+            episodicContext = episodicContext,
+            semanticContext = semanticContext,
+            language = language,
+            role = role,
+            userProfileContext = userProfileContext,
+            taskType = taskType,
+            taskPlan = taskPlan,
+        )
 
         while (!ctx.isExhausted()) {
             if (loopGuard.check(ctx.steps)) {
@@ -90,12 +114,13 @@ class AgentRuntime(
             emit(AgentEvent.SkillCalling(tc.skillId, tc.params))
 
             val skill = registry.get(tc.skillId)
-            val skillResult = if (skill == null) {
-                com.mobileclaw.skill.SkillResult(success = false, output = "Error: skill '${tc.skillId}' not found.")
-            } else {
-                runCatching { skill.execute(tc.params) }
-                    .getOrElse { e -> com.mobileclaw.skill.SkillResult(success = false, output = "Error executing ${tc.skillId}: ${e.message}") }
-            }
+            val skillResult = repeatedPerceptionResult(ctx.steps, tc.skillId)
+                ?: if (skill == null) {
+                    SkillResult(success = false, output = "Error: skill '${tc.skillId}' not found.")
+                } else {
+                    runCatching { skill.execute(tc.params) }
+                        .getOrElse { e -> SkillResult(success = false, output = "Error executing ${tc.skillId}: ${e.message}") }
+                }
 
             emit(AgentEvent.Observation(
                 text = skillResult.output,
@@ -126,6 +151,24 @@ class AgentRuntime(
     }
 
     private suspend fun emit(event: AgentEvent) = _events.emit(event)
+
+    private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
+        if (skillId !in perceptionSkillIds) return null
+        val last = steps.lastOrNull() ?: return null
+        if (last.skillId !in perceptionSkillIds) return null
+        if (skillId == "screenshot" && last.isError && last.skillId in screenshotFallbackSourceIds) return null
+        return SkillResult(
+            success = false,
+            output = "Repeated screen-reading blocked. You already observed the screen in the previous step. " +
+                "Use that observation to take a concrete action now: tap, scroll, input_text, navigate(back/home), " +
+                "or finish if the task is complete. Only read the screen again after an action changes the UI.",
+        )
+    }
+
+    private companion object {
+        val perceptionSkillIds = setOf("see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen")
+        val screenshotFallbackSourceIds = setOf("see_screen", "read_screen", "bg_read_screen")
+    }
 }
 
 data class AgentResult(
@@ -144,6 +187,7 @@ sealed class AgentEvent {
         val imageBase64: String? = null,
         val attachment: SkillAttachment? = null,
     ) : AgentEvent()
+    data class PlanCreated(val plan: TaskPlan) : AgentEvent()
     data class Completed(val summary: String) : AgentEvent()
     data class Error(val message: String) : AgentEvent()
     data class Token(val text: String) : AgentEvent()

@@ -2,6 +2,7 @@ package com.mobileclaw.skill.builtin
 
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.TaskType
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
@@ -24,7 +25,7 @@ class RoleManagerSkill(
         name = "Role Manager",
         description = "Create, list, update, delete, and activate agent roles (personas). " +
             "Each role has an avatar emoji, name, description, optional system prompt addendum, " +
-            "forced skill IDs (always injected while role is active), and optional model override. " +
+            "scheduler keywords, preferred task types, forced skill IDs, and optional model override. " +
             "Actions: list, create, update, delete, activate.",
         parameters = listOf(
             SkillParam("action", "string", "Action: list | create | update | delete | activate"),
@@ -33,6 +34,9 @@ class RoleManagerSkill(
             SkillParam("avatar", "string", "Emoji avatar for the role", required = false),
             SkillParam("description", "string", "Short description of the role's purpose", required = false),
             SkillParam("system_prompt", "string", "Additional system prompt text injected when this role is active", required = false),
+            SkillParam("preferred_task_types", "string", "Comma-separated TaskType names this role fits, e.g. WEB_RESEARCH,CODE_EXECUTION", required = false),
+            SkillParam("keywords", "string", "Comma-separated trigger keywords for role scheduling", required = false),
+            SkillParam("scheduler_priority", "number", "Optional scheduling priority. Higher wins when roles are otherwise similar.", required = false),
             SkillParam("forced_skills", "string", "Comma-separated skill IDs that are always injected with this role (e.g. 'shell,web_search')", required = false),
             SkillParam("model_override", "string", "Optional model ID to use when this role is active (e.g. 'gpt-4o')", required = false),
         ),
@@ -55,6 +59,8 @@ class RoleManagerSkill(
                     sb.append("• ${r.avatar} ${r.id}: ${r.name}${if (r.isBuiltin) " [builtin]" else ""}")
                     if (r.forcedSkillIds.isNotEmpty()) sb.append(" | forced: ${r.forcedSkillIds.joinToString(",")}")
                     if (r.modelOverride != null) sb.append(" | model: ${r.modelOverride}")
+                    if (r.preferredTaskTypes.isNotEmpty()) sb.append(" | tasks: ${r.preferredTaskTypes.joinToString(",")}")
+                    if (r.keywords.isNotEmpty()) sb.append(" | keywords: ${r.keywords.take(6).joinToString(",")}")
                     sb.append("\n  ${r.description}")
                     if (r.systemPromptAddendum.isNotBlank()) sb.append("\n  prompt: ${r.systemPromptAddendum.take(80)}…")
                     sb.append("\n")
@@ -71,6 +77,8 @@ class RoleManagerSkill(
                 val forcedSkills = (params["forced_skills"] as? String)
                     ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                     ?: emptyList()
+                val preferredTaskTypes = parseTaskTypes(params["preferred_task_types"] as? String)
+                val keywords = parseCsv(params["keywords"] as? String)
                 val role = Role(
                     id = id,
                     name = name,
@@ -79,6 +87,9 @@ class RoleManagerSkill(
                     systemPromptAddendum = params["system_prompt"] as? String ?: "",
                     forcedSkillIds = forcedSkills,
                     modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() },
+                    preferredTaskTypes = preferredTaskTypes,
+                    keywords = keywords,
+                    schedulerPriority = (params["scheduler_priority"] as? Number)?.toInt() ?: 0,
                     isBuiltin = false,
                 )
                 roleManager.save(role)
@@ -94,6 +105,12 @@ class RoleManagerSkill(
                 val forcedSkills = (params["forced_skills"] as? String)
                     ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
                     ?: existing.forcedSkillIds
+                val preferredTaskTypes = (params["preferred_task_types"] as? String)
+                    ?.let { parseTaskTypes(it) }
+                    ?: existing.preferredTaskTypes
+                val keywords = (params["keywords"] as? String)
+                    ?.let { parseCsv(it) }
+                    ?: existing.keywords
                 val updated = existing.copy(
                     name = params["name"] as? String ?: existing.name,
                     description = params["description"] as? String ?: existing.description,
@@ -101,6 +118,9 @@ class RoleManagerSkill(
                     systemPromptAddendum = params["system_prompt"] as? String ?: existing.systemPromptAddendum,
                     forcedSkillIds = forcedSkills,
                     modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() } ?: existing.modelOverride,
+                    preferredTaskTypes = preferredTaskTypes,
+                    keywords = keywords,
+                    schedulerPriority = (params["scheduler_priority"] as? Number)?.toInt() ?: existing.schedulerPriority,
                 )
                 roleManager.save(updated)
                 SkillResult(true, "Role '$id' updated.")
@@ -127,4 +147,16 @@ class RoleManagerSkill(
             else -> SkillResult(false, "Unknown action: $action. Use list | create | update | delete | activate")
         }
     }
+
+    private fun parseCsv(raw: String?): List<String> =
+        raw.orEmpty()
+            .split(",", "，", "\n")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+    private fun parseTaskTypes(raw: String?): List<TaskType> =
+        parseCsv(raw).mapNotNull { value ->
+            runCatching { TaskType.valueOf(value.uppercase()) }.getOrNull()
+        }.distinct()
 }

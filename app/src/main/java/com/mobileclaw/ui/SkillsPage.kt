@@ -46,15 +46,18 @@ import com.mobileclaw.R
 import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillMarket
 import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.str
 
 @Composable
 fun SkillsPage(
     allSkills: List<SkillMeta>,
     skillNotes: Map<String, String>,
     skillNoteGenerating: String?,
+    skillLevelOverrides: Map<String, Int> = emptyMap(),
     onPromote: (String) -> Unit,
     onDemote: (String) -> Unit = {},
     onDelete: (String) -> Unit = {},
+    onSetSkillLevel: (skillId: String, level: Int) -> Unit = { _, _ -> },
     onInstallMarketSkill: (SkillDefinition) -> Unit = {},
     onSaveNote: (skillId: String, note: String) -> Unit,
     onGenerateNote: (skillId: String, name: String, description: String) -> Unit,
@@ -68,13 +71,13 @@ fun SkillsPage(
     // Group by tag, then sort each group by level → name
     val tagGroups = remember(allSkills) {
         val emojiMap = mapOf(
-            "控制" to "📱", "后台" to "🖥️", "网络" to "🌐", "文件" to "📁",
-            "应用" to "📦", "创作" to "🎨", "记忆" to "🧠", "角色" to "🎭",
-            "会话" to "💬", "用户" to "👤", "技能" to "🛠️", "系统" to "⚙️",
+            str(R.string.skills_34e47d) to "📱", str(R.string.skills_066ae8) to "🖥️", str(R.string.skills_7ddbe1) to "🌐", str(R.string.skills_2a0c47) to "📁",
+            str(R.string.drawer_apps) to "📦", str(R.string.skills_93d695) to "🎨", str(R.string.profile_44e4d7) to "🧠", str(R.string.drawer_roles) to "🎭",
+            str(R.string.skills_9a834e) to "💬", str(R.string.group_chat_1fd02a) to "👤", str(R.string.drawer_skills) to "🛠️", str(R.string.skills_8a8b89) to "⚙️",
         )
-        val tagOrder = listOf("控制", "网络", "文件", "应用", "记忆", "创作", "角色", "会话", "用户", "技能", "系统", "后台")
+        val tagOrder = listOf(str(R.string.skills_34e47d), str(R.string.skills_7ddbe1), str(R.string.skills_2a0c47), str(R.string.drawer_apps), str(R.string.profile_44e4d7), str(R.string.skills_93d695), str(R.string.drawer_roles), str(R.string.skills_9a834e), str(R.string.group_chat_1fd02a), str(R.string.drawer_skills), str(R.string.skills_8a8b89), str(R.string.skills_066ae8))
         val grouped = allSkills
-            .flatMap { skill -> (skill.tags.ifEmpty { listOf("其他") }).map { tag -> tag to skill } }
+            .flatMap { skill -> (skill.tags.ifEmpty { listOf(str(R.string.skills_0d98c7)) }).map { tag -> tag to skill } }
             .groupBy({ it.first }, { it.second })
         tagOrder.mapNotNull { tag -> grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "🔧", it) } } +
             (grouped.keys - tagOrder.toSet()).sorted().mapNotNull { tag ->
@@ -95,8 +98,10 @@ fun SkillsPage(
     val isMarketTab = safeTabIndex == tagGroups.size
 
     val selectedGroup = if (!isMarketTab) tagGroups.getOrNull(safeTabIndex) else null
-    val byLevel = remember(safeTabIndex, tagGroups) {
-        selectedGroup?.third?.groupBy { it.injectionLevel }?.toSortedMap()
+    val byLevel = remember(safeTabIndex, tagGroups, skillLevelOverrides) {
+        selectedGroup?.third
+            ?.groupBy { skillLevelOverrides[it.id] ?: it.injectionLevel }
+            ?.toSortedMap()
     }
     val multiLevel = (byLevel?.size ?: 0) > 1
 
@@ -108,18 +113,18 @@ fun SkillsPage(
             onDismissRequest = { pendingPromotion = null },
             containerColor = c.card,
             shape = RoundedCornerShape(16.dp),
-            title = { Text(stringResource(R.string.skills_promote_title), color = c.text, fontWeight = FontWeight.Bold) },
+            title = { Text(str(R.string.skills_promote_title), color = c.text, fontWeight = FontWeight.Bold) },
             text = { Text(stringResource(R.string.skills_promote_body, skill.name), color = c.text, fontSize = 14.sp) },
             confirmButton = {
                 Button(
                     onClick = { onPromote(skill.id); pendingPromotion = null },
                     colors = ButtonDefaults.buttonColors(containerColor = c.accent),
                     shape = RoundedCornerShape(8.dp),
-                ) { Text(stringResource(R.string.skills_promote_confirm), color = Color.White) }
+                ) { Text(str(R.string.skills_promote_confirm), color = Color.White) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingPromotion = null }) {
-                    Text(stringResource(R.string.btn_cancel), color = c.subtext)
+                    Text(str(R.string.btn_cancel), color = c.subtext)
                 }
             },
         )
@@ -131,18 +136,18 @@ fun SkillsPage(
             onDismissRequest = { pendingDelete = null },
             containerColor = c.card,
             shape = RoundedCornerShape(16.dp),
-            title = { Text(stringResource(R.string.skills_delete_title), color = c.text, fontWeight = FontWeight.Bold) },
+            title = { Text(str(R.string.skills_delete_title), color = c.text, fontWeight = FontWeight.Bold) },
             text = { Text(stringResource(R.string.skills_delete_body, skill.name), color = c.text, fontSize = 14.sp) },
             confirmButton = {
                 Button(
                     onClick = { onDelete(skill.id); pendingDelete = null },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(8.dp),
-                ) { Text(stringResource(R.string.skills_delete_confirm), color = Color.White) }
+                ) { Text(str(R.string.skills_delete_confirm), color = Color.White) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
-                    Text(stringResource(R.string.btn_cancel), color = c.subtext)
+                    Text(str(R.string.btn_cancel), color = c.subtext)
                 }
             },
         )
@@ -164,10 +169,10 @@ fun SkillsPage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_back), tint = c.text)
+                Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
             }
             Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(stringResource(R.string.skills_title), color = c.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(str(R.string.drawer_skills), color = c.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(stringResource(R.string.skills_loaded, allSkills.size), color = c.subtext, fontSize = 11.sp)
             }
         }
@@ -204,7 +209,7 @@ fun SkillsPage(
                 unselectedContentColor = c.subtext,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🏪 市场", fontSize = 12.sp, fontWeight = if (isMarketTab) FontWeight.SemiBold else FontWeight.Normal)
+                    Text(str(R.string.skills_0e0282), fontSize = 12.sp, fontWeight = if (isMarketTab) FontWeight.SemiBold else FontWeight.Normal)
                     Text("${SkillMarket.catalog.size}", fontSize = 9.sp, color = if (isMarketTab) c.accent else c.subtext.copy(0.6f))
                 }
             }
@@ -238,17 +243,20 @@ fun SkillsPage(
                         }
                     }
                     lazyItems(levelSkills, key = { it.id }) { skill ->
+                        val effectiveLevel = skillLevelOverrides[skill.id] ?: skill.injectionLevel
                         SkillRow(
                             skill = skill,
                             note = skillNotes[skill.id] ?: "",
                             noteGenerating = skillNoteGenerating == skill.id,
-                            showPromote = level == 2 && !skill.isBuiltin,
-                            showDemote = level == 1 && !skill.isBuiltin,
+                            effectiveLevel = effectiveLevel,
+                            showPromote = effectiveLevel == 2 && !skill.isBuiltin,
+                            showDemote = effectiveLevel == 1 && !skill.isBuiltin,
                             showDelete = !skill.isBuiltin,
                             c = c,
                             onPromote = { if (!skill.isBuiltin) pendingPromotion = skill },
                             onDemote = { if (!skill.isBuiltin) onDemote(skill.id) },
                             onDelete = { if (!skill.isBuiltin) pendingDelete = skill },
+                            onSetLevel = { newLevel -> onSetSkillLevel(skill.id, newLevel) },
                             onSaveNote = { onSaveNote(skill.id, it) },
                             onGenerateNote = { onGenerateNote(skill.id, skill.name, skill.description) },
                         )
@@ -282,10 +290,10 @@ private fun SkillMarketSection(
             Text("🏪", fontSize = 16.sp)
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text("技能市场", color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text("国内可用 · 一键安装", color = c.subtext, fontSize = 11.sp)
+                Text(str(R.string.skill_market_5917e2), color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(str(R.string.skills_c36558), color = c.subtext, fontSize = 11.sp)
             }
-            Text("${SkillMarket.catalog.size} 个", color = c.subtext, fontSize = 11.sp)
+            Text(str(R.string.count_items, SkillMarket.catalog.size), color = c.subtext, fontSize = 11.sp)
         }
 
         // Category chips
@@ -347,7 +355,7 @@ private fun MarketSkillCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Check, contentDescription = null, tint = c.accent, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(3.dp))
-                Text("已安装", fontSize = 11.sp, color = c.accent)
+                Text(str(R.string.skill_market_done), fontSize = 11.sp, color = c.accent)
             }
         } else {
             Box(
@@ -357,7 +365,7 @@ private fun MarketSkillCard(
                     .clickable(onClick = onInstall)
                     .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
-                Text("安装", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text(str(R.string.skill_market_e655a4), fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -365,8 +373,8 @@ private fun MarketSkillCard(
 
 // ── Tag group block: one tag → level sub-sections ─────────────────────────
 
-private val levelLabel = mapOf(0 to "⚡ 核心", 1 to "🔄 自动", 2 to "🎯 按需")
-private val levelDesc  = mapOf(0 to "始终启用", 1 to "任务自动加载", 2 to "按需调用")
+private val levelLabel = mapOf(0 to str(R.string.skills_49cfc9), 1 to str(R.string.skills_ac2f6f), 2 to str(R.string.skills_4df4a4))
+private val levelDesc  = mapOf(0 to str(R.string.skills_5d6895), 1 to str(R.string.skills_080ffc), 2 to str(R.string.skills_875f7e))
 
 @Composable
 private fun TagGroupBlock(
@@ -545,6 +553,7 @@ private fun SkillRow(
     skill: SkillMeta,
     note: String,
     noteGenerating: Boolean,
+    effectiveLevel: Int = skill.injectionLevel,
     showPromote: Boolean,
     showDemote: Boolean = false,
     showDelete: Boolean = false,
@@ -552,6 +561,7 @@ private fun SkillRow(
     onPromote: () -> Unit,
     onDemote: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onSetLevel: (Int) -> Unit = {},
     onSaveNote: (String) -> Unit,
     onGenerateNote: () -> Unit,
 ) {
@@ -621,7 +631,7 @@ private fun SkillRow(
                     decorationBox = { inner ->
                         Box {
                             if (localNote.isEmpty()) {
-                                Text("添加备注...", color = c.subtext.copy(alpha = 0.5f), fontSize = 11.sp)
+                                Text(str(R.string.skills_add), color = c.subtext.copy(alpha = 0.5f), fontSize = 11.sp)
                             }
                             inner()
                         }
@@ -661,7 +671,7 @@ private fun SkillRow(
                     )
                 } else {
                     Text(
-                        "添加备注...",
+                        str(R.string.skills_add),
                         color = c.subtext.copy(alpha = 0.4f),
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f).clickable { editing = true },
@@ -698,34 +708,51 @@ private fun SkillRow(
             }
         }
 
-        // ── Promote / Demote buttons ──────────────────────────────────────
-        if (showPromote || showDemote) {
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (showPromote) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(c.accent.copy(alpha = 0.12f))
-                            .border(1.dp, c.accent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                            .clickable { onPromote() }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    ) {
-                        Text(stringResource(R.string.skills_promote), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
+        // ── Level selector (all skills) ───────────────────────────────────
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(0 to str(R.string.skills_49cfc9), 1 to str(R.string.skills_ac2f6f), 2 to str(R.string.skills_4df4a4)).forEach { (lvl, label) ->
+                val selected = effectiveLevel == lvl
+                val isDefault = lvl == skill.injectionLevel
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            if (selected) c.accent.copy(alpha = 0.15f)
+                            else c.surface,
+                        )
+                        .border(
+                            1.dp,
+                            if (selected) c.accent.copy(alpha = 0.6f) else c.border,
+                            RoundedCornerShape(5.dp),
+                        )
+                        .clickable {
+                            if (!selected) {
+                                if (skill.isBuiltin) onSetLevel(lvl)
+                                else when (lvl) {
+                                    1 -> onPromote()
+                                    2 -> onDemote()
+                                }
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text(
+                        label + if (!isDefault && selected) " *" else "",
+                        color = if (selected) c.accent else c.subtext.copy(alpha = 0.7f),
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
                 }
-                if (showDemote) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(c.subtext.copy(alpha = 0.08f))
-                            .border(1.dp, c.border, RoundedCornerShape(6.dp))
-                            .clickable { onDemote() }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    ) {
-                        Text(stringResource(R.string.skills_demote), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
+            }
+            if (effectiveLevel != skill.injectionLevel) {
+                // Show reset hint when overridden
+                Text(
+                    "↩",
+                    color = c.subtext.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.clickable { onSetLevel(skill.injectionLevel) },
+                )
             }
         }
     }

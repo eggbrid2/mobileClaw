@@ -1,5 +1,8 @@
 package com.mobileclaw.llm
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonNull
@@ -7,6 +10,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.NetworkTracer
 import com.mobileclaw.config.AgentConfig
+import com.mobileclaw.vpn.AppHttpProxy
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -15,15 +19,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .addInterceptor(Interceptor { chain ->
@@ -51,14 +58,28 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
             .url("${snapshot.endpoint.trimEnd('/')}/v1/chat/completions")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
             .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        return if (request.stream && (request.onToken != null || request.onThinkToken != null)) {
-            chatStreaming(httpRequest, request)
-        } else {
-            chatBlocking(httpRequest)
+        var lastError: Exception? = null
+        for (attempt in 0..2) {
+            if (attempt > 0) delay(3000L)
+            try {
+                return if (request.stream && (request.onToken != null || request.onThinkToken != null)) {
+                    chatStreaming(httpRequest, request)
+                } else {
+                    chatBlocking(httpRequest)
+                }
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if ("502" in msg || "503" in msg || "bad gateway" in msg.lowercase()) {
+                    lastError = e
+                } else throw e
+            }
         }
+        throw lastError!!
     }
 
     override suspend fun embed(text: String): FloatArray {
@@ -71,6 +92,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
             .url("${snapshot.endpoint.trimEnd('/')}/v1/embeddings")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
             .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -91,12 +113,6 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     private fun buildRequestBody(request: ChatRequest): JsonObject {
         val snapshot = config.snapshot()
-        // New OpenAI Responses API models (gpt-4.1+, gpt-5.x, o3, o4-mini) use
-        // {type:"input_image", image_url:"data:..."} — a flat string, not a nested object.
-        // Older models use {type:"image_url", image_url:{url:"...", detail:"auto"}}.
-        val useNewImageFormat = snapshot.model.matches(
-            Regex("gpt-4\\.1.*|gpt-4\\.5.*|gpt-5.*|o3.*|o4.*", RegexOption.IGNORE_CASE)
-        )
         val messages = JsonArray()
         request.messages.forEach { msg ->
             val obj = JsonObject()
@@ -125,6 +141,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                 }
                 msg.imageBase64 != null -> {
                     // Vision message: multipart content array
+                    val safeImage = compressImageForApi(msg.imageBase64)
                     val contentArr = JsonArray()
                     if (!msg.content.isNullOrBlank()) {
                         contentArr.add(JsonObject().apply {
@@ -133,17 +150,11 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                         })
                     }
                     contentArr.add(JsonObject().apply {
-                        if (useNewImageFormat) {
-                            // New Responses API format: flat string value
-                            addProperty("type", "input_image")
-                            addProperty("image_url", msg.imageBase64)
-                        } else {
-                            // Legacy Chat Completions format: nested object
-                            addProperty("type", "image_url")
-                            add("image_url", JsonObject().apply {
-                                addProperty("url", msg.imageBase64)
-                            })
-                        }
+                        addProperty("type", "image_url")
+                        add("image_url", JsonObject().apply {
+                            addProperty("url", safeImage)
+                            addProperty("detail", "auto")
+                        })
                     })
                     obj.add("content", contentArr)
                 }
@@ -266,9 +277,9 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                 } catch (_: Exception) {}
             }
             override fun onFailure(es: EventSource, t: Throwable?, r: okhttp3.Response?) {
-                val body = runCatching { r?.body?.string()?.take(500) }.getOrNull()
+                val body = runCatching { r?.body?.string() }.getOrNull()
                 val msg = when {
-                    body != null -> "API error ${r?.code}: $body"
+                    body != null -> "API error ${r?.code}: ${extractApiMessage(body)}"
                     t != null -> t.message ?: "Connection failed"
                     else -> "SSE connection failed"
                 }
@@ -284,6 +295,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
         val request = Request.Builder()
             .url("${snapshot.endpoint.trimEnd('/')}/v1/models")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
             .get()
             .build()
         return suspendCancellableCoroutine { cont ->
@@ -303,6 +315,42 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
         }
     }
 
+    /** Scales to ≤1920px long-edge / JPEG-85 for high fidelity while staying within typical proxy limits. */
+    private fun compressImageForApi(dataUri: String): String {
+        return try {
+            val commaIdx = dataUri.indexOf(',')
+            if (commaIdx < 0) return dataUri
+            val b64 = dataUri.substring(commaIdx + 1)
+            val bytes = Base64.decode(b64, Base64.DEFAULT)
+            val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return dataUri
+
+            val maxPx = 1920
+            val scale = minOf(1f, maxPx.toFloat() / maxOf(original.width, original.height))
+            val bmp = if (scale < 1f) {
+                Bitmap.createScaledBitmap(
+                    original,
+                    (original.width * scale).toInt(),
+                    (original.height * scale).toInt(),
+                    true,
+                )
+            } else original
+
+            val out = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            if (bmp !== original) bmp.recycle()
+            original.recycle()
+            "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Exception) {
+            dataUri
+        }
+    }
+
+    // Extract human-readable message from {"error":{"message":"..."}} or fall back to raw body.
+    private fun extractApiMessage(body: String): String =
+        runCatching {
+            JsonParser.parseString(body).asJsonObject["error"]?.asJsonObject?.get("message")?.asString
+        }.getOrNull() ?: body.take(200)
+
     private suspend fun chatBlocking(request: Request): ChatResponse =
         suspendCancellableCoroutine { cont ->
             client.newCall(request).enqueue(object : okhttp3.Callback {
@@ -312,7 +360,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                     try {
                         val bodyStr = response.body!!.string()
                         if (!response.isSuccessful) {
-                            cont.resumeWithException(RuntimeException("API error ${response.code}: ${bodyStr.take(500)}"))
+                            cont.resumeWithException(RuntimeException("API error ${response.code}: ${extractApiMessage(bodyStr)}"))
                             return
                         }
                         val json = JsonParser.parseString(bodyStr).asJsonObject

@@ -43,6 +43,8 @@ import com.mobileclaw.ClawApplication
 import com.mobileclaw.permission.PermissionItem
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 class MainActivity : ComponentActivity() {
 
@@ -76,7 +78,10 @@ class MainActivity : ComponentActivity() {
             val configSnapshot by uiState.config.collectAsState(initial = initialConfig)
 
             LaunchedEffect(Unit) {
-                vm.languageChanged.collect { recreate() }
+                vm.languageChanged.collect { lang ->
+                    ClawApplication.instance.applyLanguage(lang)
+                    recreate()
+                }
             }
 
             ClawTheme(
@@ -121,6 +126,21 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Launch AiPageActivity or pin shortcut when AI requests it
+                    val pendingAiPageId = uiState.openAiPageId
+                    LaunchedEffect(pendingAiPageId) {
+                        if (pendingAiPageId != null) {
+                            if (pendingAiPageId.startsWith("pin:")) {
+                                val pageId = pendingAiPageId.removePrefix("pin:")
+                                val def = uiState.aiPages.firstOrNull { it.id == pageId }
+                                if (def != null) com.mobileclaw.ui.aipage.ShortcutHelper.pinShortcut(this@MainActivity, def)
+                            } else {
+                                startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, pendingAiPageId))
+                            }
+                            vm.clearAiPageOpen()
+                        }
+                    }
+
                     // Back stack navigation
                     BackHandler(enabled = uiState.canNavigateBack) {
                         vm.navigateBack()
@@ -137,7 +157,7 @@ class MainActivity : ComponentActivity() {
                             finish()
                         } else {
                             lastBackPressMs = now
-                            Toast.makeText(this@MainActivity, "再按一次退出", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, str(R.string.mainactivity_515fdc), Toast.LENGTH_SHORT).show()
                         }
                     }
                     // Drawer close: highest priority (registered last → wins when both are enabled)
@@ -259,9 +279,11 @@ class MainActivity : ComponentActivity() {
                                     allSkills = uiState.allSkills,
                                     skillNotes = uiState.skillNotes,
                                     skillNoteGenerating = uiState.skillNoteGenerating,
+                                    skillLevelOverrides = uiState.skillLevelOverrides,
                                     onPromote = { vm.promoteSkill(it) },
                                     onDemote = { vm.demoteSkill(it) },
                                     onDelete = { vm.deleteSkill(it) },
+                                    onSetSkillLevel = { id, level -> vm.setSkillLevel(id, level) },
                                     onInstallMarketSkill = { vm.installMarketSkill(it) },
                                     onSaveNote = { id, note -> vm.saveSkillNote(id, note) },
                                     onGenerateNote = { id, name, desc -> vm.generateSkillNote(id, name, desc) },
@@ -393,9 +415,8 @@ class MainActivity : ComponentActivity() {
                                         messages = uiState.groupMessages,
                                         availableRoles = uiState.availableRoles,
                                         isRunning = uiState.groupRunning,
-                                        typingAgentId = uiState.groupTypingAgentId,
-                                        streamingText = uiState.groupStreamingText,
-                                        onSend = { vm.sendGroupMessage(it) },
+                                        typingAgentIds = uiState.groupTypingAgents,
+                                        onSend = { text, attachments -> vm.sendGroupMessage(text, attachments) },
                                         onStop = { vm.stopGroupChat() },
                                         onBack = { vm.closeGroupChat() },
                                     )
@@ -422,6 +443,35 @@ class MainActivity : ComponentActivity() {
                                 SkillMarketPage(
                                     installedIds = uiState.allSkills.map { it.id }.toSet(),
                                     onInstall = { vm.installMarketSkill(it) },
+                                    onBack = { vm.navigateBack() },
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = uiState.currentPage == AppPage.AI_PAGES,
+                                enter = slideInHorizontally { it } + fadeIn(),
+                                exit = slideOutHorizontally { it } + fadeOut(),
+                            ) {
+                                AiPagesPage(
+                                    pages = uiState.aiPages,
+                                    onOpen = { startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, it)) },
+                                    onDelete = { vm.deleteAiPage(it) },
+                                    onPinShortcut = {
+                                        val def = uiState.aiPages.firstOrNull { p -> p.id == it }
+                                        if (def != null) com.mobileclaw.ui.aipage.ShortcutHelper.pinShortcut(this@MainActivity, def)
+                                    },
+                                    onBack = { vm.navigateBack() },
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = uiState.currentPage == AppPage.VPN,
+                                enter = slideInHorizontally { it } + fadeIn(),
+                                exit = slideOutHorizontally { it } + fadeOut(),
+                            ) {
+                                VpnPage(
+                                    uiState = uiState,
+                                    vm = vm,
                                     onBack = { vm.navigateBack() },
                                 )
                             }

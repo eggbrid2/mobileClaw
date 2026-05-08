@@ -30,6 +30,9 @@ interface SessionDao {
     @Query("UPDATE sessions SET title = :title, updatedAt = :at WHERE id = :id")
     suspend fun updateTitle(id: String, title: String, at: Long = System.currentTimeMillis())
 
+    @Query("UPDATE sessions SET roleId = :roleId, updatedAt = :at WHERE id = :id")
+    suspend fun updateRole(id: String, roleId: String, at: Long = System.currentTimeMillis())
+
     @Query("SELECT COUNT(*) FROM sessions")
     suspend fun count(): Int
 }

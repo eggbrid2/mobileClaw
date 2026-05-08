@@ -8,6 +8,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.mobileclaw.vpn.SubscriptionDao
+import com.mobileclaw.vpn.SubscriptionEntity
 
 @Entity(tableName = "episodes")
 data class EpisodeEntity(
@@ -39,6 +41,33 @@ data class ConversationEntity(
     val source: String = "chat",    // "chat" | "vlm" | "task"
     val createdAt: Long = System.currentTimeMillis(),
 )
+
+private val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS proxy_subscriptions (" +
+                "id TEXT PRIMARY KEY NOT NULL, " +
+                "name TEXT NOT NULL, " +
+                "url TEXT NOT NULL, " +
+                "updatedAt INTEGER NOT NULL, " +
+                "proxiesJson TEXT NOT NULL DEFAULT '[]', " +
+                "configYaml TEXT NOT NULL DEFAULT '', " +
+                "selectedProxyId TEXT)"
+        )
+    }
+}
+
+private val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE proxy_subscriptions ADD COLUMN configYaml TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+private val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE group_messages ADD COLUMN attachmentsJson TEXT NOT NULL DEFAULT '[]'")
+    }
+}
 
 private val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -87,8 +116,9 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         SessionEntity::class,
         SessionMessageEntity::class,
         GroupMessageEntity::class,
+        SubscriptionEntity::class,
     ],
-    version = 4,
+    version = 7,
     exportSchema = false,
 )
 abstract class ClawDatabase : RoomDatabase() {
@@ -98,6 +128,7 @@ abstract class ClawDatabase : RoomDatabase() {
     abstract fun sessionDao(): SessionDao
     abstract fun sessionMessageDao(): SessionMessageDao
     abstract fun groupMessageDao(): GroupMessageDao
+    abstract fun subscriptionDao(): SubscriptionDao
 
     companion object {
         @Volatile private var INSTANCE: ClawDatabase? = null
@@ -109,7 +140,7 @@ abstract class ClawDatabase : RoomDatabase() {
                     ClawDatabase::class.java,
                     "claw.db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build().also { INSTANCE = it }
             }
     }

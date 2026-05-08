@@ -10,6 +10,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -24,8 +25,16 @@ class GenerateImageSkill(
 ) : Skill {
 
     private val client = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
+        .build()
+
+    // gpt-image-2 can take 60–120s; use a dedicated client with a longer timeout
+    private val slowClient = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
     override val meta = SkillMeta(
@@ -41,14 +50,24 @@ class GenerateImageSkill(
             SkillParam(
                 "model", "string",
                 "Model to use. " +
+                    "OpenAI: 'gpt-image-2' (recommended, high quality), 'dall-e-3', or 'dall-e-2'. " +
                     "SiliconFlow: 'black-forest-labs/FLUX.1-schnell' (free) or 'black-forest-labs/FLUX.1-dev'. " +
                     "Together.ai: 'black-forest-labs/FLUX.1-schnell-Free'. " +
-                    "OpenAI: 'dall-e-3' or 'dall-e-2'. " +
                     "Free no-key option: 'pollinations'. " +
-                    "Default: dall-e-3",
+                    "Default: gpt-image-2",
                 required = false,
             ),
-            SkillParam("size", "string", "Image dimensions: '1024x1024', '1024x1792', '1792x1024'. Default: '1024x1024'", required = false),
+            SkillParam(
+                "size", "string",
+                "Image dimensions. gpt-image-2: '1024x1024', '1536x1024', '1024x1536', 'auto'. " +
+                    "dall-e-3: '1024x1024', '1024x1792', '1792x1024'. Default: '1024x1024'",
+                required = false,
+            ),
+            SkillParam(
+                "quality", "string",
+                "Image quality for gpt-image-2: 'auto', 'low', 'medium', 'high'. Default: 'auto'",
+                required = false,
+            ),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
@@ -61,7 +80,8 @@ class GenerateImageSkill(
         val prompt = params["prompt"] as? String
             ?: return@withContext SkillResult(false, "prompt is required")
         val size = params["size"] as? String ?: "1024x1024"
-        val model = (params["model"] as? String)?.takeIf { it.isNotBlank() } ?: "dall-e-3"
+        val quality = (params["quality"] as? String)?.takeIf { it.isNotBlank() } ?: "auto"
+        val model = (params["model"] as? String)?.takeIf { it.isNotBlank() } ?: "gpt-image-2"
 
         // Pollinations.ai: free, no API key needed
         if (model == "pollinations" || model == "pollinations-flux") {
@@ -86,14 +106,23 @@ class GenerateImageSkill(
             ?.takeIf { it.isNotBlank() }
             ?: snapshot.apiKey
 
+        val isGptImage2 = model.startsWith("gpt-image-")
         val bodyJson = JsonObject().apply {
             addProperty("model", model)
             addProperty("prompt", prompt)
             addProperty("n", 1)
             addProperty("size", size)
-            addProperty("response_format", "b64_json")
+            if (isGptImage2) {
+                // gpt-image-2 uses output_format + quality + moderation instead of response_format
+                addProperty("output_format", "png")
+                addProperty("quality", quality)
+                addProperty("moderation", "auto")
+            } else {
+                addProperty("response_format", "b64_json")
+            }
         }
 
+        val httpClient = if (isGptImage2) slowClient else client
         val request = Request.Builder()
             .url(imageUrl)
             .header("Authorization", "Bearer $imageApiKey")
@@ -102,7 +131,7 @@ class GenerateImageSkill(
             .build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     val hint = buildProviderHint(response.code, imageBase, model)
@@ -144,10 +173,11 @@ class GenerateImageSkill(
             }
         }.getOrElse { e ->
             val isTimeout = e is java.net.SocketTimeoutException
+            val timeoutLimit = if (isGptImage2) "180s" else "90s"
             SkillResult(
                 false,
                 if (isTimeout)
-                    "图片生成超时 (90s)。请检查网络或考虑使用免费的 Pollinations 方案 (model=pollinations)。"
+                    "图片生成超时 (${timeoutLimit})。请检查网络或考虑使用免费的 Pollinations 方案 (model=pollinations)。"
                 else
                     "图片生成失败: ${e.message}\n💡 如果你的 LLM 端点不支持图片生成，请在 user_config 中设置 image_api_endpoint。",
             )
@@ -200,9 +230,10 @@ class GenerateImageSkill(
             noImageSupport ->
                 "\n\n💡 ${if (isLikelyClaude) "Claude" else "Gemini"} 端点不支持图片生成。请选择以下任一方案：\n" +
                     "1. 免费无需配置：让 AI 使用 model=pollinations\n" +
-                    "2. SiliconFlow (免费FLUX)：user_config 设置 image_api_endpoint=https://api.siliconflow.cn，image_api_key=你的Key\n" +
-                    "3. Together.ai (免费FLUX)：image_api_endpoint=https://api.together.xyz，model=black-forest-labs/FLUX.1-schnell-Free\n" +
-                    "4. OpenAI DALL-E：image_api_endpoint=https://api.openai.com，model=dall-e-3"
+                    "2. OpenAI gpt-image-2 (高质量)：image_api_endpoint=https://api.openai.com，model=gpt-image-2\n" +
+                    "3. SiliconFlow (免费FLUX)：user_config 设置 image_api_endpoint=https://api.siliconflow.cn，image_api_key=你的Key\n" +
+                    "4. Together.ai (免费FLUX)：image_api_endpoint=https://api.together.xyz，model=black-forest-labs/FLUX.1-schnell-Free\n" +
+                    "5. OpenAI DALL-E：image_api_endpoint=https://api.openai.com，model=dall-e-3"
             code == 503 ->
                 "\n\n💡 503 通常表示该端点不支持图片生成，请配置 image_api_endpoint。"
             code == 401 || code == 403 ->

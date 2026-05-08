@@ -46,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +56,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import com.mobileclaw.str
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -84,9 +84,9 @@ fun GroupsPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_back), tint = c.text)
+                    Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
                 }
-                Text(stringResource(R.string.groups_title), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(str(R.string.groups_title), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             }
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
@@ -96,9 +96,9 @@ fun GroupsPage(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("👥", fontSize = 48.sp)
                         Spacer(Modifier.height(12.dp))
-                        Text(stringResource(R.string.groups_empty), color = c.subtext, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Text(str(R.string.groups_empty), color = c.subtext, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.height(6.dp))
-                        Text(stringResource(R.string.groups_empty_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Text(str(R.string.groups_empty_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 12.sp)
                     }
                 }
             } else {
@@ -126,7 +126,7 @@ fun GroupsPage(
             containerColor = c.accent,
             contentColor = c.bg,
         ) {
-            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.group_new_title))
+            Icon(Icons.Default.Add, contentDescription = str(R.string.group_new_title))
         }
     }
 
@@ -167,7 +167,7 @@ private fun GroupCard(
 
         Spacer(Modifier.width(12.dp))
 
-        val youLabel = stringResource(R.string.groups_you)
+        val youLabel = str(R.string.groups_you)
         Column(modifier = Modifier.weight(1f)) {
             Text(group.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
@@ -209,14 +209,14 @@ private fun CreateGroupDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.group_new_title), fontWeight = FontWeight.SemiBold) },
+        title = { Text(str(R.string.group_new_title), fontWeight = FontWeight.SemiBold) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.verticalScroll(rememberScrollState()),
             ) {
                 // Name
-                Text(stringResource(R.string.group_field_name), fontSize = 12.sp, color = c.subtext)
+                Text(str(R.string.group_field_name), fontSize = 12.sp, color = c.subtext)
                 BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -227,13 +227,13 @@ private fun CreateGroupDialog(
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 14.sp),
                     decorationBox = { inner ->
-                        if (name.isEmpty()) Text(stringResource(R.string.group_field_name_hint), color = c.subtext, fontSize = 14.sp)
+                        if (name.isEmpty()) Text(str(R.string.group_field_name_hint), color = c.subtext, fontSize = 14.sp)
                         inner()
                     },
                 )
 
                 // Emoji
-                Text(stringResource(R.string.group_field_icon), fontSize = 12.sp, color = c.subtext)
+                Text(str(R.string.group_field_icon), fontSize = 12.sp, color = c.subtext)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     groupEmojis.forEach { e ->
                         val isChosen = e == emoji
@@ -255,7 +255,7 @@ private fun CreateGroupDialog(
                 }
 
                 // Member selection
-                Text(stringResource(R.string.group_field_members), fontSize = 12.sp, color = c.subtext)
+                Text(str(R.string.group_field_members), fontSize = 12.sp, color = c.subtext)
                 Column {
                     availableRoles.forEach { role ->
                         Row(
@@ -275,7 +275,7 @@ private fun CreateGroupDialog(
                                     if (it) selectedIds.add(role.id) else selectedIds.remove(role.id)
                                 },
                             )
-                            Text(role.avatar, fontSize = 18.sp)
+                            GradientAvatar(emoji = role.avatar, size = 32.dp, color = c.accent)
                             Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(role.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -301,10 +301,10 @@ private fun CreateGroupDialog(
                     }
                 },
                 enabled = name.isNotBlank() && selectedIds.isNotEmpty(),
-            ) { Text(stringResource(R.string.group_create)) }
+            ) { Text(str(R.string.group_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.btn_cancel)) }
+            TextButton(onClick = onDismiss) { Text(str(R.string.btn_cancel)) }
         },
     )
 }

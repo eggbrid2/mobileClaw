@@ -49,11 +49,18 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 chaquopy {
     defaultConfig {
         version = "3.11"
+        buildPython("/opt/homebrew/bin/python3.11")
         pip {
             install("requests==2.31.0")
             install("beautifulsoup4")
@@ -84,6 +91,7 @@ dependencies {
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.webkit)
 
     // Network
     implementation(libs.okhttp)
@@ -93,6 +101,9 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+
+    // VPN / Proxy
+    implementation("org.yaml:snakeyaml:2.2")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

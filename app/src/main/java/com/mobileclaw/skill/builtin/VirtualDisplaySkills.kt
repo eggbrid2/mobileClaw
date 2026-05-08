@@ -84,7 +84,15 @@ class BgReadScreenSkill(private val manager: VirtualDisplayManager) : Skill {
         return if (hasText || nodeCount >= 5) {
             SkillResult(true, xml.take(8000))
         } else {
-            SkillResult(false, "Virtual display tree is empty or unreadable. Use bg_screenshot for visual analysis.")
+            // XML unavailable (Flutter/React Native/WebView/game) — auto-capture screenshot
+            // so the agent can use tap(x=..., y=...) coordinates from the visual.
+            val frame = runCatching { manager.captureFrame() }.getOrNull()
+            SkillResult(
+                success = false,
+                output = "XML tree empty/unreadable (likely Flutter/React Native/WebView/game). " +
+                    "Use tap(x=..., y=...) with coordinates estimated from the screenshot below.",
+                imageBase64 = frame,
+            )
         }
     }
 }

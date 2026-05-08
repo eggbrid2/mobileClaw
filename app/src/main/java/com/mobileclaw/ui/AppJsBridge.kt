@@ -21,6 +21,7 @@ import com.google.gson.Gson
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.UserConfig
 import com.mobileclaw.memory.SemanticMemory
+import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -46,6 +47,7 @@ class AppJsBridge(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
     private val http = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

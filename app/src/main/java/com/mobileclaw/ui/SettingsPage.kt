@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,15 +36,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.config.ConfigSnapshot
+import com.mobileclaw.config.GatewayConfig
 import com.mobileclaw.perception.VirtualDisplayManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
+import com.mobileclaw.str
 
-private val PRESETS = listOf(
-    Triple("OpenAI", "https://api.openai.com", "gpt-4o"),
-    Triple("Groq", "https://api.groq.com/openai", "llama-3.3-70b-versatile"),
-    Triple("Ollama", "http://localhost:11434/v1", "llama3.2"),
-    Triple("Custom", "", ""),
+private data class GatewayPreset(val name: String, val endpoint: String, val model: String, val supportsMultimodal: Boolean = true)
+
+private val GATEWAY_PRESETS = listOf(
+    GatewayPreset("OpenAI", "https://api.openai.com", "gpt-4o"),
+    GatewayPreset("Groq", "https://api.groq.com/openai", "llama-3.3-70b-versatile", supportsMultimodal = false),
+    GatewayPreset("Ollama", "http://localhost:11434/v1", "llama3.2", supportsMultimodal = false),
+    GatewayPreset("Codex (o3)", "https://api.openai.com", "o3", supportsMultimodal = false),
 )
 
 private val LANGUAGES = listOf(
@@ -52,7 +59,7 @@ private val LANGUAGES = listOf(
     "ja"   to R.string.lang_ja,
 )
 
-private enum class SettingsSub { GATEWAY, MODELS, APPEARANCE, FILES, VIRTUAL_DISPLAY }
+private enum class SettingsSub { GATEWAY, APPEARANCE, FILES, VIRTUAL_DISPLAY }
 
 @Composable
 fun SettingsPage(
@@ -66,61 +73,54 @@ fun SettingsPage(
     onCheckPrivServer: () -> Unit,
 ) {
     val c = LocalClawColors.current
-    val snapshot by config.collectAsState(
-        initial = ConfigSnapshot("", "", "gpt-4o", "text-embedding-3-small", "openai")
-    )
-    var endpoint  by remember(snapshot) { mutableStateOf(snapshot.endpoint) }
-    var apiKey    by remember(snapshot) { mutableStateOf(snapshot.apiKey) }
-    var model     by remember(snapshot) { mutableStateOf(snapshot.model) }
-    var embModel  by remember(snapshot) { mutableStateOf(snapshot.embeddingModel) }
-    var language  by remember(snapshot) { mutableStateOf(snapshot.language) }
-    var darkTheme by remember(snapshot) { mutableStateOf(snapshot.darkTheme) }
-    var accent    by remember(snapshot) { mutableStateOf<Long>(snapshot.accentColor) }
+    val snapshot by config.collectAsState(initial = ConfigSnapshot())
+    var gateways by remember(snapshot.gateways) { mutableStateOf(snapshot.gateways) }
+    var activeGatewayId by remember(snapshot.activeGatewayId) { mutableStateOf(snapshot.activeGatewayId) }
+    var language  by remember(snapshot.language) { mutableStateOf(snapshot.language) }
+    var darkTheme by remember(snapshot.darkTheme) { mutableStateOf(snapshot.darkTheme) }
+    var accent    by remember(snapshot.accentColor) { mutableStateOf<Long>(snapshot.accentColor) }
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
 
-    val currentSnapshot = { ConfigSnapshot(endpoint.trim(), apiKey.trim(), model.trim(), embModel.trim(), "openai", language, darkTheme, accent) }
+    val currentSnapshot = {
+        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent)
+    }
 
     BackHandler {
         if (subPage != null) subPage = null else onBack()
     }
 
+    val activeGateway = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()
+
     if (subPage == null) {
         // ── Hub list ─────────────────────────────────────────────────────────
         Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-            ClawPageHeader(title = stringResource(R.string.settings_title), onBack = onBack)
+            ClawPageHeader(title = str(R.string.drawer_settings), onBack = onBack)
 
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val isConfigured = endpoint.isNotBlank() && apiKey.isNotBlank()
+                val isConfigured = activeGateway != null && activeGateway.endpoint.isNotBlank() && activeGateway.apiKey.isNotBlank()
                 val vdRunning = virtualDisplayManager.isRunning
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
                         emoji = "🔌",
-                        title = "网关配置",
-                        subtitle = if (isConfigured) endpoint.removePrefix("https://").removePrefix("http://").take(30) else "未配置",
+                        title = str(R.string.settings_849b48),
+                        subtitle = if (gateways.isEmpty()) str(R.string.status_not_configured)
+                                   else str(R.string.gateways_status, gateways.size, activeGateway?.name ?: "-"),
                         statusOk = isConfigured,
                         c = c,
                     ) { subPage = SettingsSub.GATEWAY }
-                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
-                    SettingsCategoryRow(
-                        emoji = "🤖",
-                        title = "模型配置",
-                        subtitle = model.take(24).ifBlank { "未设置" },
-                        statusOk = model.isNotBlank(),
-                        c = c,
-                    ) { subPage = SettingsSub.MODELS }
                 }
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
                         emoji = "🎨",
-                        title = "主题与语言",
-                        subtitle = ThemePresets.find { it.darkTheme == darkTheme && it.accentColor == accent }?.name ?: "自定义",
+                        title = str(R.string.settings_ce650e),
+                        subtitle = ThemePresets.find { it.darkTheme == darkTheme && it.accentColor == accent }?.name ?: str(R.string.settings_f1d4ff),
                         statusOk = true,
                         c = c,
                     ) { subPage = SettingsSub.APPEARANCE }
@@ -132,19 +132,19 @@ fun SettingsPage(
                     val hasFileAccess = remember { storageManager.hasAllFilesAccess() }
                     SettingsCategoryRow(
                         emoji = "📁",
-                        title = "文件权限",
-                        subtitle = if (hasFileAccess) "已授权" else "未授权",
+                        title = str(R.string.settings_bc417e),
+                        subtitle = if (hasFileAccess) str(R.string.settings_done) else str(R.string.settings_not),
                         statusOk = hasFileAccess,
                         c = c,
                     ) { subPage = SettingsSub.FILES }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
                         emoji = "🖥️",
-                        title = "虚拟屏幕",
+                        title = str(R.string.section_virtual_display),
                         subtitle = when {
-                            vdTestResult?.startsWith("ok:") == true -> "可用"
-                            vdRunning -> "运行中"
-                            else -> "未启动"
+                            vdTestResult?.startsWith("ok:") == true -> str(R.string.settings_ad6b70)
+                            vdRunning -> str(R.string.settings_d679ae)
+                            else -> str(R.string.settings_not_2)
                         },
                         statusOk = vdTestResult?.startsWith("ok:") == true || vdRunning,
                         c = c,
@@ -154,31 +154,17 @@ fun SettingsPage(
         }
     } else {
         // ── Sub-pages ────────────────────────────────────────────────────────
-        val isValid = endpoint.isNotBlank() && apiKey.isNotBlank()
-        val saveButton: @Composable () -> Unit = {
-            Button(
-                onClick = { onSave(currentSnapshot()); subPage = null },
-                enabled = isValid,
-                colors = ButtonDefaults.buttonColors(containerColor = c.accent, disabledContainerColor = c.border),
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text(stringResource(R.string.btn_save), color = Color.White, fontSize = 13.sp) }
-            Spacer(Modifier.width(4.dp))
-        }
-
         when (subPage) {
-            SettingsSub.GATEWAY -> GatewaySubPage(
-                endpoint = endpoint, onEndpoint = { endpoint = it },
-                apiKey = apiKey, onApiKey = { apiKey = it },
-                isValid = isValid, c = c,
+            SettingsSub.GATEWAY -> GatewayListSubPage(
+                gateways = gateways,
+                activeGatewayId = activeGatewayId,
+                c = c,
                 onBack = { subPage = null },
-                saveButton = saveButton,
-            )
-            SettingsSub.MODELS -> ModelsSubPage(
-                model = model, onModel = { model = it },
-                embModel = embModel, onEmbModel = { embModel = it },
-                c = c, onBack = { subPage = null },
-                saveButton = saveButton,
+                onSave = { newList, newActiveId ->
+                    gateways = newList
+                    activeGatewayId = newActiveId
+                    onSave(currentSnapshot())
+                },
             )
             SettingsSub.APPEARANCE -> AppearanceSubPage(
                 darkTheme = darkTheme, onDarkTheme = { darkTheme = it },
@@ -254,78 +240,276 @@ private fun SettingsCategoryRow(
 // ── Sub-pages ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun GatewaySubPage(
-    endpoint: String, onEndpoint: (String) -> Unit,
-    apiKey: String, onApiKey: (String) -> Unit,
-    isValid: Boolean,
+private fun GatewayListSubPage(
+    gateways: List<GatewayConfig>,
+    activeGatewayId: String?,
     c: ClawColors,
     onBack: () -> Unit,
-    saveButton: @Composable () -> Unit,
+    onSave: (List<GatewayConfig>, String?) -> Unit,
 ) {
+    var list by remember(gateways) { mutableStateOf(gateways) }
+    var activeId by remember(activeGatewayId) { mutableStateOf(activeGatewayId) }
+    var editingGateway by remember { mutableStateOf<GatewayConfig?>(null) }
+    var deleteTarget by remember { mutableStateOf<GatewayConfig?>(null) }
+
+    if (editingGateway != null) {
+        GatewayEditorSubPage(
+            gateway = editingGateway!!,
+            c = c,
+            onBack = { editingGateway = null },
+            onSave = { updated ->
+                list = if (list.any { it.id == updated.id }) {
+                    list.map { if (it.id == updated.id) updated else it }
+                } else {
+                    list + updated
+                }
+                if (activeId == null) activeId = updated.id
+                onSave(list, activeId)
+                editingGateway = null
+            },
+        )
+        return
+    }
+
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = "网关配置", onBack = onBack) { saveButton() }
+        ClawPageHeader(title = str(R.string.settings_849b48), onBack = onBack) {
+            TextButton(onClick = {
+                editingGateway = GatewayConfig(name = str(R.string.settings_7acaf4), endpoint = "", apiKey = "", model = "gpt-4o")
+            }) { Text(str(R.string.settings_ed7823), color = c.accent, fontSize = 13.sp) }
+        }
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            SettingsSection("提供商预设", c) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PRESETS.forEach { (label, ep, mdl) ->
-                        val active = ep.isNotEmpty() && endpoint == ep
-                        Box(
-                            Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                                .background(if (active) c.accent.copy(alpha = 0.15f) else c.cardAlt)
-                                .border(1.dp, if (active) c.accent.copy(alpha = 0.6f) else c.border, RoundedCornerShape(8.dp))
-                                .clickable { if (ep.isNotEmpty()) onEndpoint(ep) }
-                                .padding(vertical = 9.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(label, color = if (active) c.accent else c.subtext, fontSize = 11.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
-                        }
+            if (list.isEmpty()) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(str(R.string.settings_0733e8), fontSize = 15.sp, color = c.subtext)
+                        Text(str(R.string.settings_tap), fontSize = 12.sp, color = c.subtext.copy(alpha = 0.6f))
                     }
                 }
-            }
-            SettingsSection(stringResource(R.string.section_connection), c) {
-                ClawPageTextField(endpoint, onEndpoint, stringResource(R.string.field_endpoint), "https://api.openai.com", c)
-                ClawPageTextField(apiKey, onApiKey, stringResource(R.string.field_api_key), "sk-...", c, isSecret = true)
-                Row(
-                    Modifier.fillMaxWidth()
-                        .background(if (isValid) c.green.copy(alpha = 0.08f) else c.cardAlt, RoundedCornerShape(8.dp))
-                        .border(1.dp, if (isValid) c.green.copy(alpha = 0.3f) else c.border, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(if (isValid) "✓" else "○", color = if (isValid) c.green else c.subtext, fontSize = 13.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (isValid) stringResource(R.string.status_configured) else stringResource(R.string.status_not_ready),
-                        color = if (isValid) c.green else c.subtext, fontSize = 13.sp,
+            } else {
+                list.forEach { gw ->
+                    val isActive = gw.id == activeId || (activeId == null && gw == list.first())
+                    GatewayListItem(
+                        gateway = gw,
+                        isActive = isActive,
+                        c = c,
+                        onActivate = {
+                            activeId = gw.id
+                            onSave(list, activeId)
+                        },
+                        onEdit = { editingGateway = gw },
+                        onDelete = { deleteTarget = gw },
                     )
                 }
             }
+
+            // Presets section
+            if (list.isEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(str(R.string.settings_1de35a), color = c.subtext.copy(alpha = 0.7f), fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+                GATEWAY_PRESETS.forEach { preset ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.surface)
+                            .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+                            .clickable {
+                                editingGateway = GatewayConfig(
+                                    name = preset.name,
+                                    endpoint = preset.endpoint,
+                                    apiKey = "",
+                                    model = preset.model,
+                                    supportsMultimodal = preset.supportsMultimodal,
+                                )
+                            }
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(preset.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text)
+                            Text(preset.endpoint.removePrefix("https://").removePrefix("http://").take(36),
+                                fontSize = 11.sp, color = c.subtext)
+                        }
+                        Text(if (preset.supportsMultimodal) str(R.string.settings_8fabe3) else str(R.string.settings_90f268),
+                            fontSize = 10.sp, color = c.subtext)
+                    }
+                }
+            }
+        }
+    }
+
+    val target = deleteTarget
+    if (target != null) {
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(str(R.string.settings_delete)) },
+            text = { Text(str(R.string.delete_gateway_confirm, target.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    list = list.filter { it.id != target.id }
+                    if (activeId == target.id) activeId = list.firstOrNull()?.id
+                    onSave(list, activeId)
+                    deleteTarget = null
+                }) { Text(str(R.string.skills_delete_confirm), color = c.red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text(str(R.string.btn_cancel)) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun GatewayListItem(
+    gateway: GatewayConfig,
+    isActive: Boolean,
+    c: ClawColors,
+    onActivate: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isActive) c.accent.copy(alpha = 0.08f) else c.surface)
+            .border(1.dp, if (isActive) c.accent.copy(alpha = 0.5f) else c.border, RoundedCornerShape(10.dp))
+            .clickable(onClick = onActivate)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                .background(if (isActive) c.green else c.subtext.copy(alpha = 0.25f))
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (isActive) c.accent else c.text)
+                if (gateway.supportsMultimodal) {
+                    Text("👁", fontSize = 10.sp)
+                }
+            }
+            Text(gateway.endpoint.removePrefix("https://").removePrefix("http://").take(32).ifBlank { str(R.string.status_not_configured) },
+                fontSize = 11.sp, color = c.subtext)
+            Text(gateway.model.take(28), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.7f))
+        }
+        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = c.subtext, modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = c.red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
         }
     }
 }
 
 @Composable
-private fun ModelsSubPage(
-    model: String, onModel: (String) -> Unit,
-    embModel: String, onEmbModel: (String) -> Unit,
+private fun GatewayEditorSubPage(
+    gateway: GatewayConfig,
     c: ClawColors,
     onBack: () -> Unit,
-    saveButton: @Composable () -> Unit,
+    onSave: (GatewayConfig) -> Unit,
 ) {
+    var name by remember { mutableStateOf(gateway.name) }
+    var endpoint by remember { mutableStateOf(gateway.endpoint) }
+    var apiKey by remember { mutableStateOf(gateway.apiKey) }
+    var model by remember { mutableStateOf(gateway.model) }
+    var embModel by remember { mutableStateOf(gateway.embeddingModel) }
+    var supportsMultimodal by remember { mutableStateOf(gateway.supportsMultimodal) }
+
+    val isValid = endpoint.isNotBlank() && apiKey.isNotBlank() && name.isNotBlank()
+
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = "模型配置", onBack = onBack) { saveButton() }
+        ClawPageHeader(title = if (gateway.endpoint.isBlank()) str(R.string.settings_add) else str(R.string.settings_edit), onBack = onBack) {
+            Button(
+                onClick = {
+                    onSave(gateway.copy(
+                        name = name.trim(),
+                        endpoint = endpoint.trim(),
+                        apiKey = apiKey.trim(),
+                        model = model.trim(),
+                        embeddingModel = embModel.trim(),
+                        supportsMultimodal = supportsMultimodal,
+                    ))
+                },
+                enabled = isValid,
+                colors = ButtonDefaults.buttonColors(containerColor = c.accent, disabledContainerColor = c.border),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) { Text(str(R.string.role_save), color = Color.White, fontSize = 13.sp) }
+            Spacer(Modifier.width(4.dp))
+        }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            SettingsSection(stringResource(R.string.section_models), c) {
-                ClawPageTextField(model, onModel, stringResource(R.string.field_chat_model), "gpt-4o", c)
-                ClawPageTextField(embModel, onEmbModel, stringResource(R.string.field_embed_model), "text-embedding-3-small", c)
-                Text(stringResource(R.string.embed_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 10.sp, lineHeight = 14.sp)
+            // Presets
+            SettingsSection(str(R.string.settings_cac718), c) {
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(GATEWAY_PRESETS.size) { i ->
+                        val preset = GATEWAY_PRESETS[i]
+                        val active = endpoint == preset.endpoint && model == preset.model
+                        Box(
+                            Modifier.clip(RoundedCornerShape(8.dp))
+                                .background(if (active) c.accent.copy(alpha = 0.15f) else c.cardAlt)
+                                .border(1.dp, if (active) c.accent.copy(alpha = 0.6f) else c.border, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    name = preset.name
+                                    endpoint = preset.endpoint
+                                    model = preset.model
+                                    supportsMultimodal = preset.supportsMultimodal
+                                }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        ) {
+                            Text(preset.name, color = if (active) c.accent else c.subtext, fontSize = 11.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    }
+                }
+            }
+            SettingsSection(str(R.string.settings_9e5ffa), c) {
+                ClawPageTextField(name, { name = it }, str(R.string.role_field_name), "OpenAI", c)
+                ClawPageTextField(endpoint, { endpoint = it }, str(R.string.field_endpoint), "https://api.openai.com", c)
+                ClawPageTextField(apiKey, { apiKey = it }, str(R.string.field_api_key), "sk-...", c, isSecret = true)
+            }
+            SettingsSection(str(R.string.section_models), c) {
+                ClawPageTextField(model, { model = it }, str(R.string.field_chat_model), "gpt-4o", c)
+                ClawPageTextField(embModel, { embModel = it }, str(R.string.field_embed_model), "text-embedding-3-small", c)
+                Text(str(R.string.embed_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 10.sp, lineHeight = 14.sp)
+            }
+            SettingsSection(str(R.string.settings_14c651), c) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(str(R.string.settings_35e88c), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text)
+                        Text(str(R.string.settings_close), fontSize = 11.sp, color = c.subtext)
+                    }
+                    Switch(
+                        checked = supportsMultimodal,
+                        onCheckedChange = { supportsMultimodal = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = c.accent,
+                            uncheckedThumbColor = c.subtext,
+                            uncheckedTrackColor = c.border,
+                        ),
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(str(R.string.settings_8f029c),
+                        fontSize = 10.sp, color = c.subtext.copy(alpha = 0.6f), lineHeight = 14.sp)
+                }
             }
         }
     }
@@ -341,20 +525,20 @@ private fun AppearanceSubPage(
     onSave: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = "主题与语言", onBack = onBack) {
+        ClawPageHeader(title = str(R.string.settings_ce650e), onBack = onBack) {
             Button(
                 onClick = onSave,
                 colors = ButtonDefaults.buttonColors(containerColor = c.accent),
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text(stringResource(R.string.btn_save), color = Color.White, fontSize = 13.sp) }
+            ) { Text(str(R.string.role_save), color = Color.White, fontSize = 13.sp) }
             Spacer(Modifier.width(4.dp))
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            SettingsSection(stringResource(R.string.section_theme), c) {
+            SettingsSection(str(R.string.section_theme), c) {
                 ThemePresets.chunked(3).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { preset ->
@@ -381,7 +565,7 @@ private fun AppearanceSubPage(
                     Spacer(Modifier.height(8.dp))
                 }
             }
-            SettingsSection(stringResource(R.string.section_language), c) {
+            SettingsSection(str(R.string.section_language), c) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LANGUAGES.forEach { (code, resId) ->
                         val active = language == code
@@ -413,7 +597,7 @@ private fun FilesSubPage(c: ClawColors, onBack: () -> Unit) {
     ) { hasFileAccess = storageManager.hasAllFilesAccess() }
 
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = "文件权限", onBack = onBack)
+        ClawPageHeader(title = stringResource(R.string.settings_bc417e), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -428,10 +612,10 @@ private fun FilesSubPage(c: ClawColors, onBack: () -> Unit) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(if (hasFileAccess) c.green else c.subtext.copy(alpha = 0.4f)))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(if (hasFileAccess) "已授权：可管理所有文件" else "未授权：无法访问用户文件",
+                    Text(if (hasFileAccess) stringResource(R.string.settings_done_2) else stringResource(R.string.settings_not_3),
                         color = if (hasFileAccess) c.green else c.subtext, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(2.dp))
-                    Text(if (hasFileAccess) "Agent 可读写 Downloads、Documents 等目录" else "点击授权后 Agent 可帮你管理、搜索和创建文件",
+                    Text(if (hasFileAccess) stringResource(R.string.settings_5b5f15) else stringResource(R.string.settings_tap_2),
                         color = c.subtext, fontSize = 12.sp, lineHeight = 16.sp)
                 }
             }
@@ -441,7 +625,7 @@ private fun FilesSubPage(c: ClawColors, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = c.accent),
                     shape = RoundedCornerShape(10.dp),
-                ) { Text("前往授权", color = Color.White, fontSize = 14.sp) }
+                ) { Text(stringResource(R.string.settings_f0bdc1), color = Color.White, fontSize = 14.sp) }
             }
         }
     }
@@ -458,7 +642,7 @@ private fun VirtualDisplaySubPage(
     onCheckPrivServer: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = "虚拟屏幕", onBack = onBack)
+        ClawPageHeader(title = str(R.string.section_virtual_display), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -468,7 +652,7 @@ private fun VirtualDisplaySubPage(
             val isOk   = vdTestResult?.startsWith("ok:") == true
             val isFail = vdTestResult?.startsWith("error:") == true
 
-            SettingsSection(stringResource(R.string.section_virtual_display), c) {
+            SettingsSection(str(R.string.section_virtual_display), c) {
                 Row(
                     Modifier.fillMaxWidth()
                         .background(when { isOk -> c.green.copy(alpha = 0.07f); isFail -> c.red.copy(alpha = 0.07f); else -> c.cardAlt }, RoundedCornerShape(10.dp))
@@ -481,10 +665,10 @@ private fun VirtualDisplaySubPage(
                     Column(Modifier.weight(1f)) {
                         Text(
                             when {
-                                isOk     -> "可用 (Display #${vdTestResult!!.substringAfter(":")})"
-                                isFail   -> "不可用"
-                                isRunning -> "运行中 (Display #$displayId)"
-                                else     -> "未启动"
+                                isOk     -> str(R.string.vd_available, vdTestResult!!.substringAfter(":"))
+                                isFail   -> str(R.string.settings_d1e4a7)
+                                isRunning -> str(R.string.vd_running, displayId)
+                                else     -> str(R.string.settings_not_2)
                             },
                             color = when { isOk || isRunning -> c.green; isFail -> c.red; else -> c.subtext },
                             fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -494,7 +678,7 @@ private fun VirtualDisplaySubPage(
                     OutlinedButton(onClick = onTestVirtualDisplay, border = ButtonDefaults.outlinedButtonBorder, shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = c.accent)) {
-                        Text("检测", fontSize = 12.sp)
+                        Text(str(R.string.settings_69d600), fontSize = 12.sp)
                     }
                 }
                 PrivServerCard(connected = privServerConnected, packageName = "com.mobileclaw", onCheckServer = onCheckPrivServer, c = c)
@@ -545,18 +729,18 @@ private fun PrivServerCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(if (connected) c.green else c.subtext.copy(alpha = 0.4f)))
             Spacer(Modifier.width(8.dp))
-            Text(if (connected) "特权服务已激活" else "特权服务未激活",
+            Text(if (connected) str(R.string.settings_f6bfdd) else str(R.string.settings_1325ab),
                 color = if (connected) c.green else c.subtext, fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = onCheckServer, border = ButtonDefaults.outlinedButtonBorder, shape = RoundedCornerShape(8.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = c.accent)) {
-                Text("检测", fontSize = 12.sp)
+                Text(str(R.string.settings_69d600), fontSize = 12.sp)
             }
         }
         AnimatedVisibility(!connected, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("无需 Root — 在电脑终端执行以下命令激活（重启手机后需重新执行一次）:",
+                Text(str(R.string.settings_a86ef7),
                     color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
                 Row(
                     Modifier.fillMaxWidth()
@@ -574,11 +758,11 @@ private fun PrivServerCard(
                             .clickable { clipboardManager.setText(AnnotatedString(activationCmd)); copied = true }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        Text(if (copied) "✓ 已复制" else "一键复制", color = if (copied) c.green else c.accent,
+                        Text(if (copied) str(R.string.settings_75420d) else str(R.string.settings_2a5ed5), color = if (copied) c.green else c.accent,
                             fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                Text("激活后点击「检测」确认状态。激活无需 Root，且不影响系统安全。",
+                Text(str(R.string.settings_47af0e),
                     color = c.subtext.copy(alpha = 0.55f), fontSize = 10.sp, lineHeight = 13.sp)
             }
         }
@@ -601,68 +785,68 @@ private fun detectVdRomInfo(): VdRomInfo {
         brand.contains("oppo") || brand.contains("realme") || brand.contains("oneplus") || mfr.contains("oppo") -> VdRomInfo(
             name = "ColorOS（OPPO / Realme / OnePlus）",
             manualSteps = listOf(
-                "ColorOS 12+ 在框架层拦截虚拟屏启动，系统设置项无法解决",
-                "方案① Root: 安装 Magisk 获取 Root，应用将自动通过 su 调用",
-                "方案② Shizuku (推荐，无需 Root):",
-                "  a. 手机安装 Shizuku app（搜索「Shizuku」）",
-                "  b. 打开 Shizuku，它会自动生成激活脚本",
-                "  c. 连接电脑，执行下方 ADB 命令激活",
-                "  d. 手机上 Shizuku 弹窗确认 → 授权本应用 → 重试",
+                str(R.string.settings_d769b1),
+                str(R.string.settings_1a31ee),
+                str(R.string.settings_719c3b),
+                str(R.string.settings_cd97fd),
+                str(R.string.settings_a8e011),
+                str(R.string.settings_05089e),
+                str(R.string.settings_3f177e),
             ),
             adbCommands = listOf(
                 "adb shell settings put global enable_freeform_support 1",
                 "adb shell settings put global force_desktop_mode_on_external_displays 1",
-                "# ↓ 安装并打开 Shizuku app 后再执行此命令",
+                str(R.string.settings_ed48be),
                 "adb shell sh /sdcard/Android/data/moe.shizuku.privileged.api/start.sh",
             ),
-            adbNote = "ColorOS 安全策略硬拦截，需 Root 或 Shizuku",
+            adbNote = str(R.string.settings_140121),
         )
         brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco") || mfr.contains("xiaomi") -> VdRomInfo(
             name = "MIUI / HyperOS（Xiaomi / Redmi / POCO）",
             manualSteps = listOf(
-                "设置 → 我的设备 → 全部参数，连点「MIUI 版本」7 次",
-                "设置 → 更多设置 → 开发者选项",
-                "开启【自由窗口】",
-                "返回本应用，点击「检测」按钮验证",
+                str(R.string.settings_settings),
+                str(R.string.settings_settings_2),
+                str(R.string.settings_39e00d),
+                str(R.string.settings_back),
             ),
             adbCommands = listOf("adb shell settings put global enable_freeform_support 1"),
         )
         brand.contains("huawei") || brand.contains("honor") -> VdRomInfo(
             name = "EMUI / HarmonyOS（Huawei / Honor）",
             manualSteps = listOf(
-                "设置 → 关于手机 → 版本号，连点 7 次",
-                "设置 → 系统 → 开发者选项",
-                "开启【多窗口】和【自由窗口】",
-                "返回本应用，点击「检测」按钮验证",
+                str(R.string.settings_settings_3),
+                str(R.string.settings_settings_4),
+                str(R.string.settings_fcbe54),
+                str(R.string.settings_back),
             ),
             adbCommands = listOf("adb shell settings put global enable_freeform_support 1"),
         )
         brand.contains("vivo") -> VdRomInfo(
             name = "OriginOS / FuntouchOS（Vivo）",
             manualSteps = listOf(
-                "设置 → 通用 → 关于手机 → 版本号，连点 7 次",
-                "设置 → 通用 → 开发者选项",
-                "开启【多任务显示】",
-                "返回本应用，点击「检测」按钮验证",
+                str(R.string.settings_settings_5),
+                str(R.string.settings_settings_6),
+                str(R.string.settings_722368),
+                str(R.string.settings_back),
             ),
             adbCommands = listOf("adb shell settings put global enable_freeform_support 1"),
         )
         brand.contains("samsung") || mfr.contains("samsung") -> VdRomInfo(
             name = "One UI（Samsung）",
             manualSteps = listOf(
-                "设置 → 关于手机 → 软件信息 → 版本号，连点 7 次",
-                "设置 → 开发者选项",
-                "开启【强制活动可调整大小】和【自由窗口模式】",
-                "返回本应用，点击「检测」按钮验证",
+                str(R.string.settings_settings_7),
+                str(R.string.settings_settings_8),
+                str(R.string.settings_481b15),
+                str(R.string.settings_back),
             ),
             adbCommands = listOf("adb shell settings put global enable_freeform_support 1"),
         )
         else -> VdRomInfo(
             name = "Android（${Build.BRAND}）",
             manualSteps = listOf(
-                "设置 → 关于手机 → 版本号，连点 7 次",
-                "开发者选项 → 开启【自由窗口】或【多窗口】",
-                "返回本应用，点击「检测」按钮验证",
+                str(R.string.settings_settings_3),
+                str(R.string.settings_fe1097),
+                str(R.string.settings_back),
             ),
             adbCommands = listOf("adb shell settings put global enable_freeform_support 1"),
         )
@@ -680,7 +864,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                 .padding(vertical = 7.dp, horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("⚙ 设置向导", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.settings_7d9538), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             Text(if (expanded) "▲" else "▼", color = c.subtext, fontSize = 9.sp)
         }
         AnimatedVisibility(expanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -696,7 +880,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                     Text(romInfo.name, color = c.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("手动设置步骤:", color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                    Text(stringResource(R.string.settings_6b221c), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
                     romInfo.manualSteps.forEachIndexed { i, step ->
                         Row(verticalAlignment = Alignment.Top) {
                             Text("${i + 1}.", color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
@@ -707,7 +891,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        if (romInfo.adbNote.isNotEmpty()) "ADB 命令（${romInfo.adbNote}）:" else "如手动设置无效，连接电脑执行 ADB 命令:",
+                        if (romInfo.adbNote.isNotEmpty()) "ADB 命令（${romInfo.adbNote}）:" else stringResource(R.string.settings_12a860),
                         color = c.subtext, fontSize = 10.sp, lineHeight = 14.sp,
                     )
                     romInfo.adbCommands.forEach { cmd ->
@@ -719,7 +903,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                         }
                     }
                 }
-                Text("执行命令后无需重启手机，直接点击上方「检测」按钮验证。",
+                Text(stringResource(R.string.settings_7f056c),
                     color = c.subtext.copy(alpha = 0.55f), fontSize = 10.sp, lineHeight = 13.sp)
             }
         }
@@ -748,7 +932,7 @@ private fun AdbCommandRow(cmd: String, c: ClawColors) {
                 .clickable { clipboardManager.setText(AnnotatedString(cmd)); copied = true }
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            Text(if (copied) "✓ 已复制" else "复制", color = if (copied) c.green else c.accent,
+            Text(if (copied) stringResource(R.string.settings_75420d) else stringResource(R.string.console_copy), color = if (copied) c.green else c.accent,
                 fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
         }
     }

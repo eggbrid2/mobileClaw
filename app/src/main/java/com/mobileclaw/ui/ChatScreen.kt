@@ -93,13 +93,14 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import com.mobileclaw.str
 
 private val ExampleTasks = listOf(
-    "🔍 搜索今天的科技热点新闻",
-    "🌤 查询当前城市的天气情况",
-    "📱 打开微信并发一条消息",
-    "📸 截图并告诉我屏幕上有什么",
-    "⚡ 写一段 Python 代码帮我处理数据",
+    str(R.string.chat_e1b216),
+    str(R.string.chat_df5694),
+    str(R.string.chat_1bf8d4),
+    str(R.string.chat_e8ab7f),
+    str(R.string.chat_07f7c7),
 )
 
 private val CommonModels = listOf(
@@ -286,27 +287,47 @@ fun ChatScreen(
                 } else if (uiState.historyHasMore) {
                     item(key = "history_hint") {
                         Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                            Text("向上滚动加载更多", fontSize = 11.sp, color = c.subtext.copy(alpha = 0.4f))
+                            Text(str(R.string.chat_b721d3), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.4f))
                         }
                     }
                 }
                 itemsIndexed(runState.messages, key = { idx, _ -> "msg_$idx" }) { _, msg ->
                     when (msg.role) {
                         MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
-                        MessageRole.AGENT -> AgentBubble(
-                            summary = msg.text,
-                            logLines = msg.logLines,
-                            attachments = msg.attachments,
-                            currentRole = uiState.currentRole,
-                            currentModel = uiState.currentModel,
-                            onSwitchRole = onSwitchRole,
-                            onPickModel = { showModelPicker = true },
-                            onOpenHtmlViewer = onOpenHtmlViewer,
-                            onOpenBrowser = onOpenBrowser,
-                            onSendGoal = onSendGoal,
-                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                            onSelectStep = { selectedStepLog = it },
-                        )
+                        MessageRole.AGENT -> {
+                            if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
+                                AttachmentBubble(
+                                    attachments = msg.attachments,
+                                    onOpenHtmlViewer = onOpenHtmlViewer,
+                                    onOpenBrowser = onOpenBrowser,
+                                    onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    AgentBubble(
+                                        summary = msg.text,
+                                        logLines = msg.logLines,
+                                        currentRole = uiState.currentRole,
+                                        currentModel = uiState.currentModel,
+                                        onSwitchRole = onSwitchRole,
+                                        onPickModel = { showModelPicker = true },
+                                        onOpenHtmlViewer = onOpenHtmlViewer,
+                                        onOpenBrowser = onOpenBrowser,
+                                        onSendGoal = onSendGoal,
+                                        onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                        onSelectStep = { selectedStepLog = it },
+                                    )
+                                    if (msg.attachments.isNotEmpty()) {
+                                        AttachmentBubble(
+                                            attachments = msg.attachments,
+                                            onOpenHtmlViewer = onOpenHtmlViewer,
+                                            onOpenBrowser = onOpenBrowser,
+                                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if (runState.isRunning) {
@@ -315,7 +336,6 @@ fun ChatScreen(
                             logLines = runState.activeLogLines,
                             streamingToken = runState.streamingToken,
                             streamingThought = runState.streamingThought,
-                            activeAttachments = runState.activeAttachments,
                             currentRole = uiState.currentRole,
                             currentModel = uiState.currentModel,
                             onPickModel = { showModelPicker = true },
@@ -324,6 +344,14 @@ fun ChatScreen(
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                             onSelectStep = { selectedStepLog = it },
                             onSendGoal = onSendGoal,
+                        )
+                    }
+                    itemsIndexed(runState.activeAttachments, key = { idx, _ -> "active_attachment_$idx" }) { _, attachment ->
+                        AttachmentBubble(
+                            attachments = listOf(attachment),
+                            onOpenHtmlViewer = onOpenHtmlViewer,
+                            onOpenBrowser = onOpenBrowser,
+                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                         )
                     }
                 }
@@ -340,6 +368,7 @@ fun ChatScreen(
         InputBar(
             input = input,
             isRunning = runState.isRunning,
+            supportsMultimodal = uiState.supportsMultimodal,
             attachedImageBase64 = uiState.inputImageBase64,
             attachedFile = uiState.inputFileAttachment,
             showAttachMenu = showAttachMenu,
@@ -372,7 +401,7 @@ fun ChatScreen(
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("重命名会话") },
+            title = { Text(str(R.string.chat_3e654d)) },
             text = {
                 OutlinedTextField(
                     value = renameText,
@@ -386,10 +415,10 @@ fun ChatScreen(
                         onRenameSession(uiState.currentSessionId, renameText.trim())
                     }
                     showRenameDialog = false
-                }) { Text("保存") }
+                }) { Text(str(R.string.role_save)) }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDialog = false }) { Text(stringResource(R.string.btn_cancel)) }
+                TextButton(onClick = { showRenameDialog = false }) { Text(str(R.string.btn_cancel)) }
             },
         )
     }
@@ -408,10 +437,10 @@ fun ChatScreen(
                     .navigationBarsPadding()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text("步骤详情", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = c.text)
+                Text(str(R.string.chat_d0569b), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = c.text)
                 Spacer(Modifier.height(10.dp))
                 val displayLines = step.details.ifEmpty {
-                    if (step.text.isNotBlank()) listOf(step.text) else listOf("无详细数据")
+                    if (step.text.isNotBlank()) listOf(step.text) else listOf(str(R.string.chat_cbf93e))
                 }
                 displayLines.forEach { detail ->
                     Text(
@@ -506,7 +535,7 @@ private fun ModelPickerDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "选择模型",
+                    str(R.string.chat_select),
                     color = c.text,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
@@ -568,7 +597,7 @@ private fun ModelPickerDialog(
                 onClick = onDismiss,
                 modifier = Modifier.align(Alignment.End).padding(end = 8.dp, top = 4.dp),
             ) {
-                Text(stringResource(R.string.btn_cancel), color = c.subtext, fontSize = 13.sp)
+                Text(str(R.string.btn_cancel), color = c.subtext, fontSize = 13.sp)
             }
         }
     }
@@ -637,12 +666,12 @@ private fun EmptyState(
         Spacer(Modifier.height(18.dp))
         Text("MobileClaw", color = c.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
         Spacer(Modifier.height(6.dp))
-        Text(stringResource(R.string.app_tagline), color = c.subtext, fontSize = 13.sp)
+        Text(str(R.string.app_tagline), color = c.subtext, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
         // Smart recommendations or example tasks
         Text(
-            if (recommendations.isNotEmpty()) "✨  为你推荐" else "✨  试试这些任务",
+            if (recommendations.isNotEmpty()) str(R.string.chat_b8181c) else str(R.string.chat_72e47b),
             color = c.subtext, fontSize = 10.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.height(10.dp))
@@ -665,7 +694,7 @@ private fun EmptyState(
         Spacer(Modifier.height(20.dp))
         // Help link
         Text(
-            "❓ 查看使用指南",
+            str(R.string.chat_c5fab5),
             color = c.accent.copy(alpha = 0.7f),
             fontSize = 12.sp,
             modifier = Modifier
@@ -738,6 +767,13 @@ private fun parseQuickReplies(text: String): Pair<String, List<String>> {
     return clean to options
 }
 
+private val uiFencePattern = Regex("```ui[\\s\\S]*?```", RegexOption.IGNORE_CASE)
+
+private fun textPreview(text: String, limit: Int = 700): String {
+    val withoutUi = text.replace(uiFencePattern, "[交互内容已折叠，点“更多”查看]").trim()
+    return if (withoutUi.length > limit) withoutUi.take(limit).trimEnd() + "…" else withoutUi
+}
+
 @Composable
 private fun AgentBubble(
     summary: String,
@@ -756,9 +792,12 @@ private fun AgentBubble(
     val c = LocalClawColors.current
     val context = LocalContext.current
     var stepsExpanded by remember { mutableStateOf(false) }
+    var summaryExpanded by remember(summary) { mutableStateOf(false) }
     val isSuccess = logLines.none { it.type == LogType.ERROR }
     val steps = logLines.filter { it.type != LogType.SUCCESS && (it.text.isNotBlank() || it.imageBase64 != null) }
     val (cleanSummary, quickReplies) = remember(summary) { parseQuickReplies(summary) }
+    val shouldCollapseSummary = cleanSummary.length > 900 || uiFencePattern.containsMatchIn(cleanSummary)
+    val visibleSummary = if (shouldCollapseSummary && !summaryExpanded) textPreview(cleanSummary) else cleanSummary
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
         // Role header: avatar + name + model chip
@@ -794,7 +833,23 @@ private fun AgentBubble(
             }
         }
 
-        MarkdownText(cleanSummary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp, onAction = onSendGoal)
+        if (visibleSummary.isNotBlank()) {
+            MarkdownText(visibleSummary, color = c.text, fontSize = 14.sp, lineHeight = 21.sp, onAction = onSendGoal)
+        }
+
+        if (shouldCollapseSummary) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (summaryExpanded) "收起" else "更多",
+                color = c.accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { summaryExpanded = !summaryExpanded }
+                    .padding(horizontal = 2.dp, vertical = 3.dp),
+            )
+        }
 
         if (quickReplies.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
@@ -860,7 +915,7 @@ private fun AgentBubble(
                 Text(
                     buildString {
                         append(stringResource(R.string.steps_label, steps.size))
-                        if (hasThinking) append("  ·  含推理过程")
+                        if (hasThinking) append(str(R.string.chat_3d188f))
                     },
                     color = c.subtext,
                     fontSize = 11.sp,
@@ -899,13 +954,38 @@ private fun AgentBubble(
     }
 }
 
+@Composable
+private fun AttachmentBubble(
+    attachments: List<SkillAttachment>,
+    onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
+    onOpenBrowser: (String) -> Unit = {},
+    onOpenAccessibilitySettings: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxWidth(0.93f),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        attachments.forEach { attachment ->
+            when (attachment) {
+                is SkillAttachment.ImageData            -> GeneratedImageCard(attachment)
+                is SkillAttachment.FileData             -> FileAttachmentCard(attachment, context)
+                is SkillAttachment.HtmlData             -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
+                is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
+                is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
+                is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
+                is SkillAttachment.FileList             -> FileListCard(attachment, context)
+            }
+        }
+    }
+}
+
 // ── Active Task Bubble ────────────────────────────────────────────────────────
 @Composable
 private fun ActiveTaskBubble(
     logLines: List<LogLine>,
     streamingToken: String,
     streamingThought: String = "",
-    activeAttachments: List<SkillAttachment> = emptyList(),
     currentRole: Role = Role.DEFAULT,
     currentModel: String = "",
     onPickModel: () -> Unit = {},
@@ -916,7 +996,6 @@ private fun ActiveTaskBubble(
     onSendGoal: (String) -> Unit = {},
 ) {
     val c = LocalClawColors.current
-    val context = LocalContext.current
     var stepsExpanded by remember { mutableStateOf(false) }
     var thoughtExpanded by remember { mutableStateOf(false) }
 
@@ -930,8 +1009,8 @@ private fun ActiveTaskBubble(
     val lastAction = logLines.lastOrNull { it.type == LogType.ACTION || it.type == LogType.THINKING }
     val currentLabel = when (lastAction?.type) {
         LogType.ACTION   -> chineseSkillLabel(lastAction.skillId)
-        LogType.THINKING -> "思考中"
-        else             -> if (logLines.isNotEmpty()) "执行中" else "准备中"
+        LogType.THINKING -> str(R.string.chat_dc269a)
+        else             -> if (logLines.isNotEmpty()) str(R.string.chat_46e386) else str(R.string.chat_f76540)
     }
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
@@ -984,7 +1063,7 @@ private fun ActiveTaskBubble(
                 Text("🦀", fontSize = 12.sp)
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    stringResource(R.string.agent_label),
+                    "MobileClaw",
                     color = c.accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -995,7 +1074,7 @@ private fun ActiveTaskBubble(
                 Spacer(Modifier.width(8.dp))
                 if (logLines.isNotEmpty()) {
                     Text(
-                        "第${logLines.size}步 · $currentLabel",
+                        str(R.string.step_label, logLines.size, currentLabel),
                         color = c.subtext,
                         fontSize = 10.sp,
                         modifier = Modifier.weight(1f),
@@ -1003,7 +1082,7 @@ private fun ActiveTaskBubble(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (stepsExpanded) "收起 ▲" else "步骤 ▼",
+                        if (stepsExpanded) str(R.string.chat_c4b206) else str(R.string.chat_900d90),
                         color = c.accent.copy(alpha = 0.7f),
                         fontSize = 10.sp,
                         modifier = Modifier
@@ -1012,7 +1091,7 @@ private fun ActiveTaskBubble(
                             .padding(horizontal = 6.dp, vertical = 3.dp),
                     )
                 } else {
-                    Text("准备中…", color = c.subtext, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Text(str(R.string.chat_dcfb68), color = c.subtext, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 }
             }
 
@@ -1056,8 +1135,8 @@ private fun ActiveTaskBubble(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(modifier = Modifier.width(2.dp).height(12.dp).background(c.purple.copy(alpha = 0.6f), RoundedCornerShape(1.dp)))
-                        Text("💭 思考中…", color = c.purple.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp, modifier = Modifier.weight(1f))
-                        Text("${streamingThought.length}字", color = c.purple.copy(alpha = 0.4f), fontSize = 9.sp)
+                        Text(str(R.string.chat_1aa9e9), color = c.purple.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp, modifier = Modifier.weight(1f))
+                        Text(str(R.string.chars_count, streamingThought.length), color = c.purple.copy(alpha = 0.4f), fontSize = 9.sp)
                         Text(if (thoughtExpanded) "▲" else "▼", color = c.purple.copy(alpha = 0.4f), fontSize = 9.sp)
                     }
                     AnimatedVisibility(
@@ -1088,25 +1167,6 @@ private fun ActiveTaskBubble(
                 }
             }
 
-            // Live attachment preview
-            if (activeAttachments.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
-                Spacer(Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    activeAttachments.forEach { attachment ->
-                        when (attachment) {
-                            is SkillAttachment.ImageData            -> GeneratedImageCard(attachment)
-                            is SkillAttachment.FileData             -> FileAttachmentCard(attachment, context)
-                            is SkillAttachment.HtmlData             -> HtmlAttachmentCard(attachment, onOpenHtmlViewer)
-                            is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
-                            is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
-                            is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
-                            is SkillAttachment.FileList             -> FileListCard(attachment, context)
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -1114,33 +1174,33 @@ private fun ActiveTaskBubble(
 // ── Log Line ──────────────────────────────────────────────────────────────────
 
 private fun chineseSkillLabel(skillId: String?): String = when (skillId) {
-    "screenshot", "bg_screenshot"           -> "截图"
-    "read_screen", "bg_read_screen", "see_screen" -> "读取屏幕"
-    "tap"                                   -> "点击"
-    "long_click"                            -> "长按"
-    "scroll"                                -> "滚动"
-    "input_text"                            -> "输入文字"
-    "navigate"                              -> "导航"
-    "list_apps"                             -> "查看应用列表"
-    "web_search"                            -> "网页搜索"
-    "fetch_url"                             -> "获取网页"
-    "web_browse", "web_content"             -> "浏览网页"
-    "web_js"                                -> "执行网页脚本"
-    "bg_launch"                             -> "启动应用"
-    "bg_stop"                               -> "停止应用"
-    "vd_setup"                              -> "配置虚拟屏幕"
-    "shell"                                 -> "执行命令"
-    "memory"                                -> "记忆管理"
-    "permission"                            -> "申请权限"
-    "quick_skill", "meta"                   -> "元技能"
-    "skill_check", "skill_market"           -> "技能管理"
-    "generate_image"                        -> "生成图片"
-    "create_file"                           -> "创建文件"
-    "create_html"                           -> "创建网页应用"
-    "switch_model"                          -> "切换模型"
-    "switch_role"                           -> "切换角色"
-    "user_config"                           -> "用户配置"
-    else                                    -> skillId ?: "工具调用"
+    "screenshot", "bg_screenshot"           -> str(R.string.chat_369abf)
+    "read_screen", "bg_read_screen", "see_screen" -> str(R.string.chat_167c7b)
+    "tap"                                   -> str(R.string.chat_tap)
+    "long_click"                            -> str(R.string.chat_3466d5)
+    "scroll"                                -> str(R.string.chat_c76c60)
+    "input_text"                            -> str(R.string.chat_input)
+    "navigate"                              -> str(R.string.chat_056f2d)
+    "list_apps"                             -> str(R.string.chat_8532c7)
+    "web_search"                            -> str(R.string.chat_0128ba)
+    "fetch_url"                             -> str(R.string.chat_5753d4)
+    "web_browse", "web_content"             -> str(R.string.chat_81b7cd)
+    "web_js"                                -> str(R.string.chat_495d05)
+    "bg_launch"                             -> str(R.string.chat_753cdb)
+    "bg_stop"                               -> str(R.string.chat_stop)
+    "vd_setup"                              -> str(R.string.chat_287e7d)
+    "shell"                                 -> str(R.string.chat_24cc0d)
+    "memory"                                -> str(R.string.chat_2c567a)
+    "permission"                            -> str(R.string.chat_7c1b38)
+    "quick_skill", "meta"                   -> str(R.string.chat_81c3f4)
+    "skill_check", "skill_market"           -> str(R.string.chat_735ac6)
+    "generate_image"                        -> str(R.string.chat_f8d248)
+    "create_file"                           -> str(R.string.chat_create)
+    "create_html"                           -> str(R.string.chat_create_2)
+    "switch_model"                          -> str(R.string.chat_756af3)
+    "switch_role"                           -> str(R.string.chat_a6df2e)
+    "user_config"                           -> str(R.string.drawer_user_config)
+    else                                    -> skillId ?: str(R.string.chat_850b4e)
 }
 
 private val SkillColors = mapOf(
@@ -1252,8 +1312,8 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
         LogType.THINKING -> {
             var expanded by remember { mutableStateOf(false) }
             CollapsibleStepRow(
-                label = "💭 思考过程",
-                summary = "${line.text.length}字",
+                label = stringResource(R.string.chat_f2b9df),
+                summary = str(R.string.chars_count, line.text.length),
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = c.purple.copy(alpha = 0.7f),
@@ -1294,10 +1354,10 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
         LogType.OBSERVATION -> {
             var expanded by remember { mutableStateOf(false) }
             val hasImage = line.imageBase64 != null
-            val label = if (hasImage) "📷 屏幕截图" else "📊 执行结果"
+            val label = if (hasImage) stringResource(R.string.chat_a3d484) else stringResource(R.string.chat_173c2c)
             val summary = when {
                 line.text.isNotBlank() -> line.text.take(36).let { if (line.text.length > 36) "$it…" else it }
-                hasImage               -> "查看截图"
+                hasImage               -> stringResource(R.string.chat_b3e19e)
                 else                   -> ""
             }
             CollapsibleStepRow(
@@ -1503,7 +1563,7 @@ private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
                         }
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 ) {
-                    Text("⬇ 保存图片", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.chat_f235e7), fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
                 }
                 Box(
                     modifier = Modifier
@@ -1513,7 +1573,7 @@ private fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
                         .clickable(onClick = onDismiss)
                         .padding(horizontal = 20.dp, vertical = 10.dp),
                 ) {
-                    Text("关闭", fontSize = 14.sp, color = Color.White)
+                    Text(stringResource(R.string.btn_close), fontSize = 14.sp, color = Color.White)
                 }
             }
         }
@@ -1539,9 +1599,9 @@ private fun saveBitmapToGallery(context: android.content.Context, bitmap: Bitmap
             file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out) }
             android.media.MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), null, null)
         }
-        Toast.makeText(context, "图片已保存到相册", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, str(R.string.chat_1292d3), Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
-        Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, str(R.string.save_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1627,7 +1687,7 @@ private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: an
                     fontSize = 11.sp,
                 )
             }
-            Text("打开", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -1653,7 +1713,7 @@ private fun FileListCard(attachment: SkillAttachment.FileList, context: android.
             ) {
                 Text("📁", fontSize = 12.sp)
                 Text(attachment.directory, fontSize = 11.sp, color = c.subtext, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${attachment.files.size} 个文件", fontSize = 11.sp, color = c.subtext)
+                Text(str(R.string.files_count, attachment.files.size), fontSize = 11.sp, color = c.subtext)
             }
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
         }
@@ -1676,7 +1736,7 @@ private fun FileListCard(attachment: SkillAttachment.FileList, context: android.
                     Text(entry.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(formatFileSize(entry.sizeBytes), color = c.subtext, fontSize = 10.sp)
                 }
-                Text("打开", color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -1739,7 +1799,7 @@ private fun ImageAttachmentCard(
                 Text(attachment.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(formatFileSize(attachment.sizeBytes), color = c.subtext, fontSize = 11.sp)
             }
-            Text("查看", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(str(R.string.chat_607e7a), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -1760,7 +1820,7 @@ private fun mimeTypeEmoji(mimeType: String): String = when {
 private fun openFileAttachment(context: android.content.Context, attachment: SkillAttachment.FileData) {
     val file = java.io.File(attachment.path)
     if (!file.exists()) {
-        android.widget.Toast.makeText(context, "文件不存在: ${attachment.name}", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, str(R.string.file_not_found, attachment.name), android.widget.Toast.LENGTH_SHORT).show()
         return
     }
 
@@ -1768,7 +1828,7 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
     val uri = runCatching {
         androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }.getOrElse { e ->
-        android.widget.Toast.makeText(context, "无法共享文件: ${e.message?.take(80)}", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context, str(R.string.share_failed, e.message?.take(80) ?: ""), android.widget.Toast.LENGTH_LONG).show()
         return
     }
 
@@ -1779,7 +1839,7 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
         setDataAndType(uri, attachment.mimeType)
         addFlags(flags)
     }
-    val chooser = android.content.Intent.createChooser(viewIntent, "打开 ${attachment.name}")
+    val chooser = android.content.Intent.createChooser(viewIntent, str(R.string.open_file, attachment.name))
 
     val hasApp = context.packageManager.queryIntentActivities(viewIntent, 0).isNotEmpty()
     if (hasApp) {
@@ -1792,7 +1852,7 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
         setDataAndType(uri, "*/*")
         addFlags(flags)
     }
-    val genericChooser = android.content.Intent.createChooser(genericIntent, "打开 ${attachment.name}")
+    val genericChooser = android.content.Intent.createChooser(genericIntent, str(R.string.open_file, attachment.name))
 
     val hasGenericApp = context.packageManager.queryIntentActivities(genericIntent, 0).isNotEmpty()
     if (hasGenericApp) {
@@ -1807,9 +1867,9 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
         addFlags(flags)
     }
     runCatching {
-        context.startActivity(android.content.Intent.createChooser(shareIntent, "分享 ${attachment.name}"))
+        context.startActivity(android.content.Intent.createChooser(shareIntent, str(R.string.share_file, attachment.name)))
     }.onFailure {
-        android.widget.Toast.makeText(context, "没有找到可以打开此文件的应用", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(context, str(R.string.chat_none), android.widget.Toast.LENGTH_LONG).show()
     }
 }
 
@@ -1840,9 +1900,9 @@ private fun HtmlAttachmentCard(
         ) { Text("🌐", fontSize = 18.sp) }
         Column(modifier = Modifier.weight(1f)) {
             Text(attachment.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text("HTML 页面 · 点击查看", color = c.subtext, fontSize = 11.sp)
+            Text(str(R.string.chat_411604), color = c.subtext, fontSize = 11.sp)
         }
-        Text("查看", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(str(R.string.chat_607e7a), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -1939,15 +1999,15 @@ private fun AccessibilityCard(
         ) { Text("♿", fontSize = 18.sp) }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                "${attachment.skillName} 需要无障碍服务",
+                str(R.string.needs_accessibility, attachment.skillName),
                 color = c.text,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Text("请开启无障碍服务以使用此功能", color = c.subtext, fontSize = 11.sp)
+            Text(str(R.string.chat_please), color = c.subtext, fontSize = 11.sp)
         }
         TextButton(onClick = onOpenSettings) {
-            Text("开启", color = c.accent, fontSize = 12.sp)
+            Text(str(R.string.chat_cc42dd), color = c.accent, fontSize = 12.sp)
         }
     }
 }
@@ -2014,6 +2074,7 @@ private fun formatFileSize(bytes: Long): String = when {
 private fun InputBar(
     input: String,
     isRunning: Boolean,
+    supportsMultimodal: Boolean,
     attachedImageBase64: String?,
     attachedFile: FileAttachment?,
     showAttachMenu: Boolean,
@@ -2049,18 +2110,21 @@ private fun InputBar(
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                listOf(
-                    Triple(Icons.Default.AttachFile, "图片", onPickImage),
-                    Triple(Icons.Default.Extension, "文档", onPickFile),
-                ).forEach { (icon, label, action) ->
-                    TextButton(
-                        onClick = action,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(icon, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(label, fontSize = 12.sp, color = c.text)
-                    }
+                TextButton(
+                    onClick = if (supportsMultimodal) onPickImage else { {} },
+                    modifier = Modifier.weight(1f),
+                    enabled = supportsMultimodal,
+                ) {
+                    Icon(Icons.Default.AttachFile, contentDescription = null,
+                        tint = if (supportsMultimodal) c.accent else c.subtext.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(str(R.string.chat_20def7), fontSize = 12.sp, color = if (supportsMultimodal) c.text else c.subtext.copy(alpha = 0.35f))
+                }
+                TextButton(onClick = onPickFile, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Extension, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(str(R.string.chat_325369), fontSize = 12.sp, color = c.text)
                 }
             }
         }
@@ -2143,8 +2207,8 @@ private fun InputBar(
                 onValueChange = onInputChange,
                 placeholder = {
                     Text(
-                        if (isRunning) stringResource(R.string.input_placeholder_running)
-                        else stringResource(R.string.input_placeholder),
+                        if (isRunning) str(R.string.input_placeholder_running)
+                        else str(R.string.input_placeholder),
                         color = c.subtext,
                         fontSize = 13.sp,
                     )

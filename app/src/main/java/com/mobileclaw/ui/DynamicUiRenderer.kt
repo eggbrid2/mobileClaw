@@ -61,6 +61,8 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlin.math.max
 import kotlin.math.roundToInt
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 /** Renders a JSON UI DSL block embedded in chat markdown (```ui fences). */
 @Composable
@@ -78,8 +80,8 @@ fun DynamicUiRenderer(json: String, onAction: (String) -> Unit) {
             .clip(RoundedCornerShape(12.dp))
             .background(c.card)
             .border(0.5.dp, c.border, RoundedCornerShape(12.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         RenderNode(root, onAction, inputState)
     }
@@ -172,7 +174,7 @@ private fun RenderNode(
 
         "text" -> {
             val content = node["content"]?.asString ?: return
-            val size = node["size"]?.asFloat ?: 14f
+            val size = (node["size"]?.asFloat ?: 14f).coerceIn(10f, 18f)
             val bold = node["bold"]?.asBoolean ?: false
             val italic = node["italic"]?.asBoolean ?: false
             val textColor = if (node["color"] != null) nodeColor(node, "color", c) else c.text
@@ -211,6 +213,7 @@ private fun RenderNode(
                 "outline" -> Box(
                     modifier = Modifier
                         .fillMaxWidth().then(padMod)
+                        .defaultMinSize(minHeight = 38.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .border(1.dp, c.accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
                         .clickable(
@@ -218,28 +221,45 @@ private fun RenderNode(
                             indication = ripple(color = c.accent),
                             onClick = handleClick,
                         )
-                        .padding(vertical = 11.dp),
+                        .padding(horizontal = 8.dp, vertical = 9.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, fontSize = 14.sp, color = c.accent, fontWeight = FontWeight.Medium)
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        color = c.accent,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 "text" -> Box(
                     modifier = Modifier
                         .fillMaxWidth().then(padMod)
+                        .defaultMinSize(minHeight = 34.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = ripple(color = c.accent),
                             onClick = handleClick,
                         )
-                        .padding(vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, fontSize = 14.sp, color = c.accent)
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        color = c.accent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
                 }
                 else -> Box(
                     modifier = Modifier
                         .fillMaxWidth().then(padMod)
+                        .defaultMinSize(minHeight = 40.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
                             Brush.horizontalGradient(listOf(c.accent.copy(alpha = 0.85f), c.accent))
@@ -249,10 +269,18 @@ private fun RenderNode(
                             indication = ripple(color = Color.White),
                             onClick = handleClick,
                         )
-                        .padding(vertical = 13.dp),
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, fontSize = 15.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
@@ -284,7 +312,7 @@ private fun RenderNode(
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                         ) {
                             if (value.isEmpty()) {
-                                Text("输入内容…", fontSize = 14.sp, color = c.subtext.copy(alpha = 0.5f))
+                                Text(str(R.string.dynamic_ui_input), fontSize = 14.sp, color = c.subtext.copy(alpha = 0.5f))
                             }
                             inner()
                         }

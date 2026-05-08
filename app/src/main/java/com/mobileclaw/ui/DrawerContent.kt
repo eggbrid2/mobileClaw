@@ -40,7 +40,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +54,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.mobileclaw.str
 
 @Composable
 fun DrawerContent(
@@ -136,7 +136,7 @@ fun DrawerContent(
                 )
                 val configCount = userConfigEntries.size
                 Text(
-                    text = if (configCount > 0) "${configCount} 项配置 · 编辑" else "编辑用户配置",
+                    text = if (configCount > 0) "${configCount} 项配置 · 编辑" else str(R.string.drawer_edit),
                     fontSize = 11.sp,
                     color = c.accent.copy(alpha = 0.7f),
                     letterSpacing = 0.1.sp,
@@ -163,7 +163,7 @@ fun DrawerContent(
             Text("+", fontSize = 16.sp, color = c.accent, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = stringResource(R.string.drawer_new_session),
+                text = str(R.string.drawer_new_session),
                 fontSize = 13.sp,
                 color = c.accent,
                 fontWeight = FontWeight.Medium,
@@ -174,7 +174,7 @@ fun DrawerContent(
 
         if (sessions.isNotEmpty()) {
             Text(
-                text = "最近对话",
+                text = str(R.string.drawer_recent),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
                 color = c.subtext.copy(alpha = 0.7f),
@@ -261,10 +261,10 @@ private fun formatRelativeTime(timestampMs: Long): String {
     }.timeInMillis
 
     return when {
-        diff < 60_000L -> "刚刚"
-        diff < 3600_000L -> "${diff / 60_000}分钟前"
+        diff < 60_000L -> str(R.string.drawer_just_now)
+        diff < 3600_000L -> str(R.string.minutes_ago, diff / 60_000)
         timestampMs >= todayStart -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestampMs))
-        diff < 86400_000L * 2 -> "昨天"
+        diff < 86400_000L * 2 -> str(R.string.drawer_yesterday)
         diff < 86400_000L * 7 -> SimpleDateFormat("EEE", Locale.CHINESE).format(Date(timestampMs))
         else -> SimpleDateFormat("MM/dd", Locale.getDefault()).format(Date(timestampMs))
     }

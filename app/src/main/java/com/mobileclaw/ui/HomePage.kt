@@ -86,6 +86,8 @@ import com.mobileclaw.memory.db.SessionEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import androidx.compose.ui.res.stringResource
+import com.mobileclaw.str
 
 sealed class LauncherItem {
     data class Feature(val emoji: String, val label: String, val page: AppPage) : LauncherItem()
@@ -93,23 +95,25 @@ sealed class LauncherItem {
 }
 
 private val DEFAULT_FEATURES = listOf(
-    LauncherItem.Feature("💬", "对话",    AppPage.CHAT),
-    LauncherItem.Feature("🧬", "画像",    AppPage.PROFILE),
-    LauncherItem.Feature("👥", "群聊",    AppPage.GROUPS),
-    LauncherItem.Feature("🎭", "角色",    AppPage.ROLES),
-    LauncherItem.Feature("📱", "应用",    AppPage.APPS),
-    LauncherItem.Feature("🛠️", "技能",   AppPage.SKILLS),
-    LauncherItem.Feature("🏪", "市场",   AppPage.SKILL_MARKET),
-    LauncherItem.Feature("⚙️", "设置",   AppPage.SETTINGS),
-    LauncherItem.Feature("🖥️", "控制台", AppPage.CONSOLE),
-    LauncherItem.Feature("👤", "用户",    AppPage.USER_CONFIG),
+    LauncherItem.Feature("💬", str(R.string.home_859362),    AppPage.CHAT),
+    LauncherItem.Feature("🧬", str(R.string.home_c478b1),    AppPage.PROFILE),
+    LauncherItem.Feature("👥", str(R.string.home_df9abd),    AppPage.GROUPS),
+    LauncherItem.Feature("🎭", str(R.string.drawer_roles),    AppPage.ROLES),
+    LauncherItem.Feature("📱", str(R.string.drawer_apps),    AppPage.APPS),
+    LauncherItem.Feature("🛠️", str(R.string.drawer_skills),   AppPage.SKILLS),
+    LauncherItem.Feature("🏪", str(R.string.home_552cac),   AppPage.SKILL_MARKET),
+    LauncherItem.Feature("📄", str(R.string.home_2d20d5), AppPage.AI_PAGES),
+    LauncherItem.Feature("⚙️", str(R.string.drawer_settings),   AppPage.SETTINGS),
+    LauncherItem.Feature("🖥️", str(R.string.drawer_console), AppPage.CONSOLE),
+    LauncherItem.Feature("👤", str(R.string.group_chat_1fd02a),    AppPage.USER_CONFIG),
+    LauncherItem.Feature("🔒", "VPN",    AppPage.VPN),
 )
 
 private val DOCK_FEATURES = listOf(
-    LauncherItem.Feature("💬", "对话", AppPage.CHAT),
-    LauncherItem.Feature("👥", "群聊", AppPage.GROUPS),
-    LauncherItem.Feature("🎭", "角色", AppPage.ROLES),
-    LauncherItem.Feature("🛠️", "技能", AppPage.SKILLS),
+    LauncherItem.Feature("💬", str(R.string.home_859362), AppPage.CHAT),
+    LauncherItem.Feature("👥", str(R.string.home_df9abd), AppPage.GROUPS),
+    LauncherItem.Feature("🎭", str(R.string.drawer_roles), AppPage.ROLES),
+    LauncherItem.Feature("🛠️", str(R.string.drawer_skills), AppPage.SKILLS),
 )
 
 private val ICON_GRADIENTS = mapOf(
@@ -123,6 +127,8 @@ private val ICON_GRADIENTS = mapOf(
     AppPage.CONSOLE     to (Color(0xFF6E6AC8) to Color(0xFF3A3790)),
     AppPage.USER_CONFIG    to (Color(0xFFFF375F) to Color(0xFFCC0030)),
     AppPage.SKILL_MARKET   to (Color(0xFF00C896) to Color(0xFF007A5A)),
+    AppPage.AI_PAGES       to (Color(0xFFFF9F40) to Color(0xFFE05C00)),
+    AppPage.VPN            to (Color(0xFF34D399) to Color(0xFF059669)),
 )
 
 private val APP_ICON_PALETTE = listOf(
@@ -401,7 +407,7 @@ fun HomePage(
                     .padding(horizontal = 20.dp, vertical = 9.dp),
             ) {
                 Text(
-                    text = "完成",
+                    text = str(R.string.app_launcher_done),
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
@@ -591,10 +597,10 @@ private fun DesktopEditMenu(onWallpaper: () -> Unit) {
                 .padding(vertical = 14.dp, horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            EditMenuItem(icon = Icons.Outlined.Image, label = "壁纸", onClick = onWallpaper)
-            EditMenuItem(icon = Icons.Outlined.Tune, label = "壁纸效果", onClick = {})
-            EditMenuItem(icon = Icons.Outlined.GridView, label = "小部件", onClick = {})
-            EditMenuItem(icon = Icons.Outlined.Settings, label = "桌面设置", onClick = {})
+            EditMenuItem(icon = Icons.Outlined.Image, label = stringResource(R.string.home_8e9219), onClick = onWallpaper)
+            EditMenuItem(icon = Icons.Outlined.Tune, label = stringResource(R.string.home_bb7a93), onClick = {})
+            EditMenuItem(icon = Icons.Outlined.GridView, label = stringResource(R.string.home_2066b9), onClick = {})
+            EditMenuItem(icon = Icons.Outlined.Settings, label = stringResource(R.string.home_5ea7aa), onClick = {})
         }
     }
 }

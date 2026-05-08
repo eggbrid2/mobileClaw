@@ -1,18 +1,20 @@
 package com.mobileclaw.ui
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.GetContent
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -39,6 +41,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,7 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import com.mobileclaw.R
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -66,9 +71,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.agent.Group
 import com.mobileclaw.agent.Role
+import com.mobileclaw.skill.SkillAttachment
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.mobileclaw.str
 
 // ── Color palette assigned to agents by index in group ───────────────────────
 
@@ -92,25 +100,81 @@ fun GroupChatScreen(
     messages: List<GroupMessage>,
     availableRoles: List<Role>,
     isRunning: Boolean,
-    typingAgentId: String?,
-    streamingText: String,
-    onSend: (String) -> Unit,
+    typingAgentIds: Set<String>,
+    onSend: (String, List<SkillAttachment>) -> Unit,
     onStop: () -> Unit,
     onBack: () -> Unit,
 ) {
     val c = LocalClawColors.current
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf(TextFieldValue("")) }
+    var pendingAttachments by remember { mutableStateOf<List<SkillAttachment>>(emptyList()) }
+    var pendingTextAppend by remember { mutableStateOf("") }
     var showMentionPicker by remember { mutableStateOf(false) }
     var showMemberDrawer by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val base64 = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bm = BitmapFactory.decodeStream(stream)
+                    val out = ByteArrayOutputStream()
+                    val scale = minOf(1024f / bm.width, 1024f / bm.height, 1f)
+                    val scaled = if (scale < 1f) {
+                        android.graphics.Bitmap.createScaledBitmap(bm, (bm.width * scale).toInt(), (bm.height * scale).toInt(), true)
+                    } else bm
+                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                    if (scaled !== bm) scaled.recycle()
+                    bm.recycle()
+                    "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                }
+            }.getOrNull()
+            if (base64 != null) pendingAttachments = pendingAttachments + SkillAttachment.ImageData(base64, prompt = "用户上传图片")
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(GetContent()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+                val fileName = run {
+                    val cursor = context.contentResolver.query(uri, null, null, null, null)
+                    cursor?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0) c.getString(idx) else null
+                        } else null
+                    } ?: uri.lastPathSegment ?: "attachment"
+                }
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@runCatching
+                val isText = mimeType.startsWith("text/") || mimeType in setOf("application/json", "application/xml", "application/javascript")
+                if (mimeType.startsWith("image/")) {
+                    val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val out = ByteArrayOutputStream()
+                    val scale = minOf(1024f / bm.width, 1024f / bm.height, 1f)
+                    val scaled = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bm, (bm.width * scale).toInt(), (bm.height * scale).toInt(), true) else bm
+                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                    if (scaled !== bm) scaled.recycle()
+                    bm.recycle()
+                    val base64 = "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                    pendingAttachments = pendingAttachments + SkillAttachment.ImageData(base64, prompt = fileName)
+                } else if (isText) {
+                    pendingAttachments = pendingAttachments + SkillAttachment.FileData(uri.toString(), fileName, mimeType, bytes.size.toLong())
+                    val content = bytes.toString(Charsets.UTF_8).take(10_000)
+                    pendingTextAppend += "\n\n[附件: $fileName]\n```\n$content\n```"
+                } else {
+                    pendingAttachments = pendingAttachments + SkillAttachment.FileData(uri.toString(), fileName, mimeType, bytes.size.toLong())
+                }
+            }
+        }
+    }
 
     // Members: roles in this group, ordered for color assignment
     val memberRoles = group.memberRoleIds.mapNotNull { id -> availableRoles.firstOrNull { it.id == id } }
     val colorMap: Map<String, Color> = memberRoles.mapIndexed { i, r -> r.id to agentColor(i) }.toMap()
     val totalMembers = memberRoles.size + 1 // +1 for the user
 
-    // Scroll to bottom whenever messages change or streaming text changes
-    LaunchedEffect(messages.size, streamingText) {
+    LaunchedEffect(messages.size, typingAgentIds.size) {
         if (listState.layoutInfo.totalItemsCount > 0) {
             listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
         }
@@ -148,7 +212,7 @@ fun GroupChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.btn_back), tint = c.text)
+                    Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
                 }
                 Text(group.emoji, fontSize = 18.sp)
                 Spacer(Modifier.size(6.dp))
@@ -198,6 +262,30 @@ fun GroupChatScreen(
             }
 
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
+
+            // Thin typing strip — only visible when agents are thinking
+            if (typingAgentIds.isNotEmpty()) {
+                val typingNames = typingAgentIds
+                    .mapNotNull { id -> memberRoles.firstOrNull { it.id == id }?.name }
+                    .joinToString("、")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(c.accent.copy(alpha = 0.06f))
+                        .padding(horizontal = 14.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text("···", color = c.accent.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        str(R.string.typing_indicator, typingNames),
+                        color = c.subtext.copy(alpha = 0.7f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
 
         // ── Message list ─────────────────────────────────────────────────────
@@ -217,25 +305,10 @@ fun GroupChatScreen(
                     accentColor = agentColor,
                     memberRoles = memberRoles,
                     colorMap = colorMap,
+                    onAction = { onSend(it, emptyList()) },
                     c = c,
                 )
                 Spacer(Modifier.height(6.dp))
-            }
-
-            // Streaming / typing bubble
-            if (typingAgentId != null) {
-                item {
-                    val role = availableRoles.firstOrNull { it.id == typingAgentId }
-                    val agentColor = colorMap[typingAgentId] ?: c.accent
-                    TypingBubble(
-                        senderName = role?.name ?: typingAgentId,
-                        senderAvatar = role?.avatar ?: "🤖",
-                        accentColor = agentColor,
-                        streamingText = streamingText,
-                        c = c,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                }
             }
 
             item { Spacer(Modifier.height(4.dp)) }
@@ -249,8 +322,11 @@ fun GroupChatScreen(
                 c = c,
                 onPick = { role ->
                     val current = input.text
-                    val newText = if (current.endsWith("@") || current.isEmpty()) "${current}${role.name} "
-                    else "$current @${role.name} "
+                    val newText = when {
+                        current.isEmpty() -> "@${role.name} "          // @ button tapped with empty field
+                        current.endsWith("@") -> "${current}${role.name} "  // user typed @
+                        else -> "$current @${role.name} "              // normal insertion
+                    }
                     input = TextFieldValue(newText, selection = androidx.compose.ui.text.TextRange(newText.length))
                     showMentionPicker = false
                 },
@@ -260,6 +336,21 @@ fun GroupChatScreen(
 
         // ── Input bar ────────────────────────────────────────────────────────
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        if (pendingAttachments.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(c.surface)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                pendingAttachments.forEachIndexed { index, attachment ->
+                    GroupAttachmentChip(attachment, c) {
+                        pendingAttachments = pendingAttachments.filterIndexed { i, _ -> i != index }
+                    }
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -276,6 +367,17 @@ fun GroupChatScreen(
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(c.accent.copy(alpha = 0.12f))
+                    .clickable { filePicker.launch("*/*") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.AttachFile, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(c.accent.copy(alpha = 0.12f))
                     .clickable { showMentionPicker = true },
                 contentAlignment = Alignment.Center,
             ) {
@@ -286,14 +388,12 @@ fun GroupChatScreen(
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .defaultMinSize(minHeight = 40.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(c.cardAlt)
                     .border(1.dp, c.border, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
-                if (input.text.isEmpty()) {
-                    Text(stringResource(R.string.group_chat_hint), color = c.subtext, fontSize = 14.sp)
-                }
                 BasicTextField(
                     value = input,
                     onValueChange = { newVal ->
@@ -304,6 +404,13 @@ fun GroupChatScreen(
                     textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 14.sp),
                     cursorBrush = SolidColor(c.accent),
                     maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { inner ->
+                        if (input.text.isEmpty()) {
+                            Text(str(R.string.group_chat_hint), color = c.subtext, fontSize = 14.sp)
+                        }
+                        inner()
+                    },
                 )
             }
 
@@ -312,10 +419,12 @@ fun GroupChatScreen(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(if (input.text.isNotBlank() && !isRunning) c.accent else c.subtext.copy(alpha = 0.3f))
-                    .clickable(enabled = input.text.isNotBlank() && !isRunning) {
-                        onSend(input.text.trim())
+                    .background(if (input.text.isNotBlank() || pendingAttachments.isNotEmpty()) c.accent else c.subtext.copy(alpha = 0.3f))
+                    .clickable(enabled = input.text.isNotBlank() || pendingAttachments.isNotEmpty()) {
+                        onSend((input.text.trim() + pendingTextAppend).trim(), pendingAttachments)
                         input = TextFieldValue("")
+                        pendingAttachments = emptyList()
+                        pendingTextAppend = ""
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -356,7 +465,7 @@ fun GroupChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "成员 ($totalMembers)",
+                        str(R.string.members_count, totalMembers),
                         color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
@@ -367,7 +476,7 @@ fun GroupChatScreen(
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
                 // User row
-                MemberDrawerRow(avatar = "👤", name = "你", color = c.green, description = "用户", c = c)
+                MemberDrawerRow(avatar = "👤", name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
                 HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
                 // Agent rows
@@ -377,7 +486,7 @@ fun GroupChatScreen(
                         name = role.name,
                         color = agentColor(i),
                         description = role.description.take(60),
-                        isTyping = role.id == typingAgentId,
+                        isTyping = role.id in typingAgentIds,
                         c = c,
                     )
                     if (i < memberRoles.lastIndex) {
@@ -426,6 +535,7 @@ private fun GroupMessageBubble(
     accentColor: Color,
     memberRoles: List<Role>,
     colorMap: Map<String, Color>,
+    onAction: (String) -> Unit,
     c: ClawColors,
 ) {
     val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.createdAt))
@@ -474,12 +584,29 @@ private fun GroupMessageBubble(
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text(
-                    text = buildMentionAnnotated(message.text, memberRoles, colorMap, c),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    color = c.text,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (message.text.isNotBlank()) {
+                        if (isUser) {
+                            Text(
+                                text = buildMentionAnnotated(message.text, memberRoles, colorMap, c),
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                color = c.text,
+                            )
+                        } else {
+                            MarkdownText(
+                                text = message.text,
+                                color = c.text,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                onAction = onAction,
+                            )
+                        }
+                    }
+                    message.attachments.forEach { attachment ->
+                        GroupAttachmentCard(attachment, c)
+                    }
+                }
             }
         }
 
@@ -490,70 +617,86 @@ private fun GroupMessageBubble(
     }
 }
 
-// ── Typing / streaming bubble ────────────────────────────────────────────────
-
 @Composable
-private fun TypingBubble(
-    senderName: String,
-    senderAvatar: String,
-    accentColor: Color,
-    streamingText: String,
+private fun GroupAttachmentChip(
+    attachment: SkillAttachment,
     c: ClawColors,
+    onRemove: () -> Unit,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "cursor")
-    val cursorAlpha by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse),
-        label = "cursorAlpha",
-    )
-
-    Row(modifier = Modifier.fillMaxWidth()) {
-        GradientAvatar(emoji = senderAvatar, size = 32.dp, color = accentColor)
-        Spacer(Modifier.size(6.dp))
-
-        Column(modifier = Modifier.widthIn(max = 280.dp)) {
-            Text(senderName, color = accentColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(3.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp, 12.dp, 12.dp, 12.dp))
-                    .background(c.card)
-                    .border(1.dp, c.border, RoundedCornerShape(4.dp, 12.dp, 12.dp, 12.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                if (streamingText.isEmpty()) {
-                    // Dots animation
-                    ThinkingDots(c)
-                } else {
-                    Text(
-                        text = buildAnnotatedString {
-                            append(streamingText)
-                            withStyle(SpanStyle(color = accentColor.copy(alpha = cursorAlpha))) { append("▋") }
-                        },
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = c.text,
-                    )
-                }
-            }
-        }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.cardAlt)
+            .border(1.dp, c.border, RoundedCornerShape(12.dp))
+            .clickable { onRemove() }
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(groupAttachmentLabel(attachment), color = c.text, fontSize = 11.sp, maxLines = 1)
+        Text("×", color = c.subtext, fontSize = 12.sp)
     }
 }
 
 @Composable
-private fun ThinkingDots(c: ClawColors) {
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
-    val phase by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 3f,
-        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
-        label = "dotsPhase",
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { i ->
-            val alpha = if (phase.toInt() == i) 1f else 0.3f
-            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(c.subtext.copy(alpha = alpha)))
+private fun GroupAttachmentCard(
+    attachment: SkillAttachment,
+    c: ClawColors,
+) {
+    when (attachment) {
+        is SkillAttachment.ImageData -> {
+            val bitmap = remember(attachment.base64) {
+                runCatching {
+                    val raw = attachment.base64.substringAfter("base64,", attachment.base64)
+                    val bytes = Base64.decode(raw, Base64.DEFAULT)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }.getOrNull()
+            }
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+            } else {
+                GroupAttachmentTextCard("图片附件", c)
+            }
         }
+        is SkillAttachment.FileData -> GroupAttachmentTextCard("文件: ${attachment.name}", c)
+        is SkillAttachment.HtmlData -> GroupAttachmentTextCard("网页: ${attachment.title}", c)
+        is SkillAttachment.WebPage -> GroupAttachmentTextCard("链接: ${attachment.title}", c)
+        is SkillAttachment.SearchResults -> GroupAttachmentTextCard("搜索结果: ${attachment.query} (${attachment.pages.size})", c)
+        is SkillAttachment.FileList -> GroupAttachmentTextCard("文件列表: ${attachment.files.size} 个", c)
+        is SkillAttachment.AccessibilityRequest -> GroupAttachmentTextCard("权限请求: ${attachment.skillName}", c)
     }
+}
+
+@Composable
+private fun GroupAttachmentTextCard(text: String, c: ClawColors) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.cardAlt)
+            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(text, color = c.text, fontSize = 12.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+}
+
+private fun groupAttachmentLabel(attachment: SkillAttachment): String = when (attachment) {
+    is SkillAttachment.ImageData -> "图片"
+    is SkillAttachment.FileData -> attachment.name.ifBlank { "文件" }
+    is SkillAttachment.HtmlData -> attachment.title.ifBlank { "网页" }
+    is SkillAttachment.WebPage -> attachment.title.ifBlank { "链接" }
+    is SkillAttachment.SearchResults -> "搜索结果"
+    is SkillAttachment.FileList -> "文件列表"
+    is SkillAttachment.AccessibilityRequest -> "权限请求"
 }
 
 // ── Member chip ───────────────────────────────────────────────────────────────
@@ -593,7 +736,7 @@ private fun MentionPickerSheet(
             .padding(12.dp),
     ) {
         Column {
-            Text(stringResource(R.string.group_mention_label), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(str(R.string.group_mention_label), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 memberRoles.forEach { role ->
@@ -608,7 +751,7 @@ private fun MentionPickerSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(role.avatar, fontSize = 16.sp)
+                        GradientAvatar(emoji = role.avatar, size = 22.dp, color = color)
                         Text(role.name, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }

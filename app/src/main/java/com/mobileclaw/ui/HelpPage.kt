@@ -19,123 +19,126 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 private data class HelpSection(val emoji: String, val title: String, val items: List<HelpItem>)
 private data class HelpItem(val title: String, val body: String, val example: String? = null)
 
 private val HELP_CONTENT = listOf(
-    HelpSection("🚀", "快速开始", listOf(
+    HelpSection("🚀", str(R.string.help_c182e7), listOf(
         HelpItem(
-            "第一步：配置 API",
-            "点击左上角抽屉菜单 → ⚙️ 设置，填入 API Base URL 和 API Key（支持 OpenAI、DeepSeek 等兼容接口）。",
+            str(R.string.help_7820e3),
+            str(R.string.help_tap),
             "Base URL: https://api.openai.com/v1\nAPI Key: sk-xxxxxx\nModel: gpt-4o",
         ),
         HelpItem(
-            "第二步：发送第一条任务",
-            "在底部输入框输入你想完成的任务，按发送。MobileClaw 会自动分析并执行。",
-            "例：帮我搜索今天的科技新闻摘要",
+            str(R.string.help_943e0c),
+            str(R.string.help_2bd8c8),
+            str(R.string.help_901a9c),
         ),
         HelpItem(
-            "第三步：授权必要权限",
-            "首次使用需授权无障碍、悬浮窗权限，用于界面交互和屏幕截图。按照权限引导页操作即可。",
-        ),
-    )),
-    HelpSection("💬", "对话与任务", listOf(
-        HelpItem(
-            "直接描述任务",
-            "无需特殊命令，用自然语言说清楚你想做什么。任务越具体，Agent 执行越精准。",
-            "帮我把剪贴板里的内容翻译成英文并发给我",
-        ),
-        HelpItem(
-            "发送图片",
-            "点击输入框左边的 📎 按钮附加图片，Agent 可以分析图片内容并执行相关操作。",
-            "附图后说：识别图中的文字",
-        ),
-        HelpItem(
-            "多轮对话",
-            "Agent 会记住同一会话中的上下文。可以追问、补充信息或修改要求。",
-            "刚才那篇文章，帮我再简短一些",
-        ),
-        HelpItem(
-            "停止任务",
-            "任务进行中点击 ⬛ 停止按钮即可中断。已完成的步骤会保留在对话中。",
+            str(R.string.help_44ae5c),
+            str(R.string.help_3446ad),
         ),
     )),
-    HelpSection("🧠", "理解执行过程", listOf(
+    HelpSection("💬", str(R.string.help_70d230), listOf(
         HelpItem(
-            "思考过程",
-            "Agent 执行前会先思考。点击「💭 AI 推理」可展开查看推理内容，了解 Agent 为什么这样做。",
+            str(R.string.help_2d3f31),
+            str(R.string.help_30faf3),
+            str(R.string.help_8888c3),
         ),
         HelpItem(
-            "执行步骤",
-            "每次 Agent 调用工具会产生一条步骤记录。点击步骤可展开查看详细输入输出。",
+            str(R.string.help_send),
+            str(R.string.help_tap_2),
+            str(R.string.help_61a41d),
         ),
         HelpItem(
-            "观察结果",
-            "每步执行后 Agent 会观察结果。若有截图，会显示屏幕内容缩略图，点击可展开查看。",
-        ),
-    )),
-    HelpSection("🎭", "角色与模型", listOf(
-        HelpItem(
-            "切换角色",
-            "在抽屉菜单 → 🎭 角色中选择预设角色。不同角色会自动加载对应技能并调整 AI 行为。",
-            "选择「🌐 网络助手」后，Agent 会优先使用网页浏览工具",
+            str(R.string.help_1d1ded),
+            str(R.string.help_d22a07),
+            str(R.string.help_87ec05),
         ),
         HelpItem(
-            "切换模型",
-            "点击顶部模型名称芯片可快速切换模型。或者直接告诉 Agent：「请用 DeepSeek 帮我完成这个任务」",
-            "支持：gpt-4o / gpt-4o-mini / deepseek-chat / deepseek-reasoner 等",
-        ),
-        HelpItem(
-            "自定义角色",
-            "在角色页面点击「+」新建角色，可设置专属系统提示词、强制加载的技能和模型偏好。",
+            str(R.string.help_stop),
+            str(R.string.help_da967e),
         ),
     )),
-    HelpSection("⚡", "技能与扩展", listOf(
+    HelpSection("🧠", str(R.string.help_19122e), listOf(
         HelpItem(
-            "内置技能",
-            "Agent 默认拥有截图、网页搜索、界面交互、文件操作、Shell 命令等核心技能。",
+            str(R.string.help_0178ef),
+            str(R.string.help_84c678),
         ),
         HelpItem(
-            "动态技能（Skill）",
-            "在 ⚡ 技能页面可以查看所有注册技能。Agent 可以通过 meta 工具自动创建新技能。",
-            "告诉我你自己创建一个查询天气的技能",
+            str(R.string.help_624141),
+            str(R.string.help_2899e9),
         ),
         HelpItem(
-            "Mini 应用",
-            "在 📱 应用页面查看 Agent 创建的 HTML 小应用，支持 Python 后端和 SQLite 存储。",
-            "帮我创建一个记账小应用",
-        ),
-        HelpItem(
-            "控制台",
-            "打开 🖥️ 控制台可查看执行日志，同一网络下的 PC 浏览器也可访问控制台 URL 进行远程操作。",
+            str(R.string.help_0cb089),
+            str(R.string.help_385c19),
         ),
     )),
-    HelpSection("👤", "用户画像与配置", listOf(
+    HelpSection("🎭", str(R.string.help_2a2735), listOf(
         HelpItem(
-            "用户画像",
-            "Agent 会在每次对话后自动提取用户信息，建立多维度画像。在 👤 画像页面可查看，也可手动编辑或做自我评估测试。",
+            str(R.string.chat_a6df2e),
+            str(R.string.help_ed9064),
+            str(R.string.help_select),
         ),
         HelpItem(
-            "用户配置",
-            "在 ⚙️ 用户配置中存储你的偏好、API 密钥等。Agent 的 Skill 可以通过 user_config 工具读取这些值，为你个性化执行任务。",
-            "设置 user.name = 张三 后，AI 会在对话中用你的名字称呼你",
+            str(R.string.chat_756af3),
+            str(R.string.help_tap_3),
+            str(R.string.help_a8e691),
+        ),
+        HelpItem(
+            str(R.string.help_fddab2),
+            str(R.string.help_a442fd),
         ),
     )),
-    HelpSection("💡", "使用技巧", listOf(
+    HelpSection("⚡", str(R.string.help_835192), listOf(
         HelpItem(
-            "任务描述越具体越好",
-            "包含目标、约束条件和期望格式，Agent 会更精准地执行。",
-            "❌ 帮我查天气\n✓ 查询上海明天的天气，用中文简短回答",
+            str(R.string.help_ed18e0),
+            str(R.string.help_61bc22),
         ),
         HelpItem(
-            "利用历史推荐",
-            "空对话页面会显示你最近完成的任务，点击可快速重复执行类似任务。",
+            str(R.string.help_6a7881),
+            str(R.string.help_68f220),
+            str(R.string.help_e18fd5),
         ),
         HelpItem(
-            "多步骤任务拆分",
-            "对于复杂任务，可以描述整体目标让 Agent 自动拆分，也可以手动一步步引导。",
-            "帮我完成一份竞品分析报告：先搜索，再整理，最后生成 Markdown 文件",
+            str(R.string.help_0324e2),
+            str(R.string.help_9c3d11),
+            str(R.string.help_94fec3),
+        ),
+        HelpItem(
+            str(R.string.drawer_console),
+            str(R.string.help_f3fb9b),
+        ),
+    )),
+    HelpSection("👤", str(R.string.help_27e2d7), listOf(
+        HelpItem(
+            str(R.string.drawer_profile),
+            str(R.string.help_4e2d9f),
+        ),
+        HelpItem(
+            str(R.string.drawer_user_config),
+            str(R.string.help_fdb115),
+            str(R.string.help_settings),
+        ),
+    )),
+    HelpSection("💡", str(R.string.help_362e39), listOf(
+        HelpItem(
+            str(R.string.help_7ba6ff),
+            str(R.string.help_826c2c),
+            str(R.string.help_799b6b),
+        ),
+        HelpItem(
+            str(R.string.help_9e7e1f),
+            str(R.string.help_9d7dd6),
+        ),
+        HelpItem(
+            str(R.string.help_fdb21c),
+            str(R.string.help_b0bddd),
+            str(R.string.help_290d2a),
         ),
     )),
 )
@@ -161,7 +164,7 @@ fun HelpPage(onBack: () -> Unit) {
                     Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
                 }
                 Text(
-                    "🦀 使用指南",
+                    stringResource(R.string.help_9a2407),
                     color = c.text,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -186,9 +189,9 @@ fun HelpPage(onBack: () -> Unit) {
                         .border(1.dp, c.accent.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
                         .padding(14.dp),
                 ) {
-                    Text("MobileClaw 是一个运行在 Android 上的自主 AI Agent，可以看屏幕、操作界面、搜索网页、执行代码。", color = c.text, fontSize = 13.sp, lineHeight = 20.sp)
+                    Text(stringResource(R.string.help_560aac), color = c.text, fontSize = 13.sp, lineHeight = 20.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text("只需用自然语言描述你想做的事，MobileClaw 会自动规划并完成。", color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
+                    Text(stringResource(R.string.help_df421b), color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
                 }
             }
 
@@ -261,7 +264,7 @@ fun HelpPage(onBack: () -> Unit) {
             item {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "遇到问题？在设置页面可以查看 API 配置状态和服务器连接情况。",
+                    stringResource(R.string.help_dc024f),
                     color = c.subtext.copy(alpha = 0.6f),
                     fontSize = 11.sp,
                     modifier = Modifier.fillMaxWidth(),

@@ -52,6 +52,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.server.ConsoleServer
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 @Composable
 fun ConsolePage(
@@ -89,7 +91,7 @@ fun ConsolePage(
                     Icon(Icons.Default.Close, contentDescription = "Back")
                 }
                 Text(
-                    text = "局域网控制台",
+                    text = str(R.string.console_a2fde5),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -122,7 +124,7 @@ fun ConsolePage(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "控制台服务器运行中",
+                    text = str(R.string.console_4ecc72),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -130,7 +132,7 @@ fun ConsolePage(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "在同一局域网内，用浏览器打开以下地址\n即可访问 MobileClaw 控制台",
+                    text = str(R.string.console_b5df8d),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -169,7 +171,7 @@ fun ConsolePage(
                     Spacer(modifier = Modifier.width(12.dp))
                     Icon(
                         imageVector = Icons.Outlined.ContentCopy,
-                        contentDescription = "复制",
+                        contentDescription = str(R.string.console_copy),
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -177,7 +179,7 @@ fun ConsolePage(
 
                 AnimatedVisibility(visible = copied, enter = fadeIn()) {
                     Text(
-                        text = "已复制到剪贴板",
+                        text = str(R.string.console_done),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 8.dp),
@@ -203,7 +205,7 @@ fun ConsolePage(
                             ),
                     )
                     Text(
-                        text = if (isRunning) "执行任务中…" else "等待指令",
+                        text = if (isRunning) str(R.string.console_3e7d6c) else str(R.string.console_c98187),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -213,7 +215,7 @@ fun ConsolePage(
 
                 // Port info
                 Text(
-                    text = "端口: ${ConsoleServer.PORT}  ·  AI 可编辑控制台页面",
+                    text = str(R.string.console_port_hint, ConsoleServer.PORT),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center,

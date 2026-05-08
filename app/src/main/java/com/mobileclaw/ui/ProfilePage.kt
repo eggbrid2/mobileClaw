@@ -43,6 +43,9 @@ import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.compose.ui.res.stringResource
+import com.mobileclaw.R
+import com.mobileclaw.str
 
 // ── Section ───────────────────────────────────────────────────────────────────
 
@@ -69,71 +72,71 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
     fun f(key: String) = facts["profile.$key"]
     return listOf(
         // ── 生理 ── basic physiology
-        ProfileDimension("physio", "🧬", "生理维度", Color(0xFF4CAF50), listOf(
-            ProfileAspect("profile.physio.health",     "健康状况", f("physio.health")),
-            ProfileAspect("profile.physio.fitness",    "体能运动", f("physio.fitness")),
-            ProfileAspect("profile.physio.sleep",      "睡眠质量", f("physio.sleep")),
-            ProfileAspect("profile.physio.nutrition",  "饮食习惯", f("physio.nutrition")),
-            ProfileAspect("profile.physio.medical",    "医疗/过敏", f("physio.medical")),
+        ProfileDimension("physio", "🧬", str(R.string.profile_99626b), Color(0xFF4CAF50), listOf(
+            ProfileAspect("profile.physio.health",     str(R.string.profile_fe9069), f("physio.health")),
+            ProfileAspect("profile.physio.fitness",    str(R.string.profile_e83951), f("physio.fitness")),
+            ProfileAspect("profile.physio.sleep",      str(R.string.profile_492b41), f("physio.sleep")),
+            ProfileAspect("profile.physio.nutrition",  str(R.string.profile_7f6c57), f("physio.nutrition")),
+            ProfileAspect("profile.physio.medical",    str(R.string.profile_9a7841), f("physio.medical")),
         )),
         // ── 性格 ── Big Five OCEAN (McCrae & Costa, 1992)
-        ProfileDimension("personality", "🎭", "性格维度", Color(0xFFFF9800), listOf(
-            ProfileAspect("profile.personality.openness",          "开放性",   f("personality.openness")),
-            ProfileAspect("profile.personality.conscientiousness",  "尽责性",   f("personality.conscientiousness")),
-            ProfileAspect("profile.personality.extraversion",       "外向性",   f("personality.extraversion")),
-            ProfileAspect("profile.personality.agreeableness",      "宜人性",   f("personality.agreeableness")),
-            ProfileAspect("profile.personality.neuroticism",        "情绪倾向", f("personality.neuroticism")),
-            ProfileAspect("profile.personality.style",              "行事风格", f("personality.style")),
+        ProfileDimension("personality", "🎭", str(R.string.profile_732564), Color(0xFFFF9800), listOf(
+            ProfileAspect("profile.personality.openness",          str(R.string.profile_a0dbad),   f("personality.openness")),
+            ProfileAspect("profile.personality.conscientiousness",  str(R.string.profile_a4dec8),   f("personality.conscientiousness")),
+            ProfileAspect("profile.personality.extraversion",       str(R.string.profile_63aa19),   f("personality.extraversion")),
+            ProfileAspect("profile.personality.agreeableness",      str(R.string.profile_4b0fc5),   f("personality.agreeableness")),
+            ProfileAspect("profile.personality.neuroticism",        str(R.string.profile_0e61ca), f("personality.neuroticism")),
+            ProfileAspect("profile.personality.style",              str(R.string.profile_169e2e), f("personality.style")),
         )),
         // ── 认知 ── cognitive style + Holland RIASEC (1973)
-        ProfileDimension("cognitive", "💡", "认知维度", Color(0xFF2196F3), listOf(
-            ProfileAspect("profile.cognitive.thinking",    "思维风格", f("cognitive.thinking")),
-            ProfileAspect("profile.cognitive.learning",    "学习方式", f("cognitive.learning")),
-            ProfileAspect("profile.cognitive.decision",    "决策风格", f("cognitive.decision")),
-            ProfileAspect("profile.cognitive.perspective", "眼界格局", f("cognitive.perspective")),
-            ProfileAspect("profile.cognitive.creativity",  "创新思维", f("cognitive.creativity")),
-            ProfileAspect("profile.cognitive.riasec",      "职业类型", f("cognitive.riasec")),
+        ProfileDimension("cognitive", "💡", str(R.string.profile_db916a), Color(0xFF2196F3), listOf(
+            ProfileAspect("profile.cognitive.thinking",    str(R.string.profile_d1dbd1), f("cognitive.thinking")),
+            ProfileAspect("profile.cognitive.learning",    str(R.string.profile_a8a822), f("cognitive.learning")),
+            ProfileAspect("profile.cognitive.decision",    str(R.string.profile_3f6999), f("cognitive.decision")),
+            ProfileAspect("profile.cognitive.perspective", str(R.string.profile_e675c8), f("cognitive.perspective")),
+            ProfileAspect("profile.cognitive.creativity",  str(R.string.profile_39f56b), f("cognitive.creativity")),
+            ProfileAspect("profile.cognitive.riasec",      str(R.string.profile_1a36a3), f("cognitive.riasec")),
         )),
         // ── 情绪 ── Ryff's Well-being (1989): self-acceptance, resilience
-        ProfileDimension("emotional", "💗", "情绪维度", Color(0xFFE91E63), listOf(
-            ProfileAspect("profile.emotional.stability",       "情绪稳定性", f("emotional.stability")),
-            ProfileAspect("profile.emotional.empathy",         "共情能力",   f("emotional.empathy")),
-            ProfileAspect("profile.emotional.stress",          "抗压能力",   f("emotional.stress")),
-            ProfileAspect("profile.emotional.resilience",      "心理韧性",   f("emotional.resilience")),
-            ProfileAspect("profile.emotional.self_acceptance", "自我接纳",   f("emotional.self_acceptance")),
+        ProfileDimension("emotional", "💗", str(R.string.profile_6b4aaf), Color(0xFFE91E63), listOf(
+            ProfileAspect("profile.emotional.stability",       str(R.string.profile_cfeb01), f("emotional.stability")),
+            ProfileAspect("profile.emotional.empathy",         str(R.string.profile_f5cbda),   f("emotional.empathy")),
+            ProfileAspect("profile.emotional.stress",          str(R.string.profile_b1cd26),   f("emotional.stress")),
+            ProfileAspect("profile.emotional.resilience",      str(R.string.profile_7d37f3),   f("emotional.resilience")),
+            ProfileAspect("profile.emotional.self_acceptance", str(R.string.profile_e7e4f0),   f("emotional.self_acceptance")),
         )),
         // ── 社交 ── social patterns + Ryff positive relations
-        ProfileDimension("social", "🌐", "社会维度", Color(0xFF00BCD4), listOf(
-            ProfileAspect("profile.social.style",         "社交风格", f("social.style")),
-            ProfileAspect("profile.social.communication", "沟通方式", f("social.communication")),
-            ProfileAspect("profile.social.relationships", "人际关系", f("social.relationships")),
-            ProfileAspect("profile.social.influence",     "社会影响力", f("social.influence")),
-            ProfileAspect("profile.social.boundaries",    "边界感",   f("social.boundaries")),
+        ProfileDimension("social", "🌐", str(R.string.profile_f22ca1), Color(0xFF00BCD4), listOf(
+            ProfileAspect("profile.social.style",         str(R.string.profile_6a4008), f("social.style")),
+            ProfileAspect("profile.social.communication", str(R.string.profile_7f8c61), f("social.communication")),
+            ProfileAspect("profile.social.relationships", str(R.string.profile_099e43), f("social.relationships")),
+            ProfileAspect("profile.social.influence",     str(R.string.profile_0655bd), f("social.influence")),
+            ProfileAspect("profile.social.boundaries",    str(R.string.profile_cdf24f),   f("social.boundaries")),
         )),
         // ── 价值 ── Schwartz Values (1992): universalism, benevolence, autonomy, achievement
-        ProfileDimension("values", "⚖️", "价值维度", Color(0xFF9C27B0), listOf(
-            ProfileAspect("profile.values.core",        "核心价值观", f("values.core")),
-            ProfileAspect("profile.values.goals",       "人生目标",   f("values.goals")),
-            ProfileAspect("profile.values.principles",  "底线原则",   f("values.principles")),
-            ProfileAspect("profile.values.achievement", "成就取向",   f("values.achievement")),
-            ProfileAspect("profile.values.benevolence", "利他倾向",   f("values.benevolence")),
-            ProfileAspect("profile.values.autonomy",    "自主意志",   f("values.autonomy")),
+        ProfileDimension("values", "⚖️", str(R.string.profile_54d8f5), Color(0xFF9C27B0), listOf(
+            ProfileAspect("profile.values.core",        str(R.string.profile_b9b65b), f("values.core")),
+            ProfileAspect("profile.values.goals",       str(R.string.profile_6dc3f0),   f("values.goals")),
+            ProfileAspect("profile.values.principles",  str(R.string.profile_4738bf),   f("values.principles")),
+            ProfileAspect("profile.values.achievement", str(R.string.profile_19cd57),   f("values.achievement")),
+            ProfileAspect("profile.values.benevolence", str(R.string.profile_286564),   f("values.benevolence")),
+            ProfileAspect("profile.values.autonomy",    str(R.string.profile_bbaa2b),   f("values.autonomy")),
         )),
         // ── 能力 ── capability + SDT intrinsic motivation (Deci & Ryan)
-        ProfileDimension("capability", "⚡", "能力维度", Color(0xFFFF5722), listOf(
-            ProfileAspect("profile.capability.skills",     "专业技能", f("capability.skills")),
-            ProfileAspect("profile.capability.execution",  "执行力",   f("capability.execution")),
-            ProfileAspect("profile.capability.creativity", "创造力",   f("capability.creativity")),
-            ProfileAspect("profile.capability.technical",  "技术能力", f("capability.technical")),
-            ProfileAspect("profile.capability.intrinsic",  "内在驱动", f("capability.intrinsic")),
+        ProfileDimension("capability", "⚡", str(R.string.profile_120419), Color(0xFFFF5722), listOf(
+            ProfileAspect("profile.capability.skills",     str(R.string.profile_52a965), f("capability.skills")),
+            ProfileAspect("profile.capability.execution",  str(R.string.profile_3d8ec0),   f("capability.execution")),
+            ProfileAspect("profile.capability.creativity", str(R.string.profile_18d1d0),   f("capability.creativity")),
+            ProfileAspect("profile.capability.technical",  str(R.string.profile_7621a5), f("capability.technical")),
+            ProfileAspect("profile.capability.intrinsic",  str(R.string.profile_9dc244), f("capability.intrinsic")),
         )),
         // ── 精神 ── Ryff's purpose in life + personal growth
-        ProfileDimension("spiritual", "🔮", "精神维度", Color(0xFF607D8B), listOf(
-            ProfileAspect("profile.spiritual.core",       "内心内核", f("spiritual.core")),
-            ProfileAspect("profile.spiritual.beliefs",    "信念体系", f("spiritual.beliefs")),
-            ProfileAspect("profile.spiritual.resilience", "自愈力",   f("spiritual.resilience")),
-            ProfileAspect("profile.spiritual.purpose",    "人生意义", f("spiritual.purpose")),
-            ProfileAspect("profile.spiritual.growth",     "个人成长", f("spiritual.growth")),
+        ProfileDimension("spiritual", "🔮", str(R.string.profile_36fe54), Color(0xFF607D8B), listOf(
+            ProfileAspect("profile.spiritual.core",       str(R.string.profile_4acb22), f("spiritual.core")),
+            ProfileAspect("profile.spiritual.beliefs",    str(R.string.profile_bd0216), f("spiritual.beliefs")),
+            ProfileAspect("profile.spiritual.resilience", str(R.string.profile_86b75a),   f("spiritual.resilience")),
+            ProfileAspect("profile.spiritual.purpose",    str(R.string.profile_f520f5), f("spiritual.purpose")),
+            ProfileAspect("profile.spiritual.growth",     str(R.string.profile_4bb4c1), f("spiritual.growth")),
         )),
     )
 }
@@ -194,7 +197,7 @@ fun ProfilePage(
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // ── Title bar ────────────────────────────────────────────────────────
-        ClawPageHeader(title = "了解自己", onBack = onBack) {
+        ClawPageHeader(title = str(R.string.profile_b6c018), onBack = onBack) {
             if (isLoading || isExtracting) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = c.accent, strokeWidth = 1.5.dp)
                 Spacer(Modifier.width(8.dp))
@@ -252,7 +255,7 @@ fun ProfilePage(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("📚", fontSize = 32.sp)
                                     Spacer(Modifier.height(8.dp))
-                                    Text("还没有对话记录", color = c.subtext, fontSize = 13.sp)
+                                    Text(str(R.string.profile_873b17), color = c.subtext, fontSize = 13.sp)
                                 }
                             }
                         }
@@ -285,12 +288,12 @@ private fun SkillExplorationCard(episodes: List<EpisodeEntity>, totalSkillCount:
     val progress = if (total > 0) explored.toFloat() / total else 0f
 
     val milestoneLabel = when {
-        progress >= 1f   -> "全部解锁 🎉"
-        progress >= 0.75f -> "探索达人"
-        progress >= 0.5f  -> "进阶探索者"
-        progress >= 0.25f -> "初级探索者"
-        explored > 0      -> "刚开始探索"
-        else              -> "尚未使用任何技能"
+        progress >= 1f   -> stringResource(R.string.profile_all)
+        progress >= 0.75f -> stringResource(R.string.profile_e67499)
+        progress >= 0.5f  -> stringResource(R.string.profile_272167)
+        progress >= 0.25f -> stringResource(R.string.profile_73f663)
+        explored > 0      -> stringResource(R.string.profile_6270ba)
+        else              -> stringResource(R.string.profile_d948dc)
     }
     val milestoneColor = when {
         progress >= 0.75f -> c.accent
@@ -304,7 +307,7 @@ private fun SkillExplorationCard(episodes: List<EpisodeEntity>, totalSkillCount:
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🧭 功能探索", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            Text(stringResource(R.string.profile_66054a), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f))
             Text(milestoneLabel, color = milestoneColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         }
@@ -313,8 +316,8 @@ private fun SkillExplorationCard(episodes: List<EpisodeEntity>, totalSkillCount:
         // Progress bar
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("已使用 $explored 个技能", fontSize = 12.sp, color = c.subtext)
-                Text("共 $total 个", fontSize = 12.sp, color = c.subtext)
+                Text(str(R.string.skills_used, explored), fontSize = 12.sp, color = c.subtext)
+                Text(str(R.string.skills_total, total), fontSize = 12.sp, color = c.subtext)
             }
             Box(
                 Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.border)
@@ -386,7 +389,7 @@ private fun PersonalitySummaryCard(
             Text("✨", fontSize = 18.sp)
             Spacer(Modifier.width(8.dp))
             Text(
-                "AI 眼中的你",
+                str(R.string.profile_539d49),
                 color = c.accent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -412,7 +415,7 @@ private fun PersonalitySummaryCard(
         when {
             isLoading -> {
                 Text(
-                    "AI 正在认识你…",
+                    str(R.string.profile_c8a695),
                     color = c.subtext,
                     fontSize = 14.sp,
                     fontStyle = FontStyle.Italic,
@@ -430,20 +433,20 @@ private fun PersonalitySummaryCard(
             else -> {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "继续和 AI 对话，它会慢慢认识你——",
+                        str(R.string.profile_b3319d),
                         color = c.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        "你的性格、思维方式、价值观和生活习惯，都会逐渐沉淀在这里。",
+                        str(R.string.profile_ae937e),
                         color = c.subtext,
                         fontSize = 13.sp,
                         lineHeight = 20.sp,
                     )
                     if (conversationCount > 0) {
                         Text(
-                            "已对话 $conversationCount 次，再多聊几次就能生成你的专属描述。",
+                            str(R.string.profile_chat_more, conversationCount),
                             color = c.accent.copy(alpha = 0.7f),
                             fontSize = 12.sp,
                         )
@@ -456,7 +459,7 @@ private fun PersonalitySummaryCard(
                             .clickable(onClick = onRefresh)
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
-                        Text("生成我的描述", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(str(R.string.profile_303071), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -493,10 +496,10 @@ private fun RadarCard(
     ) {
         // Stats row
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RadarStat("完整度", "${knownCount * 100 / totalCount.coerceAtLeast(1)}%", c.accent)
-            RadarStat("已知", "$knownCount/$totalCount", c.blue)
-            RadarStat("对话", "$conversationCount", c.purple)
-            RadarStat("任务", "$episodeCount", c.green)
+            RadarStat(str(R.string.profile_5935c2), "${knownCount * 100 / totalCount.coerceAtLeast(1)}%", c.accent)
+            RadarStat(str(R.string.profile_done), "$knownCount/$totalCount", c.blue)
+            RadarStat(str(R.string.home_859362), "$conversationCount", c.purple)
+            RadarStat(str(R.string.profile_0e46d8), "$episodeCount", c.green)
         }
 
         // Radar chart
@@ -504,9 +507,9 @@ private fun RadarCard(
 
         // Hint
         Text(
-            text = if (isExtracting) "正在分析对话，更新画像..."
-                   else if (selectedIdx != null) "已选：${dimensions[selectedIdx].title}  ↓ 查看详情"
-                   else "点击维度标签查看详情",
+            text = if (isExtracting) str(R.string.profile_loading)
+                   else if (selectedIdx != null) str(R.string.dimension_selected, dimensions[selectedIdx].title)
+                   else str(R.string.profile_tap),
             color = if (isExtracting) c.accent.copy(alpha = 0.7f) else c.subtext.copy(alpha = 0.7f),
             fontSize = 11.sp,
             fontStyle = if (isExtracting) FontStyle.Italic else FontStyle.Normal,
@@ -659,7 +662,7 @@ private fun DimensionDetailCard(dimension: ProfileDimension, episodes: List<Epis
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(dimension.emoji, fontSize = 18.sp)
             Text(dimension.title, color = dimension.color, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("${knownAspects.size}/${dimension.aspects.size} 已知", color = dimension.color.copy(alpha = 0.7f), fontSize = 10.sp)
+            Text(str(R.string.aspects_known, knownAspects.size, dimension.aspects.size), color = dimension.color.copy(alpha = 0.7f), fontSize = 10.sp)
         }
         Spacer(Modifier.height(10.dp))
 
@@ -693,7 +696,7 @@ private fun DimensionDetailCard(dimension: ProfileDimension, episodes: List<Epis
                 ) {
                     Box(Modifier.size(5.dp).clip(CircleShape).background(c.border))
                     Text(aspect.label, color = c.subtext.copy(alpha = 0.45f), fontSize = 12.sp, modifier = Modifier.width(72.dp))
-                    Text("待观察", color = c.subtext.copy(alpha = 0.3f), fontSize = 11.sp, fontStyle = FontStyle.Italic)
+                    Text(stringResource(R.string.dimension_27b347), color = c.subtext.copy(alpha = 0.3f), fontSize = 11.sp, fontStyle = FontStyle.Italic)
                 }
             }
         }
@@ -703,7 +706,7 @@ private fun DimensionDetailCard(dimension: ProfileDimension, episodes: List<Epis
             Spacer(Modifier.height(10.dp))
             HorizontalDivider(color = dimension.color.copy(alpha = 0.12f), thickness = 0.5.dp)
             Spacer(Modifier.height(8.dp))
-            Text("📊 关联任务", color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.profile_495e4c), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
             relatedTasks.take(3).forEach { ep ->
                 Row(
@@ -721,14 +724,14 @@ private fun DimensionDetailCard(dimension: ProfileDimension, episodes: List<Epis
 
 private fun findRelatedTasks(dimensionId: String, episodes: List<EpisodeEntity>): List<EpisodeEntity> {
     val keywords = when (dimensionId) {
-        "physio"      -> listOf("运动", "健身", "健康", "医院", "饮食", "锻炼", "睡眠")
-        "personality" -> listOf("心情", "感觉", "想法", "喜欢", "讨厌", "性格")
-        "cognitive"   -> listOf("学习", "研究", "分析", "了解", "探索", "搜索", "查")
-        "emotional"   -> listOf("担心", "开心", "情绪", "心理", "压力", "焦虑", "放松")
-        "social"      -> listOf("联系", "聊天", "朋友", "微信", "社交", "分享", "发送")
-        "values"      -> listOf("目标", "计划", "价值", "工作", "生活", "未来", "意义")
-        "capability"  -> listOf("代码", "写", "创建", "执行", "完成", "实现", "做")
-        "spiritual"   -> listOf("思考", "感悟", "意义", "冥想", "放松", "平静")
+        "physio"      -> listOf(str(R.string.profile_37b6de), str(R.string.profile_c24d6f), str(R.string.profile_fbc026), str(R.string.profile_071bd0), str(R.string.profile_44ebfb), str(R.string.profile_ec4ddf), str(R.string.profile_6d5211))
+        "personality" -> listOf(str(R.string.profile_ba89e6), str(R.string.profile_6d7a10), str(R.string.profile_b5502a), str(R.string.profile_3d6c39), str(R.string.profile_b29537), str(R.string.profile_689150))
+        "cognitive"   -> listOf(str(R.string.profile_4ef520), str(R.string.profile_2d4653), str(R.string.profile_72fa7c), str(R.string.profile_aacef1), str(R.string.profile_fc6c4c), str(R.string.profile_search), str(R.string.profile_351912))
+        "emotional"   -> listOf(str(R.string.profile_29c0a6), str(R.string.profile_0218cb), str(R.string.profile_54177d), str(R.string.profile_3945f3), str(R.string.profile_f16b17), str(R.string.profile_df6d77), str(R.string.profile_bb725f))
+        "social"      -> listOf(str(R.string.profile_d38a08), str(R.string.profile_c0abbf), str(R.string.profile_9d5323), str(R.string.profile_cfbf6f), str(R.string.profile_8b8588), str(R.string.profile_c31f48), str(R.string.profile_send))
+        "values"      -> listOf(str(R.string.profile_73e825), str(R.string.profile_0debf5), str(R.string.profile_021ac9), str(R.string.profile_9a018b), str(R.string.profile_aefcbf), str(R.string.profile_not), str(R.string.profile_3ad828))
+        "capability"  -> listOf(str(R.string.profile_06e004), str(R.string.profile_4d7dc6), str(R.string.group_create), str(R.string.profile_1a6aa2), str(R.string.app_launcher_done), str(R.string.profile_38164c), str(R.string.profile_710510))
+        "spiritual"   -> listOf(str(R.string.profile_21d68b), str(R.string.profile_70bca7), str(R.string.profile_3ad828), str(R.string.profile_4baafe), str(R.string.profile_bb725f), str(R.string.profile_29d7cb))
         else          -> emptyList()
     }
     return episodes.filter { ep -> keywords.any { kw -> ep.goalText.contains(kw) } }
@@ -739,7 +742,7 @@ private fun findRelatedTasks(dimensionId: String, episodes: List<EpisodeEntity>)
 @Composable
 private fun SectionTabRow(active: ProfileSection, onSelect: (ProfileSection) -> Unit) {
     val c = LocalClawColors.current
-    val tabs = listOf(ProfileSection.PORTRAIT to "认识自己", ProfileSection.MEMORY to "记忆", ProfileSection.HISTORY to "历史")
+    val tabs = listOf(ProfileSection.PORTRAIT to stringResource(R.string.profile_aa49bb), ProfileSection.MEMORY to stringResource(R.string.profile_44e4d7), ProfileSection.HISTORY to stringResource(R.string.profile_c827d8))
 
     Row(
         modifier = Modifier
@@ -791,7 +794,7 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("🎯", fontSize = 28.sp)
-                Text("完成任务后将在此显示分析", color = c.subtext, fontSize = 13.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+                Text(stringResource(R.string.profile_done_2), color = c.subtext, fontSize = 13.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
             }
         }
         return
@@ -820,7 +823,7 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.card).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("🔧 技能使用分布", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.profile_8d884c), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
             Spacer(Modifier.height(2.dp))
             val maxCount = skillFreq.firstOrNull()?.value?.toFloat() ?: 1f
@@ -834,13 +837,13 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.card).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("📈 行为分析", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.profile_777c5c), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
             Spacer(Modifier.height(2.dp))
-            InsightRow("执行力", "${(successRate * 100).toInt()}% 任务成功率", successRate, c.green)
-            InsightRow("探索欲", "任务多样性 ${(variety * 100).toInt()}%", variety.coerceIn(0f, 1f), c.purple)
-            InsightRow("活跃度", "${episodes.size} 个历史任务", (episodes.size / 50f).coerceIn(0.05f, 1f), c.accent)
-            InsightRow("数据技能", if (allSkills.any { it.startsWith("web_") || it == "shell" }) "使用过网络/系统技能" else "尚未使用高级技能",
+            InsightRow(stringResource(R.string.profile_3d8ec0), "${(successRate * 100).toInt()}% 任务成功率", successRate, c.green)
+            InsightRow(stringResource(R.string.profile_9460ee), "任务多样性 ${(variety * 100).toInt()}%", variety.coerceIn(0f, 1f), c.purple)
+            InsightRow(stringResource(R.string.profile_b22274), "${episodes.size} 个历史任务", (episodes.size / 50f).coerceIn(0.05f, 1f), c.accent)
+            InsightRow(stringResource(R.string.profile_e95b62), if (allSkills.any { it.startsWith("web_") || it == "shell" }) stringResource(R.string.profile_f2e2d4) else stringResource(R.string.profile_4711a2),
                 if (allSkills.any { it.startsWith("web_") || it == "shell" }) 0.8f else 0.2f, c.blue)
         }
     }
@@ -849,14 +852,14 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
 @Composable
 private fun SkillBarRow(skill: String, count: Int, fraction: Float, c: ClawColors) {
     val trait = when {
-        skill.startsWith("web_")  -> "信息检索"
-        skill == "screenshot" || skill == "see_screen" || skill == "read_screen" -> "视觉分析"
-        skill == "tap" || skill == "scroll" || skill == "input_text" -> "界面交互"
-        skill == "navigate"       -> "应用切换"
-        skill == "memory"         -> "知识管理"
-        skill == "shell"          -> "技术操作"
-        skill.startsWith("bg_")   -> "后台执行"
-        else                      -> "通用"
+        skill.startsWith("web_")  -> stringResource(R.string.profile_b10f39)
+        skill == "screenshot" || skill == "see_screen" || skill == "read_screen" -> stringResource(R.string.profile_a50474)
+        skill == "tap" || skill == "scroll" || skill == "input_text" -> stringResource(R.string.profile_bf1087)
+        skill == "navigate"       -> stringResource(R.string.profile_871b17)
+        skill == "memory"         -> stringResource(R.string.profile_d0917a)
+        skill == "shell"          -> stringResource(R.string.profile_82e42f)
+        skill.startsWith("bg_")   -> stringResource(R.string.profile_0a48c6)
+        else                      -> stringResource(R.string.profile_aa05fd)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(skill.replace("_", " "), color = c.subtext, fontSize = 10.sp, modifier = Modifier.width(88.dp))
@@ -906,95 +909,95 @@ private val DIMENSION_FRAMEWORKS = mapOf(
 )
 
 private val ASPECT_DESCRIPTIONS = mapOf(
-    "profile.physio.health"                  to "整体健康状况与日常身体感受",
-    "profile.physio.fitness"                 to "运动习惯、体能水平与训练偏好",
-    "profile.physio.sleep"                   to "睡眠规律、时长与质量",
-    "profile.physio.nutrition"               to "饮食偏好、忌口与营养习惯",
-    "profile.physio.medical"                 to "医疗史、过敏、慢性病与用药",
-    "profile.personality.openness"           to "对新体验、创意与多元观点的接受度",
-    "profile.personality.conscientiousness"  to "做事认真、有条理、自律的程度",
-    "profile.personality.extraversion"       to "在社交场合中活跃、主动的程度",
-    "profile.personality.agreeableness"      to "合作、信任与包容他人的倾向",
-    "profile.personality.neuroticism"        to "情绪波动频率与压力下的反应",
-    "profile.personality.style"              to "个人独特的行事节奏与习惯偏好",
-    "profile.cognitive.thinking"             to "逻辑/直觉型，系统性/发散性思维",
-    "profile.cognitive.learning"             to "偏好实践/阅读/视听/讨论等方式",
-    "profile.cognitive.decision"             to "数据驱动还是直觉经验导向",
-    "profile.cognitive.perspective"          to "关注宏观战略还是微观执行",
-    "profile.cognitive.creativity"           to "在创新场景下的思维灵活度",
-    "profile.cognitive.riasec"               to "Holland职业类型: R实际/I研究/A艺术/S社会/E企业/C事务",
-    "profile.emotional.stability"            to "情绪波动频率与维持平静的能力",
-    "profile.emotional.empathy"              to "感知和理解他人情绪状态的能力",
-    "profile.emotional.stress"               to "面对压力时的应对策略与承受力",
-    "profile.emotional.resilience"           to "从挫折和逆境中恢复的速度与方式",
-    "profile.emotional.self_acceptance"      to "对自身优缺点的客观接纳程度",
-    "profile.social.style"                   to "主动型/选择型/独立型等社交风格",
-    "profile.social.communication"           to "直接/间接、书面/口头等沟通偏好",
-    "profile.social.relationships"           to "维系亲密关系与社交网络的方式",
-    "profile.social.influence"               to "在群体中影响他人想法的能力",
-    "profile.social.boundaries"              to "设定并维护个人边界的意识",
-    "profile.values.core"                    to "深层驱动行为的核心价值观",
-    "profile.values.goals"                   to "中长期人生目标与优先级",
-    "profile.values.principles"              to "不可妥协的道德底线与原则",
-    "profile.values.achievement"             to "成就取向：对成功、地位的看重程度",
-    "profile.values.benevolence"             to "利他倾向：关心他人福祉的程度",
-    "profile.values.autonomy"                to "自主意志：独立思考与自由选择的需求",
-    "profile.capability.skills"              to "专业领域技能与知识深度",
-    "profile.capability.execution"           to "将计划转化为行动的效率",
-    "profile.capability.creativity"          to "产生新颖想法与解决方案的能力",
-    "profile.capability.technical"           to "技术工具、编程、系统操作能力",
-    "profile.capability.intrinsic"           to "内在兴趣驱动 vs 外在奖励驱动",
-    "profile.spiritual.core"                 to "最深层的自我认同与内心力量",
-    "profile.spiritual.beliefs"              to "世界观、信仰体系与存在意义",
-    "profile.spiritual.resilience"           to "精神层面的自愈与恢复能力",
-    "profile.spiritual.purpose"              to "Ryff: 对生命意义与人生使命的感知",
-    "profile.spiritual.growth"               to "持续自我超越与个人成长的渴望",
+    "profile.physio.health"                  to str(R.string.profile_885836),
+    "profile.physio.fitness"                 to str(R.string.profile_028340),
+    "profile.physio.sleep"                   to str(R.string.profile_b25022),
+    "profile.physio.nutrition"               to str(R.string.profile_965280),
+    "profile.physio.medical"                 to str(R.string.profile_ad5bac),
+    "profile.personality.openness"           to str(R.string.profile_6d0fdf),
+    "profile.personality.conscientiousness"  to str(R.string.profile_05d85f),
+    "profile.personality.extraversion"       to str(R.string.profile_b2759e),
+    "profile.personality.agreeableness"      to str(R.string.profile_9eda87),
+    "profile.personality.neuroticism"        to str(R.string.profile_1d4c00),
+    "profile.personality.style"              to str(R.string.profile_9f0d50),
+    "profile.cognitive.thinking"             to str(R.string.profile_389491),
+    "profile.cognitive.learning"             to str(R.string.profile_a80e9a),
+    "profile.cognitive.decision"             to str(R.string.profile_7bde54),
+    "profile.cognitive.perspective"          to str(R.string.profile_13db69),
+    "profile.cognitive.creativity"           to str(R.string.profile_e87240),
+    "profile.cognitive.riasec"               to str(R.string.profile_c655b5),
+    "profile.emotional.stability"            to str(R.string.profile_57dcf0),
+    "profile.emotional.empathy"              to str(R.string.profile_19d77d),
+    "profile.emotional.stress"               to str(R.string.profile_38deb0),
+    "profile.emotional.resilience"           to str(R.string.profile_1f98e8),
+    "profile.emotional.self_acceptance"      to str(R.string.profile_755395),
+    "profile.social.style"                   to str(R.string.profile_550473),
+    "profile.social.communication"           to str(R.string.profile_2f7e1d),
+    "profile.social.relationships"           to str(R.string.profile_e156a7),
+    "profile.social.influence"               to str(R.string.profile_5272ac),
+    "profile.social.boundaries"              to str(R.string.profile_58bf13),
+    "profile.values.core"                    to str(R.string.profile_385206),
+    "profile.values.goals"                   to str(R.string.profile_fb84d7),
+    "profile.values.principles"              to str(R.string.profile_f7014a),
+    "profile.values.achievement"             to str(R.string.profile_b1f37c),
+    "profile.values.benevolence"             to str(R.string.profile_e26524),
+    "profile.values.autonomy"                to str(R.string.profile_51e22c),
+    "profile.capability.skills"              to str(R.string.profile_9d2261),
+    "profile.capability.execution"           to str(R.string.profile_bd1c76),
+    "profile.capability.creativity"          to str(R.string.profile_d374ac),
+    "profile.capability.technical"           to str(R.string.profile_5185cf),
+    "profile.capability.intrinsic"           to str(R.string.profile_fc92fc),
+    "profile.spiritual.core"                 to str(R.string.profile_867c43),
+    "profile.spiritual.beliefs"              to str(R.string.profile_72fe6b),
+    "profile.spiritual.resilience"           to str(R.string.profile_88b886),
+    "profile.spiritual.purpose"              to str(R.string.profile_a3b189),
+    "profile.spiritual.growth"               to str(R.string.profile_30ccd2),
 )
 
 private val ASPECT_HINTS = mapOf(
-    "profile.physio.health"                  to "告诉我最近身体状态如何",
-    "profile.physio.fitness"                 to "描述你的运动习惯或健身计划",
-    "profile.physio.sleep"                   to "说说你的睡眠时间和质量",
-    "profile.physio.nutrition"               to "你有什么饮食偏好或忌口吗",
-    "profile.physio.medical"                 to "有需要注意的健康状况吗",
-    "profile.personality.openness"           to "你愿意尝试新鲜事物吗",
-    "profile.personality.conscientiousness"  to "你怎么管理任务和时间",
-    "profile.personality.extraversion"       to "你喜欢独处还是社交",
-    "profile.personality.agreeableness"      to "你在冲突中倾向于配合还是坚持",
-    "profile.personality.neuroticism"        to "压力大时你通常如何反应",
-    "profile.personality.style"              to "描述你的工作风格",
-    "profile.cognitive.thinking"             to "你更喜欢系统思维还是直觉判断",
-    "profile.cognitive.learning"             to "你用什么方式学习新技能",
-    "profile.cognitive.decision"             to "做重要决定时你怎么选择",
-    "profile.cognitive.perspective"          to "你更关注全局规划还是执行细节",
-    "profile.cognitive.creativity"           to "遇到难题你如何找到创意方案",
-    "profile.cognitive.riasec"               to "你的职业或兴趣偏向是什么",
-    "profile.emotional.stability"            to "你的情绪通常稳定吗",
-    "profile.emotional.empathy"              to "你容易感知他人的情绪吗",
-    "profile.emotional.stress"               to "高压时你如何疏解情绪",
-    "profile.emotional.resilience"           to "遭遇挫折后你多久能恢复",
-    "profile.emotional.self_acceptance"      to "你对自己的优缺点态度如何",
-    "profile.social.style"                   to "你是主动社交还是被动回应型",
-    "profile.social.communication"           to "你更擅长文字还是口头表达",
-    "profile.social.relationships"           to "你重视哪类人际关系",
-    "profile.social.influence"               to "你在团队中扮演什么角色",
-    "profile.social.boundaries"              to "你如何设定个人边界",
-    "profile.values.core"                    to "对你最重要的事情是什么",
-    "profile.values.goals"                   to "你5年内最重要的目标是什么",
-    "profile.values.principles"              to "你有哪些底线不可妥协",
-    "profile.values.achievement"             to "成功对你意味着什么",
-    "profile.values.benevolence"             to "帮助他人对你有多重要",
-    "profile.values.autonomy"                to "你需要多大程度的自主空间",
-    "profile.capability.skills"              to "你最擅长哪个专业领域",
-    "profile.capability.execution"           to "你一般能高效完成计划吗",
-    "profile.capability.creativity"          to "举例说说你的创意解决方案",
-    "profile.capability.technical"           to "你熟悉哪些技术工具",
-    "profile.capability.intrinsic"           to "什么驱动你去完成一件事",
-    "profile.spiritual.core"                 to "你内心最深处相信什么",
-    "profile.spiritual.beliefs"              to "你有宗教信仰或世界观吗",
-    "profile.spiritual.resilience"           to "困境中你如何找到力量",
-    "profile.spiritual.purpose"              to "你认为自己活着的意义是什么",
-    "profile.spiritual.growth"               to "你如何追求个人成长",
+    "profile.physio.health"                  to str(R.string.profile_d30fc4),
+    "profile.physio.fitness"                 to str(R.string.profile_desc),
+    "profile.physio.sleep"                   to str(R.string.profile_374896),
+    "profile.physio.nutrition"               to str(R.string.profile_8ea1fc),
+    "profile.physio.medical"                 to str(R.string.profile_30e068),
+    "profile.personality.openness"           to str(R.string.profile_c65d6b),
+    "profile.personality.conscientiousness"  to str(R.string.profile_3565ae),
+    "profile.personality.extraversion"       to str(R.string.profile_bf5d9f),
+    "profile.personality.agreeableness"      to str(R.string.profile_84061a),
+    "profile.personality.neuroticism"        to str(R.string.profile_118b76),
+    "profile.personality.style"              to str(R.string.profile_desc_2),
+    "profile.cognitive.thinking"             to str(R.string.profile_98b33b),
+    "profile.cognitive.learning"             to str(R.string.profile_409c21),
+    "profile.cognitive.decision"             to str(R.string.profile_4455bb),
+    "profile.cognitive.perspective"          to str(R.string.profile_14da70),
+    "profile.cognitive.creativity"           to str(R.string.profile_f34d6d),
+    "profile.cognitive.riasec"               to str(R.string.profile_de2f9d),
+    "profile.emotional.stability"            to str(R.string.profile_7c652f),
+    "profile.emotional.empathy"              to str(R.string.profile_d171d4),
+    "profile.emotional.stress"               to str(R.string.profile_bb25b5),
+    "profile.emotional.resilience"           to str(R.string.profile_e1c2be),
+    "profile.emotional.self_acceptance"      to str(R.string.profile_4b1691),
+    "profile.social.style"                   to str(R.string.profile_6ab36a),
+    "profile.social.communication"           to str(R.string.profile_d205dc),
+    "profile.social.relationships"           to str(R.string.profile_a1c1d8),
+    "profile.social.influence"               to str(R.string.profile_e0766a),
+    "profile.social.boundaries"              to str(R.string.profile_ddbb32),
+    "profile.values.core"                    to str(R.string.profile_17072e),
+    "profile.values.goals"                   to str(R.string.profile_40d83b),
+    "profile.values.principles"              to str(R.string.profile_ea4fce),
+    "profile.values.achievement"             to str(R.string.profile_success),
+    "profile.values.benevolence"             to str(R.string.profile_190bc4),
+    "profile.values.autonomy"                to str(R.string.profile_2c17dc),
+    "profile.capability.skills"              to str(R.string.profile_8f2bca),
+    "profile.capability.execution"           to str(R.string.profile_ac6c92),
+    "profile.capability.creativity"          to str(R.string.profile_b87e8a),
+    "profile.capability.technical"           to str(R.string.profile_160be8),
+    "profile.capability.intrinsic"           to str(R.string.profile_bd8aaf),
+    "profile.spiritual.core"                 to str(R.string.profile_cb65da),
+    "profile.spiritual.beliefs"              to str(R.string.profile_2de177),
+    "profile.spiritual.resilience"           to str(R.string.profile_261ace),
+    "profile.spiritual.purpose"              to str(R.string.profile_e4b61a),
+    "profile.spiritual.growth"               to str(R.string.profile_33ecfa),
 )
 
 // ── Dimensions List (PORTRAIT section) ────────────────────────────────────────
@@ -1012,7 +1015,7 @@ private fun DimensionsListSection(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "你的各个侧面",
+            str(R.string.profile_c93e41),
             color = c.subtext,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -1048,7 +1051,7 @@ private fun DimensionsListSection(
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     // Dimension name without "维度" suffix
-                    val shortTitle = dim.title.removeSuffix("维度")
+                    val shortTitle = dim.title.removeSuffix(str(R.string.profile_f29c54))
                     Text(shortTitle, color = dim.color, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     if (previewValue != null) {
                         // Show the actual first known value
@@ -1062,7 +1065,7 @@ private fun DimensionsListSection(
                         )
                     } else {
                         Text(
-                            "和 AI 多聊聊，它会慢慢了解你这方面",
+                            str(R.string.profile_86c7b6),
                             color = c.subtext.copy(alpha = 0.5f),
                             fontSize = 12.sp,
                             fontStyle = FontStyle.Italic,
@@ -1097,9 +1100,9 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
             ) {
                 Text("💭", fontSize = 36.sp)
                 Spacer(Modifier.height(4.dp))
-                Text("AI 还没有记住什么", color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.profile_05dcde), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(
-                    "继续使用，AI 会自动从你们的对话里提炼和记录重要信息。",
+                    stringResource(R.string.profile_221c5b),
                     color = c.subtext,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
@@ -1110,7 +1113,7 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
         return
     }
 
-    val groupLabels = mapOf("profile" to "关于你的画像", "user" to "你的偏好", "app" to "应用信息", "device" to "设备信息")
+    val groupLabels = mapOf("profile" to stringResource(R.string.profile_d0a47e), "user" to stringResource(R.string.profile_4fe012), "app" to stringResource(R.string.profile_f3c144), "device" to stringResource(R.string.profile_b967fd))
     val grouped = facts.entries.sortedBy { it.key }.groupBy { it.key.substringBefore(".", it.key) }
 
     Column(
@@ -1118,7 +1121,7 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            "AI 记住的事情",
+            stringResource(R.string.profile_cf1e47),
             color = c.subtext,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -1145,7 +1148,7 @@ private fun MemoryGroup(label: String, entries: List<Map.Entry<String, String>>)
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(label, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("${entries.size} 条", color = c.subtext, fontSize = 11.sp)
+            Text(str(R.string.entries_count, entries.size), color = c.subtext, fontSize = 11.sp)
             Spacer(Modifier.width(6.dp))
             Text(if (expanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.45f), fontSize = 9.sp)
         }
@@ -1204,7 +1207,7 @@ private fun EpisodeCard(episode: EpisodeEntity) {
                     if (episode.durationMs > 0) {
                         Text("${episode.durationMs / 1000}s", color = c.subtext.copy(alpha = 0.4f), fontSize = 10.sp)
                     }
-                    Text(if (episode.success) "✓ 成功" else "✗ 失败", color = if (episode.success) c.green else c.red, fontSize = 10.sp)
+                    Text(if (episode.success) stringResource(R.string.profile_100b2b) else stringResource(R.string.profile_3dc27d), color = if (episode.success) c.green else c.red, fontSize = 10.sp)
                 }
             }
             Text(if (expanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.35f), fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))

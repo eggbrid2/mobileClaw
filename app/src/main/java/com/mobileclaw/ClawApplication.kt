@@ -5,6 +5,7 @@ import com.mobileclaw.agent.RoleManager
 import kotlinx.coroutines.flow.MutableSharedFlow
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.AgentConfig
+import com.mobileclaw.config.SkillLevelStore
 import com.mobileclaw.config.SkillNotesStore
 import com.mobileclaw.config.UserConfig
 import com.mobileclaw.llm.OpenAiGateway
@@ -21,6 +22,7 @@ import com.mobileclaw.skill.SkillRegistry
 import com.mobileclaw.ui.AgentOverlayManager
 import com.mobileclaw.ui.AuroraOverlayManager
 import com.mobileclaw.ui.InAppWebViewManager
+import com.mobileclaw.ui.aipage.AiPageStore
 
 class ClawApplication : Application() {
 
@@ -72,6 +74,9 @@ class ClawApplication : Application() {
     lateinit var skillNotesStore: SkillNotesStore
         private set
 
+    lateinit var skillLevelStore: SkillLevelStore
+        private set
+
     lateinit var userStorageManager: com.mobileclaw.config.UserStorageManager
         private set
 
@@ -81,11 +86,15 @@ class ClawApplication : Application() {
     lateinit var consoleServer: ConsoleServer
         private set
 
+    lateinit var aiPageStore: AiPageStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         database = ClawDatabase.getInstance(this)
         agentConfig = AgentConfig(this)
+        applyLanguage(agentConfig.language)
         skillRegistry = SkillRegistry()
         overlayManager = AgentOverlayManager(this)
         auroraOverlayManager = AuroraOverlayManager(this)
@@ -107,6 +116,7 @@ class ClawApplication : Application() {
         localApiServer.start()
         miniAppStore = MiniAppStore(this)
         skillNotesStore = SkillNotesStore(this)
+        skillLevelStore = SkillLevelStore(this)
         userStorageManager = com.mobileclaw.config.UserStorageManager(this)
         groupManager = com.mobileclaw.agent.GroupManager(this)
         consoleServer = ConsoleServer(
@@ -118,6 +128,7 @@ class ClawApplication : Application() {
             userConfig = userConfig,
         )
         consoleServer.start()
+        aiPageStore = AiPageStore(filesDir)
     }
 
     override fun onTerminate() {
@@ -128,6 +139,21 @@ class ClawApplication : Application() {
 
     /** Tasks submitted from MiniAppActivity to the main agent. */
     val pendingAgentTask = MutableSharedFlow<String>(extraBufferCapacity = 8)
+
+    /** Context with the in-app language applied — use this for getString() calls. */
+    var localizedContext: android.content.Context = this
+        private set
+
+    fun applyLanguage(language: String) {
+        localizedContext = if (language == "auto" || language.isBlank()) {
+            this
+        } else {
+            val locale = java.util.Locale.forLanguageTag(language)
+            val config = android.content.res.Configuration(resources.configuration)
+            config.setLocale(locale)
+            createConfigurationContext(config)
+        }
+    }
 
     companion object {
         lateinit var instance: ClawApplication
