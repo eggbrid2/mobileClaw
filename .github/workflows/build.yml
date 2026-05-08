@@ -26,6 +26,14 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Set up Python 3.11 for Chaquopy
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Export Chaquopy build Python
+        run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python3.11 || command -v python3)" >> "$GITHUB_ENV"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -66,6 +74,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
+
+      - name: Set up Python 3.11 for Chaquopy
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Export Chaquopy build Python
+        run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python3.11 || command -v python3)" >> "$GITHUB_ENV"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3

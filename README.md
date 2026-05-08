@@ -4,9 +4,11 @@
 
 # MobileClaw
 
-### An open Android agent runtime that can see, act, build, remember, and route its own tools.
+### An open Android AI agent runtime that can see the screen, control apps, build tools, remember context, and route its own skills.
 
-MobileClaw is an experimental Android app for running LLM agents on a real phone. It is built around a simple idea: a mobile agent should not just chat about your device. It should be able to observe the screen, choose the right tools, act through Android capabilities, create new workflows, and keep enough memory to improve across tasks.
+MobileClaw is an experimental Android app for running LLM agents on a real phone. It sits at the intersection of Android automation, mobile AI agents, accessibility-based phone control, on-device Python tools, multi-agent workflows, and VPN/proxy operations.
+
+The idea is simple: a mobile agent should not just chat about your device. It should be able to observe the screen, choose the right tools, act through Android capabilities, create new workflows, and keep enough memory to improve across tasks.
 
 [![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
@@ -36,6 +38,17 @@ This matters because phone automation fails quickly when every tool is always av
 The project is still moving fast. Some pieces are stable enough to use daily; some are research-grade and need device-specific fixes. The code is open because this kind of Android agent needs real devices, real ROM quirks, and real users to become good.
 
 ## What Works Today
+
+### Common Use Cases
+
+- Android AI agent for phone control and app automation.
+- VLM-style screen reading with coordinate-based tapping and scrolling.
+- AI assistant that can operate real Android apps through AccessibilityService.
+- Mobile agent runtime with task planning, role routing, and scoped tool injection.
+- Multi-agent group chat with long-running tasks and interruptible work.
+- AI-generated mini apps and native Android pages.
+- Clash/Mihomo subscription import and Android VPN control.
+- Embedded Python execution and dynamic skill creation on Android.
 
 ### Phone Control
 
@@ -231,6 +244,10 @@ Root is not a baseline requirement. Some background-display features may still n
 - More reproducible VPN subscription and mihomo edge cases.
 - ROM compatibility reports for virtual display launch behavior.
 - Better docs, demos, and small role/skill presets.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=eggbrid2/mobileClaw&type=Date)](https://star-history.com/#eggbrid2/mobileClaw&Date)
 
 ## Status
 

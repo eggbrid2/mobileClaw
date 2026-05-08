@@ -60,7 +60,12 @@ android {
 chaquopy {
     defaultConfig {
         version = "3.11"
-        buildPython("/opt/homebrew/bin/python3.11")
+        val configuredBuildPython = providers.gradleProperty("chaquopy.buildPython")
+            .orElse(providers.environmentVariable("CHAQUOPY_BUILD_PYTHON"))
+            .orNull
+        if (!configuredBuildPython.isNullOrBlank()) {
+            buildPython(configuredBuildPython)
+        }
         pip {
             install("requests==2.31.0")
             install("beautifulsoup4")
