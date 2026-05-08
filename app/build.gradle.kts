@@ -67,6 +67,10 @@ chaquopy {
             buildPython(configuredBuildPython)
         }
         pip {
+            // Keep requests' transitive dependency stable across CI images.
+            // Newer urllib3 releases may require Python >= 3.10, while some
+            // Chaquopy build environments still expose Python 3.9.x.
+            install("urllib3==1.26.18")
             install("requests==2.31.0")
             install("beautifulsoup4")
             install("numpy")
