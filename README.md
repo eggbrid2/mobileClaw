@@ -141,8 +141,8 @@ This stack does not use Xray. mihomo handles the proxy protocols; hev is kept be
 - Group chat supports user and AI attachments.
 - Group chat has a small task pool. A long task occupies its agent and one pool slot, not the whole group.
 - Agents can be interrupted by newer user turns when capacity is available.
-- Group chat roles can own their own bubble style. Native bubbles support presets, glow, gradients, patterns, emotion fields, font choices, and lightweight animations.
-- Roles may opt into constrained HTML bubble rendering for compact custom effects. Native rendering remains the default; HTML templates are local, sanitized, and intended for personality-level presentation rather than full mini-app behavior.
+- Group chat roles can own their own bubble style. Agents are encouraged to choose native Markdown bubbles by default, then tune presets, text color, font family, font weight, font size, gradients, background images, patterns, emotion fields, per-corner radius, padding, shadows, small decorations, and lightweight text/border animations.
+- Roles may opt into HTML bubble rendering only when native Markdown styling is not expressive enough. HTML bubbles support custom templates, height, transparent backgrounds, optional JavaScript, and optional network images, but native rendering remains the preferred path for performance and app-like consistency.
 - Built-in ChineseBQB stickers can be searched or favorited from a thumbnail grid. Selecting a sticker sends it directly as a sticker/image message instead of staging it as a generic attachment.
 
 ### Memory
