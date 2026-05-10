@@ -29,6 +29,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
@@ -72,17 +74,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -90,6 +94,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobileclaw.R
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -99,9 +104,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.agent.ChatBubbleStyle
+import com.mobileclaw.agent.ChatBubbleDecoration
 import com.mobileclaw.agent.Group
 import com.mobileclaw.agent.Role
 import com.mobileclaw.skill.SkillAttachment
+import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -264,13 +271,6 @@ fun GroupChatScreen(
                 IconButton(onClick = onBack) {
                     Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
                 }
-                GroupMemberIconButton(
-                    memberRoles = memberRoles,
-                    totalMembers = totalMembers,
-                    c = c,
-                    onClick = { showMemberDrawer = true },
-                )
-                Spacer(Modifier.size(10.dp))
                 Text(
                     group.name,
                     color = c.text,
@@ -284,6 +284,11 @@ fun GroupChatScreen(
                         Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color(0xFFEF4444), modifier = Modifier.size(22.dp))
                     }
                 }
+                GroupMemberIconButton(
+                    totalMembers = totalMembers,
+                    c = c,
+                    onClick = { showMemberDrawer = true },
+                )
             }
 
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
@@ -565,7 +570,6 @@ fun GroupChatScreen(
 
 @Composable
 private fun GroupMemberIconButton(
-    memberRoles: List<Role>,
     totalMembers: Int,
     c: ClawColors,
     onClick: () -> Unit,
@@ -656,7 +660,10 @@ private fun GroupMessageBubble(
         decodeBubbleBackgroundBitmap(context, visual.backgroundImage, maxPx = 900)
     }
     val infinite = rememberInfiniteTransition(label = "group-bubble-style")
-    val pulse = if (visual.animation != "none") {
+    val needsStylePulse = visual.animation != "none" ||
+        visual.textAnimation in setOf("fade", "breath", "shimmer", "pop", "wave", "glow", "neon", "flash", "jelly") ||
+        visual.decorations.any { it.animation != "none" || it.type in setOf("firework", "glimmer", "aurora") }
+    val pulse = if (needsStylePulse) {
         infinite.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
@@ -680,9 +687,14 @@ private fun GroupMessageBubble(
     val bubbleRotation = if (visual.animation == "tilt") -0.35f + pulse * 0.7f else 0f
     val textAlpha = when (visual.textAnimation) {
         "fade", "breath", "shimmer" -> 0.82f + pulse * 0.18f
+        "flash" -> 0.62f + pulse * 0.38f
         else -> 1f
     }
-    val textScale = if (visual.textAnimation == "pop") 0.995f + pulse * 0.01f else 1f
+    val textScale = when (visual.textAnimation) {
+        "pop" -> 0.995f + pulse * 0.01f
+        "jelly" -> 0.98f + pulse * 0.04f
+        else -> 1f
+    }
     val mediaOnly = message.text.isBlank() &&
         message.attachments.isNotEmpty() &&
         message.attachments.all { isGroupVisualImageAttachment(it) }
@@ -702,7 +714,7 @@ private fun GroupMessageBubble(
 
         Column(
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 280.dp),
+            modifier = Modifier.widthIn(max = 324.dp),
         ) {
             // Sender name + time
             Row(
@@ -762,22 +774,22 @@ private fun GroupMessageBubble(
                 }
             } else {
                 Box(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            translationX = xOffset
-                            translationY = yOffset
-                            scaleX = bubbleScale
-                            scaleY = bubbleScale
-                            rotationZ = bubbleRotation
-                        }
-                ) {
-                    if (visual.glowAlpha > 0f) {
-                        GroupBubbleGlow(
-                            visual = visual,
-                            pulse = pulse,
-                            modifier = Modifier.matchParentSize(),
-                        )
+                    modifier = Modifier.graphicsLayer {
+                        translationX = xOffset
+                        translationY = yOffset
+                        scaleX = bubbleScale
+                        scaleY = bubbleScale
+                        rotationZ = bubbleRotation
                     }
+                ) {
+                    Box {
+                        if (visual.glowAlpha > 0f) {
+                            GroupBubbleGlow(
+                                visual = visual,
+                                pulse = pulse,
+                                modifier = Modifier.matchParentSize(),
+                            )
+                        }
                     Box(
                         modifier = Modifier
                             .padding(visual.glowPaddingDp.dp)
@@ -871,11 +883,12 @@ private fun GroupMessageBubble(
                                             text = animatedTextForBubble(message.text, visual.textAnimation).let {
                                                 if (visual.textAnimation == "marquee") it.replace('\n', ' ') else it
                                             },
-                                            color = visual.textColor,
+                                            color = textColorForAnimatedText(visual),
                                             fontSize = visual.fontSizeSp.sp,
                                             lineHeight = visual.lineHeightSp.sp,
                                             fontFamily = visual.fontFamily,
                                             fontWeight = visual.fontWeight,
+                                            style = textAnimationTextStyle(visual, pulse),
                                             maxLines = if (visual.textAnimation == "marquee") 1 else Int.MAX_VALUE,
                                             overflow = if (visual.textAnimation == "marquee") TextOverflow.Ellipsis else TextOverflow.Clip,
                                             modifier = textAnimationModifier(visual, pulse, textAlpha, textScale),
@@ -908,16 +921,18 @@ private fun GroupMessageBubble(
                             GroupBubbleAnimatedStroke(
                                 visual = visual,
                                 pulse = pulse,
-                                modifier = Modifier.matchParentSize(),
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .padding(visual.glowPaddingDp.dp),
                                 color = animatedBorder,
                             )
                         }
-                        GroupBubbleLocalAccent(
-                            visual = visual,
-                            pulse = pulse,
-                            modifier = Modifier.matchParentSize(),
-                        )
                     }
+                    }
+                    GroupBubbleLocalDecorations(
+                        visual = visual,
+                        pulse = pulse,
+                    )
                     if (visual.animation == "sparkle") {
                         GroupBubbleSparkles(
                             visual = visual,
@@ -952,6 +967,7 @@ private data class GroupBubbleVisual(
     val decorationPosition: String,
     val decorationAnimation: String,
     val decorationSizeDp: Int,
+    val decorations: List<GroupBubbleDecorationVisual>,
     val animation: String,
     val emotion: String,
     val fontFamily: FontFamily?,
@@ -977,6 +993,20 @@ private data class GroupBubbleVisual(
     val glowPaddingDp: Int,
 )
 
+private data class GroupBubbleDecorationVisual(
+    val type: String,
+    val text: String,
+    val position: String,
+    val x: Float,
+    val y: Float,
+    val animation: String,
+    val sizeDp: Int,
+    val color: Color?,
+    val alpha: Float,
+)
+
+private val BubbleDecorationSafePadding = 22.dp
+
 @Composable
 private fun animatedTextForBubble(text: String, animation: String): String {
     if (animation != "typewriter") return text
@@ -985,12 +1015,55 @@ private fun animatedTextForBubble(text: String, animation: String): String {
         visibleChars = 0
         val max = text.length.coerceAtMost(320)
         while (visibleChars < max) {
-            withFrameNanos { }
-            visibleChars = (visibleChars + 2).coerceAtMost(max)
+            delay(28)
+            visibleChars = (visibleChars + 1).coerceAtMost(max)
         }
     }
     return text.take(visibleChars.coerceIn(0, text.length))
 }
+
+private fun textAnimationTextStyle(visual: GroupBubbleVisual, pulse: Float): TextStyle {
+    return when (visual.textAnimation) {
+        "shimmer" -> {
+            val highlight = Color.White.copy(alpha = 0.42f + pulse * 0.36f)
+            TextStyle(
+                brush = Brush.linearGradient(
+                    listOf(
+                        visual.textColor.copy(alpha = 0.68f),
+                        highlight,
+                        visual.accentColor.copy(alpha = 0.55f + pulse * 0.25f),
+                        visual.textColor.copy(alpha = 0.82f),
+                    )
+                )
+            )
+        }
+        "glow" -> TextStyle(
+            shadow = Shadow(
+                color = visual.accentColor.copy(alpha = 0.55f + pulse * 0.30f),
+                offset = Offset.Zero,
+                blurRadius = 10f + pulse * 8f,
+            )
+        )
+        "neon" -> TextStyle(
+            brush = Brush.linearGradient(
+                listOf(
+                    visual.textColor,
+                    visual.accentColor.copy(alpha = 0.95f),
+                    Color.White.copy(alpha = 0.78f),
+                )
+            ),
+            shadow = Shadow(
+                color = visual.accentColor.copy(alpha = 0.62f + pulse * 0.28f),
+                offset = Offset.Zero,
+                blurRadius = 14f + pulse * 10f,
+            )
+        )
+        else -> TextStyle.Default
+    }
+}
+
+private fun textColorForAnimatedText(visual: GroupBubbleVisual): Color =
+    if (visual.textAnimation in setOf("shimmer", "neon")) Color.Unspecified else visual.textColor
 
 private fun textAnimationModifier(
     visual: GroupBubbleVisual,
@@ -1001,7 +1074,7 @@ private fun textAnimationModifier(
     val base = Modifier.graphicsLayer {
         this.alpha = alpha
         scaleX = scale
-        scaleY = scale
+        scaleY = if (visual.textAnimation == "jelly") 1.02f - (scale - 1f) else scale
         translationY = if (visual.textAnimation == "wave") -1.2f + pulse * 2.4f else 0f
     }
     return if (visual.textAnimation == "marquee") {
@@ -1142,6 +1215,7 @@ private fun resolveGroupBubbleVisual(
             decorationPosition = "top_end",
             decorationAnimation = "none",
             decorationSizeDp = 14,
+            decorations = emptyList(),
             animation = "none",
             emotion = "neutral",
             fontFamily = null,
@@ -1259,6 +1333,7 @@ private fun resolveGroupBubbleVisual(
         decorationPosition = style?.decorationPosition?.lowercase().orEmpty().ifBlank { "top_end" },
         decorationAnimation = style?.decorationAnimation?.lowercase().orEmpty().ifBlank { "none" },
         decorationSizeDp = (style?.decorationSizeDp ?: 14).coerceIn(8, 28),
+        decorations = resolveGroupBubbleDecorations(style, emotionAccent),
         animation = effectiveAnimation,
         emotion = emotion,
         fontFamily = when (style?.fontFamily?.lowercase()) {
@@ -1272,7 +1347,8 @@ private fun resolveGroupBubbleVisual(
             "medium" -> FontWeight.Medium
             "semibold" -> FontWeight.SemiBold
             "bold" -> FontWeight.Bold
-            "black" -> FontWeight.Black
+            "extrabold" -> FontWeight.ExtraBold
+            "heavy", "black" -> FontWeight.Black
             else -> FontWeight.Normal
         },
         textAnimation = style?.textAnimation?.lowercase().orEmpty().ifBlank { "none" },
@@ -1318,29 +1394,64 @@ private fun resolveGroupBubbleVisual(
     )
 }
 
+private fun resolveGroupBubbleDecorations(
+    style: ChatBubbleStyle?,
+    fallbackAccent: Color,
+): List<GroupBubbleDecorationVisual> {
+    val explicit = style?.decorations.orEmpty()
+        .take(8)
+        .mapNotNull { it.toGroupBubbleDecorationVisual(fallbackAccent) }
+    if (explicit.isNotEmpty()) return explicit
+    val legacyType = style?.decoration?.lowercase().orEmpty().ifBlank { "none" }
+    if (legacyType == "none") return emptyList()
+    return listOf(
+        ChatBubbleDecoration(
+            type = legacyType,
+            text = style?.decorationText.orEmpty(),
+            position = style?.decorationPosition.orEmpty().ifBlank { "top_end" },
+            animation = style?.decorationAnimation.orEmpty().ifBlank { "none" },
+            sizeDp = style?.decorationSizeDp ?: 14,
+        ).toGroupBubbleDecorationVisual(fallbackAccent)
+    ).filterNotNull()
+}
+
+private fun ChatBubbleDecoration.toGroupBubbleDecorationVisual(fallbackAccent: Color): GroupBubbleDecorationVisual? {
+    val cleanType = type.lowercase().trim().ifBlank { "none" }
+    if (cleanType == "none") return null
+    val cleanPosition = position.lowercase().trim().ifBlank { "top_end" }
+    return GroupBubbleDecorationVisual(
+        type = cleanType,
+        text = text.take(6),
+        position = cleanPosition,
+        x = if (x in 0f..1f) x else -1f,
+        y = if (y in 0f..1f) y else -1f,
+        animation = animation.lowercase().trim().ifBlank { "none" },
+        sizeDp = sizeDp.coerceIn(8, 32),
+        color = color.toComposeColorOrNull() ?: fallbackAccent,
+        alpha = if (alpha < 0f) 0.88f else alpha.coerceIn(0f, 1f),
+    )
+}
+
 @Composable
 private fun GroupBubbleGlow(
     visual: GroupBubbleVisual,
     pulse: Float,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier) {
-        val glow = visual.glowPaddingDp.dp.toPx().coerceAtLeast(6f)
-        drawRoundRect(
-            color = visual.accentColor.copy(alpha = visual.glowAlpha * (0.75f + pulse * 0.85f)),
-            topLeft = androidx.compose.ui.geometry.Offset(-glow * 0.45f, -glow * 0.45f),
-            size = androidx.compose.ui.geometry.Size(size.width + glow * 0.9f, size.height + glow * 0.9f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx() + glow, 22.dp.toPx() + glow),
-            style = Stroke(width = glow * (1.2f + pulse * 0.8f)),
-        )
-        drawRoundRect(
-            color = visual.borderColor.copy(alpha = visual.glowAlpha * (0.45f + pulse * 0.35f)),
-            topLeft = androidx.compose.ui.geometry.Offset(-glow * 0.18f, -glow * 0.18f),
-            size = androidx.compose.ui.geometry.Size(size.width + glow * 0.36f, size.height + glow * 0.36f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(18.dp.toPx() + glow * 0.45f, 18.dp.toPx() + glow * 0.45f),
-            style = Stroke(width = glow * 0.72f),
-        )
-    }
+    Box(
+        modifier = modifier
+            .padding(visual.glowPaddingDp.dp)
+            .border(
+                width = (2.2f + pulse * 1.6f).dp,
+                color = visual.accentColor.copy(alpha = visual.glowAlpha * (0.55f + pulse * 0.45f)),
+                shape = visual.shape,
+            )
+            .border(
+                width = 1.dp,
+                color = visual.borderColor.copy(alpha = visual.glowAlpha * 0.55f),
+                shape = visual.shape,
+            )
+    )
 }
 
 @Composable
@@ -1350,29 +1461,23 @@ private fun GroupBubbleAnimatedStroke(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier) {
-        val inset = 1.5.dp.toPx()
-        val width = when (visual.animation) {
-            "sparkle" -> 1.6.dp.toPx() + pulse * 1.4.dp.toPx()
-            "breath" -> 1.1.dp.toPx() + pulse * 1.0.dp.toPx()
-            else -> 1.2.dp.toPx() + pulse * 1.2.dp.toPx()
-        }
-        drawRoundRect(
+    Box(
+        modifier = modifier.border(
+            width = when (visual.animation) {
+                "sparkle" -> (1.2f + pulse * 1.2f).dp
+                "breath" -> (1.0f + pulse * 0.8f).dp
+                else -> (1.0f + pulse * 1.0f).dp
+            },
             brush = Brush.linearGradient(
                 listOf(
                     color.copy(alpha = 0.25f),
                     visual.accentColor.copy(alpha = 0.90f),
                     color.copy(alpha = 0.35f),
-                ),
-                start = androidx.compose.ui.geometry.Offset(size.width * pulse, 0f),
-                end = androidx.compose.ui.geometry.Offset(size.width * (1f - pulse), size.height),
+                )
             ),
-            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
-            size = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(18.dp.toPx(), 18.dp.toPx()),
-            style = Stroke(width = width),
+            shape = visual.shape,
         )
-    }
+    )
 }
 
 @Composable
@@ -1411,67 +1516,176 @@ private fun GroupBubbleSparkles(
 }
 
 @Composable
-private fun BoxScope.GroupBubbleLocalAccent(
+private fun BoxScope.GroupBubbleLocalDecorations(
     visual: GroupBubbleVisual,
     pulse: Float,
     modifier: Modifier = Modifier,
 ) {
-    val mark = when (visual.decoration) {
-        "dot" -> "•"
-        "sparkle" -> "✦"
-        "heart" -> "♡"
-        "star" -> "★"
-        "moon" -> "☾"
-        "badge" -> visual.decorationText.ifBlank { "AI" }
-        "text" -> visual.decorationText
-        else -> ""
+    if (visual.decorations.isEmpty()) return
+    BoxWithConstraints(modifier = modifier.matchParentSize()) {
+        visual.decorations.forEachIndexed { index, decoration ->
+            GroupBubbleDecorationItem(
+                decoration = decoration,
+                pulse = ((pulse + index * 0.17f) % 1f),
+            )
+        }
     }
-    if (mark.isBlank()) return
-    val align = when (visual.decorationPosition) {
-        "top_start" -> Alignment.TopStart
-        "bottom_start" -> Alignment.BottomStart
-        "bottom_end" -> Alignment.BottomEnd
-        "tail" -> Alignment.BottomStart
-        else -> Alignment.TopEnd
-    }
-    val offsetX = when (visual.decorationPosition) {
-        "top_start", "bottom_start", "tail" -> (-5).dp
-        else -> 5.dp
-    }
-    val offsetY = when (visual.decorationPosition) {
-        "bottom_start", "bottom_end", "tail" -> 5.dp
-        else -> (-5).dp
-    }
-    val floatY = if (visual.decorationAnimation in setOf("float", "sparkle")) (-1.5f + pulse * 3f) else 0f
-    val scale = when (visual.decorationAnimation) {
-        "pulse", "sparkle" -> 0.92f + pulse * 0.16f
+}
+
+@Composable
+private fun BoxWithConstraintsScope.GroupBubbleDecorationItem(
+    decoration: GroupBubbleDecorationVisual,
+    pulse: Float,
+) {
+    val mark = decoration.mark()
+    if (mark.isBlank() && decoration.type !in setOf("firework", "glimmer", "aurora")) return
+    val color = decoration.color ?: Color.Black
+    val size = decoration.sizeDp.dp
+    val containerSize = size + BubbleDecorationSafePadding * 2
+    val hasRelativePoint = decoration.x in 0f..1f && decoration.y in 0f..1f
+    val align = decoration.position.toBubbleAlignment()
+    val anchorOffset = decoration.position.toBubbleOffset()
+    val floatY = if (decoration.animation in setOf("float", "sparkle", "glimmer", "aurora")) (-1.6f + pulse * 3.2f) else 0f
+    val orbitX = if (decoration.animation == "orbit") kotlin.math.cos((pulse * Math.PI * 2).toFloat()) * 3.5f else 0f
+    val orbitY = if (decoration.animation == "orbit") kotlin.math.sin((pulse * Math.PI * 2).toFloat()) * 3.5f else 0f
+    val scale = when (decoration.animation) {
+        "pulse", "sparkle", "firework", "glimmer", "aurora" -> 0.90f + pulse * 0.18f
         else -> 1f
     }
-    Box(
-        modifier = modifier
+    val itemModifier = if (hasRelativePoint) {
+        Modifier.offset(
+            x = (maxWidth * decoration.x) - (containerSize / 2) + anchorOffset.first,
+            y = (maxHeight * decoration.y) - (containerSize / 2) + anchorOffset.second,
+        )
+    } else {
+        Modifier
             .align(align)
-            .offset(offsetX, offsetY)
+            .offset(anchorOffset.first, anchorOffset.second)
+    }
+    Box(
+        modifier = itemModifier
+            .size(containerSize)
             .graphicsLayer {
-                translationY = floatY
+                translationX = orbitX
+                translationY = floatY + orbitY
                 scaleX = scale
                 scaleY = scale
-                alpha = if (visual.decorationAnimation == "sparkle") 0.55f + pulse * 0.45f else 0.88f
-            }
-            .clip(RoundedCornerShape(999.dp))
-            .background(visual.accentColor.copy(alpha = 0.12f))
-            .border(0.5.dp, visual.accentColor.copy(alpha = 0.34f), RoundedCornerShape(999.dp))
-            .padding(horizontal = if (mark.length > 1) 6.dp else 4.dp, vertical = 2.dp),
+                alpha = decoration.alpha
+            },
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            mark,
-            color = visual.accentColor,
-            fontSize = visual.decorationSizeDp.sp,
-            fontWeight = FontWeight.SemiBold,
-            lineHeight = visual.decorationSizeDp.sp,
-            maxLines = 1,
-        )
+        if (decoration.animation in setOf("firework", "glimmer", "aurora") || decoration.type in setOf("firework", "glimmer", "aurora")) {
+            BubbleDecorationEffect(decoration, color, pulse, Modifier.matchParentSize())
+        }
+        if (mark.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = size, minHeight = size)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(color.copy(alpha = 0.10f))
+                    .border(0.5.dp, color.copy(alpha = 0.30f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = if (mark.length > 1) 6.dp else 4.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    mark,
+                    color = color,
+                    fontSize = decoration.sizeDp.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = decoration.sizeDp.sp,
+                    maxLines = 1,
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun BubbleDecorationEffect(
+    decoration: GroupBubbleDecorationVisual,
+    color: Color,
+    pulse: Float,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+        when (decoration.animation.takeIf { it != "none" } ?: decoration.type) {
+            "firework" -> {
+                val radius = size.minDimension * (0.18f + pulse * 0.30f)
+                repeat(8) { index ->
+                    val angle = (index * 45f) + pulse * 24f
+                    rotate(angle, center) {
+                        drawLine(
+                            color = color.copy(alpha = (0.70f - pulse * 0.35f).coerceIn(0.18f, 0.70f)),
+                            start = center.copy(y = center.y - radius * 0.35f),
+                            end = center.copy(y = center.y - radius),
+                            strokeWidth = 1.2.dp.toPx(),
+                        )
+                    }
+                }
+                drawCircle(color.copy(alpha = 0.28f), radius = radius * 0.24f, center = center)
+            }
+            "aurora" -> {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(color.copy(alpha = 0.28f + pulse * 0.12f), Color.Transparent),
+                        center = center,
+                        radius = size.minDimension * 0.55f,
+                    ),
+                    radius = size.minDimension * 0.48f,
+                    center = center,
+                )
+                drawArc(
+                    color = color.copy(alpha = 0.42f),
+                    startAngle = 205f,
+                    sweepAngle = 110f + pulse * 30f,
+                    useCenter = false,
+                    style = Stroke(width = 1.4.dp.toPx()),
+                )
+            }
+            else -> {
+                drawCircle(color.copy(alpha = 0.18f + pulse * 0.16f), radius = size.minDimension * 0.28f, center = center)
+                drawCircle(color.copy(alpha = 0.46f), radius = size.minDimension * 0.06f, center = center)
+            }
+        }
+    }
+}
+
+private fun GroupBubbleDecorationVisual.mark(): String = when (type) {
+    "dot" -> "•"
+    "sparkle", "glimmer", "aurora" -> "✦"
+    "firework" -> "✹"
+    "heart" -> "♡"
+    "star" -> "★"
+    "moon" -> "☾"
+    "badge" -> text.ifBlank { "AI" }
+    "text" -> text
+    else -> ""
+}
+
+private fun String.toBubbleAlignment(): Alignment = when (this) {
+    "top_start" -> Alignment.TopStart
+    "top_center" -> Alignment.TopCenter
+    "bottom_start", "tail" -> Alignment.BottomStart
+    "bottom_center" -> Alignment.BottomCenter
+    "bottom_end" -> Alignment.BottomEnd
+    "center_start" -> Alignment.CenterStart
+    "center_end" -> Alignment.CenterEnd
+    else -> Alignment.TopEnd
+}
+
+private fun String.toBubbleOffset(): Pair<androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp> {
+    val x = when (this) {
+        "top_start", "bottom_start", "center_start", "tail" -> (-BubbleDecorationSafePadding)
+        "top_center", "bottom_center" -> 0.dp
+        else -> BubbleDecorationSafePadding
+    }
+    val y = when (this) {
+        "bottom_start", "bottom_center", "bottom_end", "tail" -> BubbleDecorationSafePadding
+        "center_start", "center_end" -> 0.dp
+        else -> (-BubbleDecorationSafePadding)
+    }
+    return x to y
 }
 
 @Composable

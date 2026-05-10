@@ -2,10 +2,12 @@ package com.mobileclaw.skill.builtin
 
 import com.google.gson.Gson
 import com.google.gson.JsonElement
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.agent.ChatBubbleStyle
+import com.mobileclaw.agent.ChatBubbleDecoration
 import com.mobileclaw.agent.TaskType
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
@@ -75,7 +77,7 @@ class RoleManagerSkill(
             SkillParam(
                 "bubble_style_json",
                 "object",
-                "Full AI-generated group chat bubble theme. Prefer native renderer with Markdown support. Supported keys include renderer/htmlTemplate/htmlHeightDp/htmlAllowJs/htmlAllowNetwork/htmlTransparent, colors, radiusDp and per-corner radii, pattern, decoration fields, animation, font fields, textAnimation, padding, shadow(none|soft|glow), shadowColor, shadowAlpha, shadowElevationDp, shadowOffsetXDp, shadowOffsetYDp, imageMode. Use HTML only when native Markdown/style fields cannot express the bubble.",
+                "Full AI-generated group chat bubble theme. Prefer native renderer with Markdown support. Supported keys include renderer/htmlTemplate/htmlHeightDp/htmlAllowJs/htmlAllowNetwork/htmlTransparent, colors, radiusDp and per-corner radii, pattern, legacy decoration fields, decorations[] for multiple relative-position local decorations, animation, font fields, textAnimation, padding, shadow(none|soft|glow), shadowColor, shadowAlpha, shadowElevationDp, shadowOffsetXDp, shadowOffsetYDp, imageMode. Use HTML only when native Markdown/style fields cannot express the bubble.",
                 required = false,
             ),
         ),
@@ -353,6 +355,7 @@ class RoleManagerSkill(
                 rawGradient.asJsonArray.mapNotNull { normalizeHex(it.asString).takeIf { hex -> hex.isNotBlank() } }
             }.getOrDefault(emptyList())
         } ?: existing.gradient
+        val decorations = parseDecorations(obj, existing.decorations)
 
         return existing.copy(
             preset = str("preset", existing.preset),
@@ -377,6 +380,7 @@ class RoleManagerSkill(
             decorationPosition = str("decorationPosition", existing.decorationPosition),
             decorationAnimation = str("decorationAnimation", existing.decorationAnimation),
             decorationSizeDp = int("decorationSizeDp", existing.decorationSizeDp),
+            decorations = decorations,
             tail = str("tail", existing.tail),
             pattern = str("pattern", existing.pattern),
             gradient = gradient.take(4),
@@ -398,6 +402,26 @@ class RoleManagerSkill(
             imageMode = str("imageMode", existing.imageMode),
             schemaVersion = int("schemaVersion", 2),
         )
+    }
+
+    private fun parseDecorations(obj: JsonObject, existing: List<ChatBubbleDecoration>): List<ChatBubbleDecoration> {
+        val raw = obj["decorations"]?.takeIf { !it.isJsonNull } ?: return existing
+        return runCatching {
+            raw.asJsonArray.mapNotNull { item ->
+                val deco = item.asJsonObject
+                ChatBubbleDecoration(
+                    type = deco["type"]?.asString.orEmpty(),
+                    text = deco["text"]?.asString.orEmpty(),
+                    position = deco["position"]?.asString.orEmpty(),
+                    x = deco["x"]?.let { runCatching { it.asFloat }.getOrNull() } ?: -1f,
+                    y = deco["y"]?.let { runCatching { it.asFloat }.getOrNull() } ?: -1f,
+                    animation = deco["animation"]?.asString.orEmpty(),
+                    sizeDp = deco["sizeDp"]?.let { runCatching { it.asInt }.getOrNull() } ?: 14,
+                    color = deco["color"]?.asString.orEmpty(),
+                    alpha = deco["alpha"]?.let { runCatching { it.asFloat }.getOrNull() } ?: -1f,
+                )
+            }
+        }.getOrDefault(emptyList())
     }
 
     private fun sanitizeBubbleStyle(style: ChatBubbleStyle): ChatBubbleStyle {
@@ -427,15 +451,16 @@ class RoleManagerSkill(
             pattern = enum(style.pattern, BUBBLE_PATTERNS, "none"),
             decoration = enum(style.decoration, BUBBLE_DECORATIONS, "none"),
             decorationText = style.decorationText.take(4),
-            decorationPosition = enum(style.decorationPosition, setOf("top_start", "top_end", "bottom_start", "bottom_end", "tail"), "top_end"),
-            decorationAnimation = enum(style.decorationAnimation, setOf("none", "pulse", "float", "sparkle"), "none"),
+            decorationPosition = enum(style.decorationPosition, BUBBLE_DECORATION_POSITIONS, "top_end"),
+            decorationAnimation = enum(style.decorationAnimation, BUBBLE_DECORATION_ANIMATIONS, "none"),
             decorationSizeDp = style.decorationSizeDp.coerceIn(8, 28),
+            decorations = sanitizeDecorations(style.decorations),
             gradient = style.gradient.mapNotNull { normalizeHex(it).takeIf { hex -> hex.isNotBlank() } }.take(4),
             animation = enum(style.animation, setOf("none", "pulse", "breath", "float", "sparkle", "shake", "pop", "tilt", "bounce"), "none"),
             emotion = enum(style.emotion, setOf("neutral", "happy", "sad", "angry", "shy", "cool", "excited", "sleepy", "love"), "neutral"),
             fontFamily = enum(style.fontFamily, setOf("system", "serif", "mono", "rounded"), "system"),
-            fontWeight = enum(style.fontWeight, setOf("light", "regular", "medium", "semibold", "bold", "black"), "regular"),
-            textAnimation = enum(style.textAnimation, setOf("none", "fade", "pop", "breath", "shimmer", "typewriter", "marquee", "wave"), "none"),
+            fontWeight = enum(style.fontWeight, setOf("light", "regular", "medium", "semibold", "bold", "extrabold", "heavy", "black"), "regular"),
+            textAnimation = enum(style.textAnimation, setOf("none", "fade", "pop", "breath", "shimmer", "typewriter", "marquee", "wave", "glow", "neon", "flash", "jelly"), "none"),
             fontSizeSp = style.fontSizeSp.coerceIn(12, 20),
             lineHeightSp = style.lineHeightSp.coerceIn(16, 28),
             paddingHorizontalDp = style.paddingHorizontalDp.coerceIn(8, 22),
@@ -452,11 +477,35 @@ class RoleManagerSkill(
         )
     }
 
+    private fun sanitizeDecorations(decorations: List<ChatBubbleDecoration>): List<ChatBubbleDecoration> {
+        fun enum(value: String, allowed: Set<String>, fallback: String): String {
+            val clean = value.lowercase().trim()
+            return if (clean in allowed) clean else fallback
+        }
+        return decorations.take(8).mapNotNull { decoration ->
+            val type = enum(decoration.type, BUBBLE_DECORATIONS, "none")
+            if (type == "none") return@mapNotNull null
+            ChatBubbleDecoration(
+                type = type,
+                text = decoration.text.take(6),
+                position = enum(decoration.position, BUBBLE_DECORATION_POSITIONS, "top_end"),
+                x = if (decoration.x in 0f..1f) decoration.x else -1f,
+                y = if (decoration.y in 0f..1f) decoration.y else -1f,
+                animation = enum(decoration.animation, BUBBLE_DECORATION_ANIMATIONS, "none"),
+                sizeDp = decoration.sizeDp.coerceIn(8, 32),
+                color = normalizeHex(decoration.color),
+                alpha = if (decoration.alpha < 0f) -1f else decoration.alpha.coerceIn(0f, 1f),
+            )
+        }
+    }
+
     private companion object {
         fun sanitizeCornerRadius(value: Int): Int = if (value < 0) -1 else value.coerceIn(0, 48)
         val BUBBLE_PRESETS = setOf("minimal", "ink", "paper", "outline", "glass", "neon", "theme", "image")
         val BUBBLE_PATTERNS = setOf("none", "contour", "dot", "grid", "star", "stripe")
-        val BUBBLE_DECORATIONS = setOf("none", "dot", "sparkle", "heart", "star", "moon", "badge", "text")
+        val BUBBLE_DECORATIONS = setOf("none", "dot", "sparkle", "heart", "star", "moon", "badge", "text", "firework", "glimmer", "aurora")
+        val BUBBLE_DECORATION_POSITIONS = setOf("top_start", "top_center", "top_end", "center_start", "center_end", "bottom_start", "bottom_center", "bottom_end", "tail")
+        val BUBBLE_DECORATION_ANIMATIONS = setOf("none", "pulse", "float", "sparkle", "orbit", "firework", "glimmer", "aurora")
         const val MAX_IMAGE_REF_LENGTH = 500_000
         const val MAX_HTML_TEMPLATE_LENGTH = 12_000
     }

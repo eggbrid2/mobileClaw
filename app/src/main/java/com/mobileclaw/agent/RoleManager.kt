@@ -98,6 +98,16 @@ class RoleManager(private val context: Context) {
             decorationPosition = style.decorationPosition.ifBlank { "top_end" },
             decorationAnimation = style.decorationAnimation.ifBlank { "none" },
             decorationSizeDp = style.decorationSizeDp.takeIf { it > 0 } ?: 14,
+            decorations = style.decorations.take(8).map {
+                it.copy(
+                    type = it.type.ifBlank { "none" },
+                    text = it.text ?: "",
+                    position = it.position.ifBlank { "top_end" },
+                    animation = it.animation.ifBlank { "none" },
+                    sizeDp = it.sizeDp.takeIf { size -> size > 0 } ?: 14,
+                    color = it.color ?: "",
+                )
+            },
             gradient = style.gradient ?: emptyList(),
             animation = style.animation.ifBlank { "none" },
             emotion = style.emotion.ifBlank { "neutral" },

@@ -121,6 +121,7 @@ data class ChatBubbleStyle(
     val decorationPosition: String = "top_end",
     val decorationAnimation: String = "none",
     val decorationSizeDp: Int = 14,
+    val decorations: List<ChatBubbleDecoration> = emptyList(),
     val gradient: List<String> = emptyList(),
     val animation: String = "none",
     val emotion: String = "neutral",
@@ -139,4 +140,16 @@ data class ChatBubbleStyle(
     val shadowOffsetYDp: Int = 0,
     val imageMode: String = "cover",
     val schemaVersion: Int = 2,
+)
+
+data class ChatBubbleDecoration(
+    val type: String = "none",
+    val text: String = "",
+    val position: String = "top_end",
+    val x: Float = -1f,
+    val y: Float = -1f,
+    val animation: String = "none",
+    val sizeDp: Int = 14,
+    val color: String = "",
+    val alpha: Float = -1f,
 )
