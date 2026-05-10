@@ -36,6 +36,8 @@ fun MarkdownText(
     color: Color,
     fontSize: TextUnit = 14.sp,
     lineHeight: TextUnit = 21.sp,
+    fontFamily: FontFamily? = null,
+    fontWeight: FontWeight? = null,
     modifier: Modifier = Modifier,
     onAction: ((String) -> Unit)? = null,
 ) {
@@ -56,7 +58,7 @@ fun MarkdownText(
                     ) {
                         Text(
                             part.content.trimEnd(),
-                            color      = c.green.copy(alpha = 0.9f),
+                            color      = color.copy(alpha = 0.9f),
                             fontSize   = 12.sp,
                             lineHeight = 18.sp,
                             fontFamily = FontFamily.Monospace,
@@ -64,7 +66,7 @@ fun MarkdownText(
                     }
                 }
                 is MarkdownPart.Prose -> {
-                    renderProse(part.content, color, c, fontSize, lineHeight)
+                    renderProse(part.content, color, c, fontSize, lineHeight, fontFamily, fontWeight)
                 }
             }
         }
@@ -80,6 +82,8 @@ private fun renderProse(
     c: ClawColors,
     fontSize: TextUnit,
     lineHeight: TextUnit,
+    fontFamily: FontFamily?,
+    fontWeight: FontWeight?,
 ) {
     val lines = prose.split("\n")
     var i = 0
@@ -90,21 +94,27 @@ private fun renderProse(
                 Text(
                     inlineAnnotated(line.removePrefix("### "), c),
                     color = textColor, fontSize = (fontSize.value + 1f).sp,
-                    fontWeight = FontWeight.SemiBold, lineHeight = lineHeight,
+                    fontWeight = strongerWeight(fontWeight, FontWeight.SemiBold),
+                    fontFamily = fontFamily,
+                    lineHeight = lineHeight,
                 )
 
             line.startsWith("## ") ->
                 Text(
                     inlineAnnotated(line.removePrefix("## "), c),
                     color = textColor, fontSize = (fontSize.value + 2f).sp,
-                    fontWeight = FontWeight.Bold, lineHeight = lineHeight,
+                    fontWeight = strongerWeight(fontWeight, FontWeight.Bold),
+                    fontFamily = fontFamily,
+                    lineHeight = lineHeight,
                 )
 
             line.startsWith("# ") ->
                 Text(
                     inlineAnnotated(line.removePrefix("# "), c),
                     color = textColor, fontSize = (fontSize.value + 4f).sp,
-                    fontWeight = FontWeight.Bold, lineHeight = lineHeight,
+                    fontWeight = strongerWeight(fontWeight, FontWeight.Bold),
+                    fontFamily = fontFamily,
+                    lineHeight = lineHeight,
                 )
 
             line.startsWith("- ") || line.startsWith("* ") ->
@@ -113,6 +123,8 @@ private fun renderProse(
                     Text(
                         inlineAnnotated(line.drop(2), c),
                         color = textColor, fontSize = fontSize, lineHeight = lineHeight,
+                        fontFamily = fontFamily,
+                        fontWeight = fontWeight,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -125,6 +137,8 @@ private fun renderProse(
                     Text(
                         inlineAnnotated(rest, c),
                         color = textColor, fontSize = fontSize, lineHeight = lineHeight,
+                        fontFamily = fontFamily,
+                        fontWeight = fontWeight,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -142,6 +156,8 @@ private fun renderProse(
                         inlineAnnotated(line.removePrefix("> "), c),
                         color = textColor.copy(alpha = 0.7f), fontSize = fontSize, lineHeight = lineHeight,
                         fontStyle = FontStyle.Italic,
+                        fontFamily = fontFamily,
+                        fontWeight = fontWeight,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -161,7 +177,7 @@ private fun renderProse(
                     i++
                     tableLines.add(lines[i])
                 }
-                MarkdownTable(tableLines, c)
+                MarkdownTable(tableLines, c, textColor, fontFamily, fontWeight)
             }
 
             line.isBlank() -> Spacer(Modifier.height(2.dp))
@@ -170,6 +186,8 @@ private fun renderProse(
                 Text(
                     inlineAnnotated(line, c),
                     color = textColor, fontSize = fontSize, lineHeight = lineHeight,
+                    fontFamily = fontFamily,
+                    fontWeight = fontWeight,
                 )
         }
         i++
@@ -179,7 +197,13 @@ private fun renderProse(
 // ── Markdown table renderer ───────────────────────────────────────────────────
 
 @Composable
-private fun MarkdownTable(lines: List<String>, c: ClawColors) {
+private fun MarkdownTable(
+    lines: List<String>,
+    c: ClawColors,
+    textColor: Color,
+    fontFamily: FontFamily?,
+    fontWeight: FontWeight?,
+) {
     // Parse each line into cells
     fun parseLine(line: String): List<String> =
         line.trim().removeSuffix("|").removePrefix("|").split("|").map { it.trim() }
@@ -213,8 +237,9 @@ private fun MarkdownTable(lines: List<String>, c: ClawColors) {
                     inlineAnnotated(cell, c),
                     modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 7.dp),
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = c.subtext,
+                    fontWeight = strongerWeight(fontWeight, FontWeight.SemiBold),
+                    fontFamily = fontFamily,
+                    color = textColor.copy(alpha = 0.72f),
                     lineHeight = 16.sp,
                 )
             }
@@ -236,7 +261,9 @@ private fun MarkdownTable(lines: List<String>, c: ClawColors) {
                         inlineAnnotated(cell, c),
                         modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp),
                         fontSize = 12.sp,
-                        color = c.text,
+                        fontFamily = fontFamily,
+                        fontWeight = fontWeight,
+                        color = textColor,
                         lineHeight = 17.sp,
                     )
                 }
@@ -244,6 +271,9 @@ private fun MarkdownTable(lines: List<String>, c: ClawColors) {
         }
     }
 }
+
+private fun strongerWeight(configured: FontWeight?, minimum: FontWeight): FontWeight =
+    configured?.takeIf { it.weight > minimum.weight } ?: minimum
 
 // ── Inline style parser ───────────────────────────────────────────────────────
 

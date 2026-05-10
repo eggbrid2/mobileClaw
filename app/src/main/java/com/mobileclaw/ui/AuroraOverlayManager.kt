@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.os.Build
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
@@ -67,6 +68,10 @@ class AuroraOverlayManager(private val context: Context) {
 
     /** Border-only flash for regular screenshots. */
     fun flash(durationMs: Long = 1_400) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            scope.launch { flash(durationMs) }
+            return
+        }
         if (!Settings.canDrawOverlays(context)) return
         fullScreen = false
         ensureWindow()
@@ -82,6 +87,10 @@ class AuroraOverlayManager(private val context: Context) {
 
     /** Full-screen aurora fill for VLM / vision analysis steps. */
     fun flashFullScreen(durationMs: Long = 2_400) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            scope.launch { flashFullScreen(durationMs) }
+            return
+        }
         if (!Settings.canDrawOverlays(context)) return
         fullScreen = true
         ensureWindow()
@@ -241,4 +250,3 @@ private fun AuroraBorderCanvas(cycleDurationMs: Int = 2_600) {
         }
     }
 }
-

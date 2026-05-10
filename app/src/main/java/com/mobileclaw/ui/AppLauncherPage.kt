@@ -57,7 +57,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,6 +77,7 @@ fun AppLauncherPage(
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
     onBack: () -> Unit,
+    showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
     var isEditMode by remember { mutableStateOf(false) }
@@ -86,7 +86,7 @@ fun AppLauncherPage(
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // Top bar using same pattern as other pages
-        Column(Modifier.fillMaxWidth().background(c.surface).statusBarsPadding()) {
+        if (showHeader) Column(Modifier.fillMaxWidth().background(c.surface).statusBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -105,7 +105,7 @@ fun AppLauncherPage(
                 if (miniApps.isNotEmpty()) {
                     Text(
                         if (isEditMode) str(R.string.app_launcher_done) else "${miniApps.size} 个",
-                        color = if (isEditMode) c.accent else c.subtext,
+                        color = if (isEditMode) c.text else c.subtext,
                         fontSize = 13.sp,
                         fontWeight = if (isEditMode) FontWeight.Medium else FontWeight.Normal,
                         modifier = Modifier
@@ -181,9 +181,7 @@ private fun AppLauncherIcon(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        Brush.radialGradient(listOf(c.accent.copy(alpha = 0.18f), c.card)),
-                    )
+                    .background(c.card)
                     .border(0.5.dp, c.border, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -313,7 +311,7 @@ fun AppViewerDialog(
                     settings.setSupportZoom(false)
                     settings.builtInZoomControls = false
                     webChromeClient = android.webkit.WebChromeClient()
-                    setBackgroundColor(android.graphics.Color.parseColor("#1a1a2e"))
+                    setBackgroundColor(android.graphics.Color.parseColor("#050505"))
 
                     val bridge = AppJsBridge(
                         context = context,
@@ -406,7 +404,7 @@ fun AppViewerDialog(
                     } else {
                         loadDataWithBaseURL(
                             baseUrl,
-                            "<html><body style='background:#1a1a2e;color:#fff;padding:24px;font-family:sans-serif'>" +
+                            "<html><body style='background:#050505;color:#fff;padding:24px;font-family:sans-serif'>" +
                             "<h3>⚠ App not found</h3><p>id: $appId</p></body></html>",
                             "text/html", "UTF-8", null,
                         )

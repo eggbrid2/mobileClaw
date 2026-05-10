@@ -17,15 +17,15 @@ import java.io.File
 
 /**
  * Generates PPTX, DOCX, XLSX, PDF, CSV or Markdown files via Python libraries.
- * Pure-Python pip packages (python-pptx, python-docx, openpyxl, reportlab) are
+ * Pure-Python pip packages (python-pptx, python-docx, openpyxl, xlsxwriter) are
  * auto-installed on first use. Output is saved to filesDir/documents/ and returned
  * as a FileData attachment.
  *
  * Content format per type:
- *   pptx → JSON: [{title, subtitle?}, {title, bullets:[], body?}, ...]
- *   docx → JSON: {title?, sections:[{heading?, paragraphs:[], bullets:[]}]}
+ *   pptx → JSON: {title?, subtitle?, theme?, image_queries?, image_urls?, slides:[...]}
+ *   docx → JSON: {title?, subtitle?, theme?, image_queries?, image_urls?, sections:[...]}
  *   xlsx → JSON: {sheets:[{name, headers:[], rows:[[]]}]}  OR  {headers:[], rows:[[]]}
- *   pdf  → JSON: {title?, sections:[{heading?, paragraphs:[], table?:[[]] }]}
+ *   pdf  → JSON: {title?, subtitle?, theme?, image_queries?, image_urls?, sections:[...]}
  *   csv  → plain CSV text
  *   md   → plain Markdown text
  */
@@ -35,20 +35,18 @@ class GenerateDocumentSkill(private val context: Context) : Skill {
         id = "generate_document",
         name = "Generate Document",
         nameZh = "生成文档",
-        description = "Creates PPTX, DOCX, XLSX, PDF, CSV or Markdown files and returns them as downloadable attachments. " +
-            "Content is passed as JSON (for structured types) or plain text (csv/md). " +
-            "Required libraries are auto-installed on first use via pip. " +
-            "pptx format: [{\"title\":\"Slide 1\",\"bullets\":[\"point 1\",\"point 2\"]}, ...] " +
-            "docx format: {\"title\":\"Doc Title\",\"sections\":[{\"heading\":\"H1\",\"paragraphs\":[\"text...\"]}]} " +
-            "xlsx format: {\"sheets\":[{\"name\":\"Sheet1\",\"headers\":[\"A\",\"B\"],\"rows\":[[1,2],[3,4]]}]} " +
-            "pdf format: same as docx " +
-            "csv/md: plain text content",
-        descriptionZh = "生成 PPTX/DOCX/XLSX/PDF/CSV/Markdown 文件并作为附件返回。" +
-            "Python 库首次使用时自动安装。",
+        description = "Creates business-grade PPTX, DOCX, XLSX, PDF, CSV or Markdown files and returns them as downloadable attachments. This is the required tool for Office documents; do not use create_file, run_python, pandas, python-pptx, openpyxl, xlsxwriter, or ad-hoc Python for PPTX/DOCX/XLSX/PDF generation. " +
+            "For PPTX/DOCX/PDF use JSON with title, subtitle, theme, slides or sections. Supports web image search/download via image_queries, direct image_urls, generated executive backgrounds, charts, tables, bullets and commercial layouts. " +
+            "Slide/section chart format: {\"type\":\"bar|line|pie|donut\",\"title\":\"...\",\"labels\":[...],\"values\":[...]}. " +
+            "Theme format: {\"name\":\"executive\",\"palette\":{\"navy\":\"#13213C\",\"blue\":\"#2563EB\",\"teal\":\"#14B8A6\",\"gold\":\"#F59E0B\"}}. " +
+            "pptx format: {\"title\":\"Deck\",\"subtitle\":\"...\",\"image_queries\":[\"modern data center\"],\"slides\":[{\"title\":\"...\",\"bullets\":[...],\"chart\":{...},\"image_query\":\"...\"}]}. " +
+            "docx/pdf format: {\"title\":\"Report\",\"sections\":[{\"heading\":\"...\",\"paragraphs\":[...],\"bullets\":[...],\"chart\":{...},\"table\":[[...]]}]}. " +
+            "xlsx format: {\"sheets\":[{\"name\":\"Sheet1\",\"headers\":[\"A\",\"B\"],\"rows\":[[1,2]],\"charts\":[{\"type\":\"bar\",\"title\":\"...\"}]}]}. Type aliases are accepted: ppt→pptx, word→docx, excel→xlsx. csv/md: plain text content.",
+        descriptionZh = "生成具有商业展示价值的 PPTX/DOCX/XLSX/PDF/CSV/Markdown 文件并作为附件返回。生成办公文档必须使用此 skill，不要用 create_file、run_python、pandas、python-pptx、openpyxl、xlsxwriter 或临时手写 Python 生成 PPTX/DOCX/XLSX/PDF。PPTX/DOCX/PDF 支持联网检索并下载图片、插入图片直链、生成商务背景、图表、表格、项目符号和商业版式。content 使用 JSON，可包含 title、subtitle、theme、image_queries、image_urls、slides 或 sections。chart 格式：{\"type\":\"bar|line|pie|donut\",\"title\":\"...\",\"labels\":[...],\"values\":[...]}。type 支持别名：ppt→pptx、word→docx、excel→xlsx。",
         parameters = listOf(
-            SkillParam("type", "string", "Document type: pptx | docx | xlsx | pdf | csv | md"),
-            SkillParam("filename", "string", "Output filename without extension, e.g. 'report'"),
-            SkillParam("content", "string", "Document content: JSON structure for pptx/docx/xlsx/pdf, plain text for csv/md"),
+            SkillParam("type", "string", "Document type: pptx | docx | xlsx | pdf | csv | md. Aliases accepted: ppt | word | excel"),
+            SkillParam("filename", "string", "Output filename. Extension is optional, e.g. 'report' or 'report.pptx'"),
+            SkillParam("content", "string", "Document content. For pptx/docx/pdf/xlsx pass JSON. For csv/md pass plain text. JSON may include theme, image_queries, image_urls, slides/sections, charts and tables."),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
@@ -57,9 +55,9 @@ class GenerateDocumentSkill(private val context: Context) : Skill {
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {
-        val type = (params["type"] as? String)?.lowercase()?.trim()
+        val type = normalizeType(params["type"] as? String)
             ?: return@withContext SkillResult(false, "type parameter required (pptx/docx/xlsx/pdf/csv/md)")
-        val filename = (params["filename"] as? String)?.trim()?.ifBlank { "document" } ?: "document"
+        val filename = normalizeFilename((params["filename"] as? String)?.trim()?.ifBlank { "document" } ?: "document", type)
         val content = params["content"] as? String ?: ""
 
         val outputDir = File(context.filesDir, "documents").also { it.mkdirs() }
@@ -95,17 +93,47 @@ class GenerateDocumentSkill(private val context: Context) : Skill {
         }
     }
 
+    private fun normalizeType(raw: String?): String? = when (raw?.lowercase()?.trim()?.removePrefix(".")?.replace("powerpoint", "ppt")) {
+        "ppt", "pptx" -> "pptx"
+        "doc", "docx", "word" -> "docx"
+        "xls", "xlsx", "excel" -> "xlsx"
+        "pdf" -> "pdf"
+        "csv" -> "csv"
+        "md", "markdown" -> "md"
+        "txt", "text" -> "txt"
+        else -> null
+    }
+
+    private fun normalizeFilename(raw: String, type: String): String {
+        val clean = raw.trim().ifBlank { "document" }
+        val knownExtensions = listOf(".pptx", ".ppt", ".docx", ".doc", ".xlsx", ".xls", ".pdf", ".csv", ".md", ".markdown", ".txt")
+        return knownExtensions.firstOrNull { clean.endsWith(it, ignoreCase = true) }
+            ?.let { clean.dropLast(it.length).ifBlank { "document" } }
+            ?: clean.removeSuffix(".$type").ifBlank { "document" }
+    }
+
     private fun runPythonDoc(py: Python, pipDir: String, type: String, contentPath: String, outputFile: File): SkillResult {
-        val script = RuntimePipInstaller.buildPreamble(pipDir) + "\n" + when (type) {
-            "pptx" -> pptxScript(contentPath, outputFile.absolutePath)
-            "docx" -> docxScript(contentPath, outputFile.absolutePath)
-            "xlsx" -> xlsxScript(contentPath, outputFile.absolutePath)
-            "pdf"  -> pdfScript(contentPath, outputFile.absolutePath)
+        val packages = when (type) {
+            "pptx" -> listOf("python-pptx", "xlsxwriter")
+            "docx" -> listOf("python-docx")
+            "xlsx" -> listOf("openpyxl", "xlsxwriter")
+            "pdf"  -> emptyList()
             else   -> return SkillResult(false, "Unknown type: $type")
         }
+        val installLines = packages.joinToString("\n") { "pip_install('$it')" }
+        val script = RuntimePipInstaller.buildPreamble(pipDir) + "\n" + installLines
         return runCatching {
             val globals = py.getBuiltins().callAttr("dict")
             py.getBuiltins().callAttr("exec", script, globals)
+            val assetDir = File(context.cacheDir, "office_assets_${System.currentTimeMillis()}").also { it.mkdirs() }
+            val module = py.getModule("office_document_builder")
+            val buildResult = module.callAttr(
+                "build_document",
+                type,
+                contentPath,
+                outputFile.absolutePath,
+                assetDir.absolutePath,
+            ).toString()
             val mime = when (type) {
                 "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -113,163 +141,12 @@ class GenerateDocumentSkill(private val context: Context) : Skill {
                 "pdf"  -> "application/pdf"
                 else   -> "application/octet-stream"
             }
-            SkillResult(true, "${type.uppercase()} 已生成：${outputFile.name}",
+            val extra = if (buildResult.contains("\"asset_count\": 0")) "" else "（已处理图片/图表资源）"
+            SkillResult(true, "${type.uppercase()} 已生成：${outputFile.name}$extra",
                 data = SkillAttachment.FileData(outputFile.absolutePath, outputFile.name, mime, outputFile.length()))
         }.getOrElse { e ->
             SkillResult(false, "生成 $type 失败：${e.message?.take(600)}")
         }
     }
 
-    // ── Python script bodies ──────────────────────────────────────────────────
-
-    private fun pptxScript(contentPath: String, outPath: String) = """
-pip_install('python-pptx')
-import json
-from pptx import Presentation
-from pptx.util import Inches, Pt
-
-with open('$contentPath', 'r', encoding='utf-8') as f:
-    slides_data = json.load(f)
-
-prs = Presentation()
-prs.slide_width  = Inches(13.33)
-prs.slide_height = Inches(7.5)
-
-for i, sd in enumerate(slides_data if isinstance(slides_data, list) else [slides_data]):
-    layout = prs.slide_layouts[0] if i == 0 else prs.slide_layouts[1]
-    slide = prs.slides.add_slide(layout)
-    title_shape = slide.shapes.title
-    if title_shape:
-        title_shape.text = str(sd.get('title', ''))
-    placeholders = list(slide.placeholders)
-    if i == 0:
-        if len(placeholders) > 1:
-            placeholders[1].text = str(sd.get('subtitle', sd.get('body', '')))
-    else:
-        content_ph = next((p for p in placeholders if p.placeholder_format.idx == 1), None)
-        if content_ph:
-            tf = content_ph.text_frame
-            tf.clear()
-            items = sd.get('bullets', [])
-            if not items and sd.get('body'):
-                items = [sd['body']]
-            for j, item in enumerate(items):
-                p = tf.paragraphs[0] if j == 0 else tf.add_paragraph()
-                p.text = str(item)
-                p.level = int(sd.get('level', 0))
-
-prs.save('$outPath')
-""".trimIndent()
-
-    private fun docxScript(contentPath: String, outPath: String) = """
-pip_install('python-docx')
-import json
-from docx import Document
-from docx.shared import Pt
-
-with open('$contentPath', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-doc = Document()
-title = data.get('title', '')
-if title:
-    doc.add_heading(title, level=0)
-
-for section in data.get('sections', []):
-    heading = section.get('heading', '')
-    if heading:
-        doc.add_heading(heading, level=int(section.get('level', 1)))
-    for para in section.get('paragraphs', []):
-        doc.add_paragraph(str(para))
-    for item in section.get('bullets', []):
-        doc.add_paragraph(str(item), style='List Bullet')
-    for item in section.get('numbered', []):
-        doc.add_paragraph(str(item), style='List Number')
-
-doc.save('$outPath')
-""".trimIndent()
-
-    private fun xlsxScript(contentPath: String, outPath: String) = """
-pip_install('openpyxl')
-import json
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.utils import get_column_letter
-
-with open('$contentPath', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-wb = Workbook()
-raw = data if isinstance(data, dict) else {}
-sheets = raw.get('sheets', None)
-if sheets is None:
-    sheets = [{'name': 'Sheet1', 'headers': raw.get('headers', []), 'rows': raw.get('rows', [])}]
-
-for i, sheet_data in enumerate(sheets):
-    ws = wb.active if i == 0 else wb.create_sheet()
-    ws.title = str(sheet_data.get('name', f'Sheet{i+1}'))[:31]
-    headers = sheet_data.get('headers', [])
-    if headers:
-        ws.append([str(h) for h in headers])
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill('solid', fgColor='4472C4')
-            cell.font = Font(bold=True, color='FFFFFF')
-    for row in sheet_data.get('rows', []):
-        ws.append(list(row) if isinstance(row, (list, tuple)) else list(row.values()))
-    for col in ws.columns:
-        max_len = max((len(str(cell.value)) for cell in col if cell.value), default=8)
-        ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 2, 40)
-
-wb.save('$outPath')
-""".trimIndent()
-
-    private fun pdfScript(contentPath: String, outPath: String) = """
-pip_install('reportlab')
-import json
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import cm
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, ListFlowable, ListItem
-
-with open('$contentPath', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-doc = SimpleDocTemplate('$outPath', pagesize=A4, topMargin=2*cm, bottomMargin=2*cm)
-styles = getSampleStyleSheet()
-story = []
-
-title = data.get('title', '')
-if title:
-    story.append(Paragraph(str(title), styles['Title']))
-    story.append(Spacer(1, 12))
-
-for section in data.get('sections', []):
-    heading = section.get('heading', '')
-    if heading:
-        story.append(Paragraph(str(heading), styles['Heading1']))
-    for para in section.get('paragraphs', []):
-        story.append(Paragraph(str(para), styles['Normal']))
-        story.append(Spacer(1, 6))
-    bullets = section.get('bullets', [])
-    if bullets:
-        items = [ListItem(Paragraph(str(b), styles['Normal'])) for b in bullets]
-        story.append(ListFlowable(items, bulletType='bullet'))
-        story.append(Spacer(1, 8))
-    table_data = section.get('table', [])
-    if table_data:
-        t = Table([[str(cell) for cell in row] for row in table_data])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#4472C4')),
-            ('TEXTCOLOR',  (0,0), (-1,0), colors.white),
-            ('FONTNAME',   (0,0), (-1,0), 'Helvetica-Bold'),
-            ('GRID',       (0,0), (-1,-1), 0.5, colors.grey),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F2F2F2')]),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 12))
-
-doc.build(story)
-""".trimIndent()
 }

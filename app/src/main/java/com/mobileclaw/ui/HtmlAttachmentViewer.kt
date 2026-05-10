@@ -2,6 +2,7 @@ package com.mobileclaw.ui
 
 import android.annotation.SuppressLint
 import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,6 +75,7 @@ fun HtmlAttachmentViewer(
 ) {
     val app = ClawApplication.instance
     val c = LocalClawColors.current
+    BackHandler { onClose() }
 
     // Track the content key to detect hot-update changes: path + content hash
     val loadedKey = remember { mutableStateOf("") }
@@ -141,7 +143,7 @@ fun HtmlAttachmentViewer(
                     settings.builtInZoomControls = false
                     webChromeClient = android.webkit.WebChromeClient()
                     // Prevent white flash while page loads
-                    setBackgroundColor(android.graphics.Color.parseColor("#1a1a2e"))
+                    setBackgroundColor(android.graphics.Color.parseColor("#050505"))
 
                     // Derive a stable app-like ID from the file path so data is persisted
                     val appId = attachment.path

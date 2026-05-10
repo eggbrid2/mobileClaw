@@ -15,8 +15,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.ClawApplication
+import com.mobileclaw.R
 import com.mobileclaw.ui.ClawTheme
 import com.mobileclaw.ui.LocalClawColors
+import com.mobileclaw.str
 
 /**
  * Standalone Activity that hosts an AI page, launched from a launcher shortcut or
@@ -56,7 +58,7 @@ class AiPageActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize().background(c.bg).systemBarsPadding(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Page not found: $pageId", color = c.subtext, fontSize = 14.sp)
+                        Text(str(R.string.aipage_not_found, pageId), color = c.subtext, fontSize = 14.sp)
                     }
                 }
             }

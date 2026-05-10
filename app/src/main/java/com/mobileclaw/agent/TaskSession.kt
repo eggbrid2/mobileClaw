@@ -158,7 +158,8 @@ object TaskClassifier {
         }
         if (text.anyContains("搜索", "查询", "查一下", "网页", "浏览", "新闻", "最新", "资料", "research", "search", "browse")) return TaskType.WEB_RESEARCH
         if (text.anyContains("生成图片", "画图", "图片", "图标", "视频", "image", "icon", "video")) return TaskType.IMAGE_GENERATION
-        if (text.anyContains("做个app", "做一个app", "创建应用", "小应用", "网页应用", "html", "dashboard", "tool", "game", "calculator")) return TaskType.APP_BUILD
+        if (text.anyContains("创建页面", "生成页面", "做个页面", "做一个页面", "原生页面", "ai页面", "aipage", "dashboard", "仪表盘", "表单", "管理页")) return TaskType.APP_BUILD
+        if (text.anyContains("做个app", "做一个app", "创建应用", "小应用", "网页应用", "miniapp", "mini app", "html", "game", "calculator", "小游戏", "程序")) return TaskType.APP_BUILD
         if (text.anyContains("文件", "文档", "ppt", "docx", "xlsx", "pdf", "csv", "markdown")) return TaskType.FILE_CREATE
         if (text.anyContains("skill", "技能", "安装能力", "创建技能", "技能市场")) return TaskType.SKILL_MANAGEMENT
         if (text.anyContains("shell", "python", "脚本", "执行命令", "运行代码", "pip")) return TaskType.CODE_EXECUTION
@@ -195,8 +196,10 @@ object TaskToolPolicy {
 """.trimIndent()
         TaskType.APP_BUILD -> """
 ## Current Task Mode: APP_BUILD
-- Build or update a runnable artifact with `app_manager` or `create_html`.
-- Do not return raw HTML as chat text when a tool can create the app.
+- Build or update runnable UI with tools. NEVER return raw code/HTML as chat text.
+- Default route: for pages, dashboards, forms, settings panels, management screens, data viewers, and lightweight tools, use `ui_builder` to create an AI Native Page.
+- Use `app_manager` only when the user explicitly asks for an app/mini-app/program/game, or when the artifact needs custom HTML/CSS/JavaScript, canvas, complex browser rendering, Python backend, SQLite, or a WebView-style runtime.
+- Use `create_html` only for one-off rich HTML reports/previews shown in chat, not persistent apps or native pages.
 """.trimIndent()
         TaskType.IMAGE_GENERATION -> """
 ## Current Task Mode: IMAGE_GENERATION
@@ -205,6 +208,9 @@ object TaskToolPolicy {
         TaskType.FILE_CREATE -> """
 ## Current Task Mode: FILE_CREATE
 - Use file/document tools to create, read, list, or update files.
+- For office documents (PPT/PPTX, Word/DOCX, Excel/XLSX, PDF), you MUST call `generate_document`.
+- Do NOT use `create_file` for PPTX/DOCX/XLSX/PDF. Do NOT use `run_python`, `pip_install`, pandas, python-pptx, openpyxl, or xlsxwriter for office generation.
+- Use `create_file` only for plain text-like files such as txt, md, json, csv when no office layout is needed.
 """.trimIndent()
         TaskType.VPN_CONTROL -> """
 ## Current Task Mode: VPN_CONTROL
@@ -221,6 +227,9 @@ object TaskToolPolicy {
         TaskType.CHAT, TaskType.GENERAL -> """
 ## Current Task Mode: GENERAL
 - Use only the tools needed for this task. If the user asks to operate the phone, switch behavior to phone-control style.
+- For casual conversation, humor, teasing, celebration, awkwardness, comfort, thanks, surprise, speechless moments, or meme-like replies, actively consider `sticker_bqb`.
+- Only call `sticker_bqb` when the sticker's query matches your intended reaction or emotion. Send at most one sticker per turn, and do not use it for serious, professional, or safety-critical answers.
+- If you send a sticker, keep accompanying text short and natural; do not explain the sticker as an attachment.
 """.trimIndent()
     }
 
@@ -230,17 +239,17 @@ object TaskToolPolicy {
             "check_permissions", "vpn_control",
         )
         TaskType.WEB_RESEARCH -> listOf("web_search", "fetch_url", "web_browse", "web_content", "web_js", "vpn_control")
-        TaskType.FILE_CREATE -> listOf("create_file", "read_file", "list_files", "create_html", "generate_document")
-        TaskType.APP_BUILD -> listOf("app_manager", "create_html", "read_file", "create_file", "list_files", "ui_builder")
+        TaskType.FILE_CREATE -> listOf("generate_document", "create_file", "read_file", "list_files", "create_html")
+        TaskType.APP_BUILD -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
         TaskType.IMAGE_GENERATION -> listOf("generate_image", "generate_icon", "generate_video", "create_file")
         TaskType.VPN_CONTROL -> listOf("vpn_control")
         TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes")
         TaskType.CODE_EXECUTION -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files")
-        TaskType.CHAT -> emptyList()
+        TaskType.CHAT -> listOf("sticker_bqb")
         TaskType.GENERAL -> listOf(
             "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate",
             "web_search", "fetch_url", "create_file", "read_file", "list_files",
-            "memory", "user_profile", "vpn_control",
+            "ui_builder", "app_manager", "create_html", "memory", "user_profile", "vpn_control", "sticker_bqb",
         )
     }
 }

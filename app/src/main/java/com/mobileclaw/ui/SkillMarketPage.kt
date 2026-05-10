@@ -29,8 +29,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +83,7 @@ fun SkillMarketPage(
     installedIds: Set<String>,
     onInstall: (SkillDefinition) -> Unit,
     onBack: () -> Unit,
+    showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
     var selectedTab by remember { mutableStateOf(0) }
@@ -98,7 +97,7 @@ fun SkillMarketPage(
             .background(c.surface),
     ) {
         // Top bar
-        Column(
+        if (showHeader) Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.surface)
@@ -125,28 +124,20 @@ fun SkillMarketPage(
                     color = c.text,
                 )
             }
-            ScrollableTabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = c.surface,
-                contentColor = c.accent,
-                edgePadding = 8.dp,
-                divider = {},
-            ) {
-                tabs.forEachIndexed { idx, label ->
-                    Tab(
-                        selected = selectedTab == idx,
-                        onClick = { selectedTab = idx },
-                        text = {
-                            Text(
-                                label,
-                                fontSize = 13.sp,
-                                fontWeight = if (selectedTab == idx) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (selectedTab == idx) c.accent else c.subtext,
-                            )
-                        },
-                    )
-                }
-            }
+            CompactScrollableTabs(
+                items = tabs.mapIndexed { idx, label ->
+                    CompactTabItem(label = label, selected = selectedTab == idx) { selectedTab = idx }
+                },
+                modifier = Modifier.background(c.surface),
+            )
+            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        } else {
+            CompactScrollableTabs(
+                items = tabs.mapIndexed { idx, label ->
+                    CompactTabItem(label = label, selected = selectedTab == idx) { selectedTab = idx }
+                },
+                modifier = Modifier.background(c.surface),
+            )
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
         }
 

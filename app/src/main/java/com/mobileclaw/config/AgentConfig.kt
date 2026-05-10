@@ -36,6 +36,7 @@ class AgentConfig(private val context: Context) {
         val LANGUAGE = stringPreferencesKey("response_language")
         val DARK_THEME = stringPreferencesKey("dark_theme")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
+        val UI_STYLE = stringPreferencesKey("ui_style")
         // Legacy single-gateway keys (read-only for migration)
         val ENDPOINT = stringPreferencesKey("llm_endpoint")
         val API_KEY = stringPreferencesKey("llm_api_key")
@@ -50,9 +51,10 @@ class AgentConfig(private val context: Context) {
         ConfigSnapshot(
             gateways = gateways,
             activeGatewayId = activeId ?: gateways.firstOrNull()?.id,
-            language = prefs[Keys.LANGUAGE] ?: "auto",
+            language = prefs[Keys.LANGUAGE]?.takeIf { it == "zh" || it == "en" } ?: "zh",
             darkTheme = (prefs[Keys.DARK_THEME] ?: "true") == "true",
-            accentColor = prefs[Keys.ACCENT_COLOR]?.toLongOrNull() ?: 0xFFFF6B35L,
+            accentColor = 0xFF2563EBL,
+            uiStyle = prefs[Keys.UI_STYLE]?.takeIf { it == "desk" || it == "classic" } ?: "desk",
         )
     }
 
@@ -70,9 +72,10 @@ class AgentConfig(private val context: Context) {
             if (snapshot.activeGatewayId != null) {
                 prefs[Keys.ACTIVE_GATEWAY_ID] = snapshot.activeGatewayId
             }
-            prefs[Keys.LANGUAGE] = snapshot.language
+            prefs[Keys.LANGUAGE] = snapshot.language.takeIf { it == "zh" || it == "en" } ?: "zh"
             prefs[Keys.DARK_THEME] = snapshot.darkTheme.toString()
-            prefs[Keys.ACCENT_COLOR] = snapshot.accentColor.toString()
+            prefs[Keys.ACCENT_COLOR] = 0xFF2563EBL.toString()
+            prefs[Keys.UI_STYLE] = snapshot.uiStyle.takeIf { it == "desk" || it == "classic" } ?: "desk"
         }
     }
 
@@ -115,9 +118,10 @@ class AgentConfig(private val context: Context) {
 data class ConfigSnapshot(
     val gateways: List<GatewayConfig> = emptyList(),
     val activeGatewayId: String? = null,
-    val language: String = "auto",
+    val language: String = "zh",
     val darkTheme: Boolean = true,
-    val accentColor: Long = 0xFFFF6B35L,
+    val accentColor: Long = 0xFF2563EBL,
+    val uiStyle: String = "desk",
 ) {
     val activeGateway: GatewayConfig?
         get() = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()

@@ -5,7 +5,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.mobileclaw.ClawApplication
+import com.mobileclaw.skill.SkillResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +35,9 @@ class AiPageRuntime(
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val capabilities = AiPageCapabilities(context)
+    private val appContext = AiPageAppContext(context)
+    private val app = context.applicationContext as ClawApplication
+    private val gson = Gson()
 
     fun handleAction(actionName: String) {
         val stepsArr = def.actions[actionName]?.asJsonArray ?: return
@@ -128,11 +135,61 @@ class AiPageRuntime(
                 state[resultKey] = capabilities.clipboardGet()
             }
 
+            "app_context" -> {
+                val domain = step["domain"]?.asString?.let { ExprEval.eval(it, state.toMap(), inputState.toMap(), lastResult) } ?: "all"
+                val limit = step["limit"]?.asInt ?: 20
+                val resultKey = step["result_key"]?.asString ?: "app_context"
+                val json = appContext.asJson(domain, limit)
+                lastResult = mapOf("body" to json, "domain" to domain, "ok" to true)
+                if (resultKey.isNotBlank()) state[resultKey] = json
+            }
+
+            "skill_call" -> {
+                val skillId = ev("skill")
+                val resultKey = step["result_key"]?.asString ?: "${skillId}_result"
+                val params = parseParams(step["params"] as? JsonObject)
+                val skillResult = app.skillRegistry.get(skillId)
+                    ?.let { skill -> runCatching { skill.execute(params) }.getOrElse { e -> SkillResult(false, "Error: ${e.message}") } }
+                    ?: SkillResult(false, "Skill '$skillId' not found")
+                val result = mapOf(
+                    "ok" to skillResult.success,
+                    "output" to skillResult.output,
+                    "hasImage" to !skillResult.imageBase64.isNullOrBlank(),
+                    "data" to (skillResult.data?.let { gson.toJson(it) } ?: ""),
+                )
+                lastResult = result
+                if (resultKey.isNotBlank()) state[resultKey] = skillResult.output
+            }
+
             "navigate_page" -> {
                 val pageId = ev("id")
                 if (pageId.isNotBlank()) onNavigatePage?.invoke(pageId)
             }
         }
+    }
+
+    private fun parseParams(obj: JsonObject?): Map<String, Any> {
+        if (obj == null) return emptyMap()
+        return obj.entrySet().associate { (key, value) ->
+            val resolved = if (value.isJsonPrimitive && value.asJsonPrimitive.isString) {
+                ExprEval.eval(value.asString, state.toMap(), inputState.toMap(), lastResult)
+            } else {
+                value.toString()
+            }
+            key to parseParamValue(resolved)
+        }
+    }
+
+    private fun parseParamValue(raw: String): Any {
+        val trimmed = raw.trim()
+        if (trimmed.equals("true", ignoreCase = true)) return true
+        if (trimmed.equals("false", ignoreCase = true)) return false
+        trimmed.toLongOrNull()?.let { return it }
+        trimmed.toDoubleOrNull()?.let { return it }
+        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+            return runCatching { gson.fromJson(JsonParser.parseString(trimmed), Any::class.java) }.getOrDefault(raw)
+        }
+        return raw
     }
 
     fun dispose() { scope.cancel() }

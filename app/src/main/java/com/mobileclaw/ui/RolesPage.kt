@@ -2,6 +2,7 @@ package com.mobileclaw.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -28,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +47,7 @@ fun RolesPage(
     onEdit: (Role) -> Unit,
     onDelete: (String) -> Unit,
     onBack: () -> Unit = {},
+    showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
 
@@ -54,12 +58,14 @@ fun RolesPage(
 
     Box(modifier = Modifier.fillMaxSize().background(c.bg)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            ClawPageHeader(
-                title = str(R.string.drawer_roles),
-                onBack = onBack,
-            )
+            if (showHeader) {
+                ClawPageHeader(
+                    title = str(R.string.drawer_roles),
+                    onBack = onBack,
+                )
+            }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = if (showHeader) 0.dp else 16.dp, vertical = if (showHeader) 0.dp else 12.dp)) {
                 item { RoleSectionHeader(str(R.string.roles_2a7543)) }
                 items(builtins, key = { it.id }) { role ->
                     RoleRow(
@@ -69,7 +75,8 @@ fun RolesPage(
                         onEdit = { onEdit(role) },
                         onDelete = null,
                     )
-                    HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = c.border, thickness = 0.5.dp)
+                    if (showHeader) HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = c.border, thickness = 0.5.dp)
+                    else Spacer(Modifier.height(10.dp))
                 }
                 if (custom.isNotEmpty()) {
                     item { RoleSectionHeader(str(R.string.help_fddab2)) }
@@ -81,7 +88,8 @@ fun RolesPage(
                             onEdit = { onEdit(role) },
                             onDelete = { onDelete(role.id) },
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = c.border, thickness = 0.5.dp)
+                        if (showHeader) HorizontalDivider(modifier = Modifier.padding(start = 68.dp), color = c.border, thickness = 0.5.dp)
+                        else Spacer(Modifier.height(10.dp))
                     }
                 }
                 item { Spacer(Modifier.height(80.dp)) }
@@ -102,7 +110,7 @@ fun RolesPage(
                 )
             },
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-            containerColor = c.accent,
+            containerColor = c.text,
             contentColor = c.bg,
         ) {
             Icon(Icons.Default.Add, contentDescription = str(R.string.role_create_title))
@@ -118,8 +126,8 @@ private fun RoleSectionHeader(title: String) {
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         color = c.subtext,
-        letterSpacing = 0.3.sp,
-        modifier = Modifier.fillMaxWidth().background(c.bg).padding(horizontal = 16.dp, vertical = 8.dp),
+        letterSpacing = 0.sp,
+        modifier = Modifier.fillMaxWidth().background(c.bg).padding(horizontal = 2.dp, vertical = 10.dp),
     )
 }
 
@@ -135,22 +143,24 @@ private fun RoleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isActive) c.accent.copy(alpha = 0.05f) else c.bg)
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.surface)
+            .border(1.dp, if (isActive) c.text else c.border, RoundedCornerShape(16.dp))
             .clickable { onActivate() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GradientAvatar(emoji = role.avatar, size = 40.dp, color = if (isActive) c.accent else c.subtext)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(role.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = if (isActive) c.accent else c.text)
+            Text(role.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(role.description, fontSize = 12.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             if (role.modelOverride != null) {
-                Text(role.modelOverride!!, fontSize = 10.sp, color = c.blue, modifier = Modifier.padding(top = 1.dp))
+                Text(role.modelOverride!!, fontSize = 10.sp, color = c.subtext, modifier = Modifier.padding(top = 1.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (isActive) {
-            Icon(Icons.Default.Check, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
+            Icon(Icons.Default.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
         }
         if (onEdit != null) {
             IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {

@@ -491,6 +491,35 @@ private fun RenderNode(node: JsonObject, runtime: AiPageRuntime, c: ClawColors) 
             }
         }
 
+        "json_view" -> {
+            val content = ev(node["content"]?.asString, runtime)
+            val maxChars = node["max_chars"]?.asInt ?: 6000
+            val pretty = remember(content) {
+                runCatching {
+                    com.google.gson.GsonBuilder()
+                        .setPrettyPrinting()
+                        .create()
+                        .toJson(com.google.gson.JsonParser.parseString(content))
+                }.getOrDefault(content)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(c.cardAlt)
+                    .border(0.5.dp, c.border, RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+            ) {
+                Text(
+                    pretty.take(maxChars),
+                    color = c.text,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                )
+            }
+        }
+
         "conditional" -> {
             val condRaw = ev(node["condition"]?.asString, runtime)
             val isTrue = condRaw.equals("true", ignoreCase = true) || condRaw == "1" || (condRaw.isNotBlank() && condRaw != "false" && condRaw != "0")

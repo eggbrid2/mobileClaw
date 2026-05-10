@@ -124,6 +124,7 @@ fun RoleEditPage(
                                 .filter { it.isNotBlank() }
                                 .distinct(),
                             isBuiltin = initial.isBuiltin,
+                            chatBubbleStyle = initial.chatBubbleStyle,
                         )
                     )
                 }) {
@@ -172,7 +173,7 @@ fun RoleEditPage(
                     OutlinedTextField(
                         value = avatar,
                         onValueChange = { if (it.length <= 2) avatar = it },
-                        label = { Text("Emoji") },
+                        label = { Text(str(R.string.role_edit_74308d)) },
                         modifier = Modifier.width(100.dp),
                         singleLine = true,
                     )
@@ -201,15 +202,15 @@ fun RoleEditPage(
             OutlinedTextField(
                 value = schedulerKeywords,
                 onValueChange = { schedulerKeywords = it },
-                label = { Text("调度关键词") },
-                placeholder = { Text("股票, 财报, 小红书, 健身", fontSize = 12.sp, color = c.subtext) },
+                label = { Text(str(R.string.role_field_scheduler_keywords)) },
+                placeholder = { Text(str(R.string.role_field_scheduler_keywords_hint), fontSize = 12.sp, color = c.subtext) },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 1,
                 maxLines = 3,
             )
 
             Text(
-                text = "适用任务类型",
+                text = str(R.string.role_field_task_types),
                 fontSize = 12.sp,
                 color = c.subtext,
             )

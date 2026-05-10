@@ -20,7 +20,7 @@ data class SkillMeta(
 
 data class SkillParam(
     val name: String,
-    val type: String,                   // "string" | "number" | "boolean"
+    val type: String,                   // "string" | "number" | "boolean" | "object" | "array"
     val description: String,
     val required: Boolean = true,
 )

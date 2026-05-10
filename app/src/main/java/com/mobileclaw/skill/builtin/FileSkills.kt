@@ -185,10 +185,10 @@ class CreateHtmlSkill(private val context: Context) : Skill {
 
     override val meta = SkillMeta(
         id = "create_html",
-        name = "Create HTML Page",
-        description = "Creates an HTML file and shows it as an in-app web page. " +
-            "Use for rich reports, charts (Chart.js, D3), interactive content, or any custom UI. " +
-            "The page opens directly in the app without leaving the chat.",
+        name = "Create One-off HTML Preview",
+        description = "Creates a temporary HTML preview/report and shows it in chat. " +
+            "Use only for one-off rich reports or previews. For persistent pages use ui_builder; for real mini-app programs use app_manager. " +
+            "Never return raw HTML in chat when this tool can display it.",
         parameters = listOf(
             SkillParam("title", "string", "Page title shown in the viewer header"),
             SkillParam("html_content", "string", "Complete HTML document including <!DOCTYPE html>, <html>, <head>, and <body>"),
@@ -196,8 +196,8 @@ class CreateHtmlSkill(private val context: Context) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
-        nameZh = "创建 HTML 页面",
-        descriptionZh = "生成 HTML 文件并在内置浏览器中打开。",
+        nameZh = "创建一次性 HTML 预览",
+        descriptionZh = "生成一次性 HTML 报告/预览并在聊天中打开。持久页面优先使用 ui_builder，真正的 MiniAPP 程序使用 app_manager，不要直接在聊天里返回 HTML。",
         tags = listOf("文件"),
     )
 

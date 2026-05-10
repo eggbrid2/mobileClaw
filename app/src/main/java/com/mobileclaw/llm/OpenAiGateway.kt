@@ -176,8 +176,11 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                             "parameters" to mapOf(
                                 "type" to "object",
                                 "properties" to tool.parameters.properties.mapValues { (_, p) ->
-                                    if (p.type == "array") mapOf("type" to p.type, "description" to p.description, "items" to emptyMap<String, Any>())
-                                    else mapOf("type" to p.type, "description" to p.description)
+                                    when (p.type) {
+                                        "array" -> mapOf("type" to p.type, "description" to p.description, "items" to emptyMap<String, Any>())
+                                        "object" -> mapOf("type" to p.type, "description" to p.description, "additionalProperties" to true)
+                                        else -> mapOf("type" to p.type, "description" to p.description)
+                                    }
                                 },
                                 "required" to tool.parameters.required,
                             )

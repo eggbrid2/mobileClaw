@@ -16,6 +16,7 @@ data class Role(
     val keywords: List<String> = emptyList(),
     val schedulerPriority: Int = 0,
     val isBuiltin: Boolean = false,
+    val chatBubbleStyle: ChatBubbleStyle = ChatBubbleStyle(),
 ) {
     companion object {
         val DEFAULT = Role(
@@ -64,11 +65,11 @@ data class Role(
             Role(
                 id = "creator",
                 name = "创意助手",
-                description = "专注于图片生成、HTML 页面和内容创作",
+                description = "专注于原生页面、MiniAPP 程序、图片生成和内容创作",
                 avatar = "🎨",
-                systemPromptAddendum = "You specialize in IMAGE_GENERATION, APP_BUILD, and FILE_CREATE tasks. Use generation or artifact tools only when the current Task Mode allows them. Produce complete usable outputs instead of long raw content in chat.",
+                systemPromptAddendum = "You specialize in IMAGE_GENERATION, APP_BUILD, and FILE_CREATE tasks. For page/dashboard/form/panel/screen requests, prefer ui_builder to create an AI Native Page. Use app_manager only for explicit app/mini-app/program/game or custom HTML/JS/Python/SQLite runtime needs. Never return raw code or HTML when a creation tool can create the artifact. For PPT/PPTX, Word/DOCX, Excel/XLSX, and PDF, always use generate_document and provide structured JSON content; never hand-write office files with create_file or Python libraries. Produce complete usable outputs instead of long raw content in chat.",
                 preferredTaskTypes = listOf(TaskType.IMAGE_GENERATION, TaskType.APP_BUILD, TaskType.FILE_CREATE),
-                keywords = listOf("图片", "画图", "图标", "视频", "应用", "html", "文档", "文件", "生成"),
+                keywords = listOf("图片", "画图", "图标", "视频", "页面", "原生页面", "ai页面", "仪表盘", "应用", "miniapp", "html", "文档", "文件", "生成"),
                 isBuiltin = true,
             ),
             Role(
@@ -94,3 +95,48 @@ data class Role(
         )
     }
 }
+
+data class ChatBubbleStyle(
+    val preset: String = "minimal",
+    val renderer: String = "native",
+    val htmlTemplate: String = "",
+    val htmlHeightDp: Int = 160,
+    val htmlAllowJs: Boolean = false,
+    val htmlAllowNetwork: Boolean = true,
+    val htmlTransparent: Boolean = true,
+    val backgroundColor: String = "",
+    val backgroundImage: String = "",
+    val textColor: String = "",
+    val borderColor: String = "",
+    val accentColor: String = "",
+    val radiusDp: Int = 18,
+    val radiusTopStartDp: Int = -1,
+    val radiusTopEndDp: Int = -1,
+    val radiusBottomEndDp: Int = -1,
+    val radiusBottomStartDp: Int = -1,
+    val tail: String = "soft",
+    val pattern: String = "none",
+    val decoration: String = "none",
+    val decorationText: String = "",
+    val decorationPosition: String = "top_end",
+    val decorationAnimation: String = "none",
+    val decorationSizeDp: Int = 14,
+    val gradient: List<String> = emptyList(),
+    val animation: String = "none",
+    val emotion: String = "neutral",
+    val fontFamily: String = "system",
+    val fontWeight: String = "regular",
+    val textAnimation: String = "none",
+    val fontSizeSp: Int = 14,
+    val lineHeightSp: Int = 20,
+    val paddingHorizontalDp: Int = 12,
+    val paddingVerticalDp: Int = 8,
+    val shadow: String = "none",
+    val shadowColor: String = "",
+    val shadowAlpha: Float = -1f,
+    val shadowElevationDp: Int = -1,
+    val shadowOffsetXDp: Int = 0,
+    val shadowOffsetYDp: Int = 0,
+    val imageMode: String = "cover",
+    val schemaVersion: Int = 2,
+)

@@ -2,6 +2,8 @@ package com.mobileclaw.ui
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
@@ -66,6 +68,7 @@ class OverlayState {
     var streamingThought by mutableStateOf("")
     var lastObservation by mutableStateOf("")
     var isError         by mutableStateOf(false)
+    var compact         by mutableStateOf(false)
 }
 
 // ── Manager ───────────────────────────────────────────────────────────────────
@@ -81,6 +84,7 @@ class OverlayState {
 class AgentOverlayManager(private val context: Context) {
 
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var hostFrame: FrameLayout? = null
     private var hostParams: WindowManager.LayoutParams? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
@@ -90,14 +94,24 @@ class AgentOverlayManager(private val context: Context) {
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun show(task: String) {
+        runOnMain { showInternal(task, compact = false) }
+    }
+
+    fun showCompact(task: String) {
+        runOnMain { showInternal(task, compact = true) }
+    }
+
+    private fun showInternal(task: String, compact: Boolean) {
         if (!Settings.canDrawOverlays(context)) return
         if (hostFrame != null) {
             state.task = task; state.stepCount = 0; state.currentSkill = ""
             state.streamingThought = ""; state.lastObservation = ""; state.isError = false
+            state.compact = compact
             return
         }
         state.task = task; state.stepCount = 0; state.currentSkill = ""
         state.streamingThought = ""; state.isError = false
+        state.compact = compact
 
         val params = buildLayoutParams().also { hostParams = it }
         val owner  = OverlayLifecycleOwner().also { it.start(); lifecycleOwner = it }
@@ -132,26 +146,34 @@ class AgentOverlayManager(private val context: Context) {
     }
 
     fun onSkillCalling(skillId: String, params: Map<String, Any>) {
-        val brief = params.entries.take(2).joinToString(", ") { "${it.key}=${summarize(it.value)}" }
-        state.currentSkill = if (brief.isBlank()) skillId else "$skillId($brief)"
-        state.stepCount++
-        state.streamingThought = ""
-        state.isError = false
+        runOnMain {
+            val brief = params.entries.take(2).joinToString(", ") { "${it.key}=${summarize(it.value)}" }
+            state.currentSkill = if (brief.isBlank()) skillId else "$skillId($brief)"
+            state.stepCount++
+            state.streamingThought = ""
+            state.isError = false
+        }
     }
 
-    fun onToken(token: String) { state.streamingThought += token }
+    fun onToken(token: String) { runOnMain { state.streamingThought += token } }
 
-    fun onThinkingComplete() { state.streamingThought = "" }
+    fun onThinkingComplete() { runOnMain { state.streamingThought = "" } }
 
-    fun onObservation(text: String) { state.lastObservation = text.take(100) }
+    fun onObservation(text: String) { runOnMain { state.lastObservation = text.take(100) } }
 
-    fun onError(message: String) { state.isError = true; state.lastObservation = message.take(100) }
+    fun onError(message: String) { runOnMain { state.isError = true; state.lastObservation = message.take(100) } }
 
     fun hide() {
-        runCatching { hostFrame?.let { wm.removeView(it) } }
-        hostFrame = null
-        lifecycleOwner?.stop(); lifecycleOwner = null
-        state.streamingThought = ""
+        runOnMain {
+            runCatching { hostFrame?.let { wm.removeView(it) } }
+            hostFrame = null
+            lifecycleOwner?.stop(); lifecycleOwner = null
+            state.streamingThought = ""
+        }
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post(block)
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -229,6 +251,35 @@ private fun CapsuleOverlay(
         label = "pulseScale",
     )
     val isActive = state.currentSkill.isNotBlank() || state.streamingThought.isNotBlank()
+
+    if (state.compact) {
+        Box(
+            modifier = Modifier
+                .pointerInput(Unit) {
+                    detectDragGestures { _, dragAmount -> onDrag(dragAmount.x, dragAmount.y) }
+                }
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xF0121228), Color(0xF0060614))
+                    )
+                )
+                .border(1.dp, dotColor.copy(alpha = 0.75f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .align(Alignment.TopEnd)
+                    .scale(if (isActive) pulseScale else 1f)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+            Text("🦀", fontSize = 22.sp)
+        }
+        return
+    }
 
     // Primary text: task name (always visible)
     val primaryText = state.task.ifBlank { "MobileClaw" }.let {

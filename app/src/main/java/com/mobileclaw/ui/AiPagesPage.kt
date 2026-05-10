@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.ui.aipage.AiPageDef
@@ -57,6 +58,7 @@ fun AiPagesPage(
     onDelete: (String) -> Unit,
     onPinShortcut: (String) -> Unit,
     onBack: () -> Unit,
+    showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
     var deleteTarget by remember { mutableStateOf<AiPageDef?>(null) }
@@ -65,10 +67,10 @@ fun AiPagesPage(
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg)
-            .statusBarsPadding(),
+            .then(if (showHeader) Modifier.statusBarsPadding() else Modifier),
     ) {
         // ── Top bar ───────────────────────────────────────────────────────────
-        Column(modifier = Modifier.fillMaxWidth().background(c.surface)) {
+        if (showHeader) Column(modifier = Modifier.fillMaxWidth().background(c.surface)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -108,7 +110,7 @@ fun AiPagesPage(
                 }
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
                 items(pages, key = { it.id }) { page ->
                     PageRow(
                         page = page,
@@ -116,11 +118,7 @@ fun AiPagesPage(
                         onPin = { onPinShortcut(page.id) },
                         onDelete = { deleteTarget = page },
                     )
-                    HorizontalDivider(
-                        color = c.border,
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(start = 68.dp),
-                    )
+                    Spacer(Modifier.height(8.dp))
                 }
                 item { Spacer(Modifier.height(32.dp)) }
             }
@@ -162,9 +160,11 @@ private fun PageRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.surface)
             .clickable(onClick = onOpen)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // Icon
@@ -178,27 +178,30 @@ private fun PageRow(
             Text(page.icon, fontSize = 22.sp)
         }
 
-        // Title + meta
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(page.title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = c.text)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (page.description.isNotBlank()) {
-                    Text(page.description.take(30), fontSize = 11.sp, color = c.subtext)
-                    Text("·", fontSize = 11.sp, color = c.subtext)
-                }
-                Text("v${page.version} · $dateStr", fontSize = 11.sp, color = c.subtext)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                page.title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = c.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (page.description.isNotBlank()) {
+                Text(page.description, fontSize = 12.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        }
-
-        // Actions
-        IconButton(onClick = onOpen, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open", tint = c.accent, modifier = Modifier.size(17.dp))
-        }
-        IconButton(onClick = onPin, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Outlined.PushPin, contentDescription = "Pin", tint = c.subtext, modifier = Modifier.size(17.dp))
-        }
-        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = c.red.copy(alpha = 0.7f), modifier = Modifier.size(17.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("v${page.version} · $dateStr", fontSize = 11.sp, color = c.subtext, modifier = Modifier.weight(1f))
+                IconButton(onClick = onOpen, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Open", tint = c.accent, modifier = Modifier.size(17.dp))
+                }
+                IconButton(onClick = onPin, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Outlined.PushPin, contentDescription = "Pin", tint = c.subtext, modifier = Modifier.size(17.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = c.red.copy(alpha = 0.7f), modifier = Modifier.size(17.dp))
+                }
+            }
         }
     }
 }

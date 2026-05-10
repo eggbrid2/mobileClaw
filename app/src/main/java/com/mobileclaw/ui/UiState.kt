@@ -78,6 +78,7 @@ data class MainUiState(
     val openAppId: String? = null,
     // HTML attachment viewer (shown at activity level to keep addJavascriptInterface binding)
     val openHtmlAttachment: SkillAttachment.HtmlData? = null,
+    val htmlAttachmentStack: List<SkillAttachment.HtmlData> = emptyList(),
     // LAN console server URL
     val consoleServerUrl: String = "",
     // Per-skill user notes
@@ -103,10 +104,12 @@ data class MainUiState(
     val vpnLatencies: Map<String, Long> = emptyMap(),
     // Group chat
     val groups: List<Group> = emptyList(),
+    val groupPreviews: Map<String, GroupPreview> = emptyMap(),
     val openGroup: Group? = null,
     val groupMessages: List<GroupMessage> = emptyList(),
     val groupRunning: Boolean = false,
     val groupTypingAgents: Set<String> = emptySet(),   // roleIds currently running inference
+    val groupWorkingAgents: Set<String> = emptySet(),  // roleIds currently using tools / doing long work
     val groupPendingMessages: List<String> = emptyList(), // user msgs queued while agents are active
     val groupUnreadCount: Int = 0,            // messages received while away from GROUP_CHAT page
 )
@@ -127,6 +130,12 @@ data class GroupMessage(
     val text: String,
     val attachments: List<SkillAttachment> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
+)
+
+data class GroupPreview(
+    val senderName: String,
+    val text: String,
+    val createdAt: Long,
 )
 
 data class ChatMessage(

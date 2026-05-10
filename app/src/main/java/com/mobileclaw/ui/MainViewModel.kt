@@ -31,6 +31,7 @@ import com.mobileclaw.skill.builtin.BgScreenshotSkill
 import com.mobileclaw.skill.builtin.BgStopSkill
 import com.mobileclaw.skill.builtin.VirtualDisplaySetupSkill
 import com.mobileclaw.skill.builtin.ClipboardSkill
+import com.mobileclaw.skill.builtin.ChineseBqbStickerSkill
 import com.mobileclaw.skill.builtin.CreateFileSkill
 import com.mobileclaw.skill.builtin.CreateHtmlSkill
 import com.mobileclaw.skill.builtin.DeviceInfoSkill
@@ -86,6 +87,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.UUID
 import com.mobileclaw.R
 import com.mobileclaw.str
@@ -533,27 +535,47 @@ class MainViewModel : ViewModel() {
 
     // ── Task Execution ───────────────────────────────────────────────────────
 
-    fun runTask(goal: String) {
+    fun runTask(goal: String) = runTaskInternal(goal)
+
+    private fun runTaskInternal(goal: String, imageOverride: String? = null) {
         val currentSessionId = _uiState.value.currentSessionId
         if (goal.isBlank() || _uiState.value.sessionStates[currentSessionId]?.isRunning == true) return
 
-        val priorContext = buildPriorContext()
-        val attachedImage = _uiState.value.inputImageBase64
+        val attachedImage = imageOverride ?: _uiState.value.inputImageBase64
         val attachedFile = _uiState.value.inputFileAttachment
         val sessionIdAtStart = _uiState.value.currentSessionId
         // Prepend text file content directly into the LLM goal
         val effectiveGoal = if (attachedFile != null && attachedFile.isText) {
             "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goal"
         } else goal
-        val taskType = TaskClassifier.classify(
+        val inferredAiPageTarget = inferAiPageContextTarget(goal)
+        val classifiedTaskType = TaskClassifier.classify(
             goal = effectiveGoal,
             hasImage = attachedImage != null,
             hasFile = attachedFile != null,
         )
+        val taskType = if (inferredAiPageTarget != null && attachedImage == null && attachedFile == null) {
+            TaskType.APP_BUILD
+        } else {
+            classifiedTaskType
+        }
+        val stickerAwareChat = attachedImage == null &&
+            attachedFile == null &&
+            taskType == TaskType.GENERAL &&
+            ChatRouter.classify(goal) == ChatRouter.Intent.CHAT &&
+            shouldUseStickerAwareChat(goal)
+        val executionTaskType = if (stickerAwareChat) TaskType.CHAT else taskType
+        val contextualGoal = if (inferredAiPageTarget != null && taskType == TaskType.APP_BUILD) {
+            "$effectiveGoal\n\n[上下文约束]\n用户是在修改最近的 AI Native Page，不要创建 HTML，也不要创建新页面。请先调用 ui_builder(action=get, id=\"${inferredAiPageTarget.id}\") 读取当前定义，再调用 ui_builder(action=update, id=\"${inferredAiPageTarget.id}\", ...) 更新它，最后 ui_builder(action=open, id=\"${inferredAiPageTarget.id}\") 打开。"
+        } else {
+            effectiveGoal
+        }
+        val priorContext = buildPriorContext(inferredAiPageTarget)
+        val isPhoneControlTask = executionTaskType == TaskType.PHONE_CONTROL
         val currentRole = _uiState.value.currentRole
         val scheduleDecision = RoleScheduler.schedule(
             taskType = taskType,
-            goal = effectiveGoal,
+            goal = contextualGoal,
             availableRoles = _uiState.value.availableRoles,
             currentRole = currentRole,
         )
@@ -580,7 +602,8 @@ class MainViewModel : ViewModel() {
             streamingThought = "",
         )}
         // Fast path: conversational message with no attachments → skip agent loop
-        if (attachedImage == null && attachedFile == null &&
+        if (!stickerAwareChat &&
+            attachedImage == null && attachedFile == null &&
             taskType == TaskType.GENERAL &&
             ChatRouter.classify(goal) == ChatRouter.Intent.CHAT) {
             runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, priorContext)
@@ -592,6 +615,9 @@ class MainViewModel : ViewModel() {
         runtimes[sessionIdAtStart] = rt
 
         overlay.show(goal)
+        if (isPhoneControlTask) {
+            auroraOverlay.flash()
+        }
 
         consoleServer.broadcast("task_started", goal)
 
@@ -620,7 +646,7 @@ class MainViewModel : ViewModel() {
             }
 
             val episodicContext = runCatching {
-                episodicMemory.retrieve(goal)
+                episodicMemory.retrieve(contextualGoal)
                     .filter { it.reflexionSummary.isNotBlank() }
                     .joinToString("\n") { "- ${it.reflexionSummary}" }
             }.getOrDefault("")
@@ -648,7 +674,7 @@ class MainViewModel : ViewModel() {
                         }
                         is AgentEvent.SkillCalling -> {
                             overlay.onSkillCalling(event.skillId, event.params)
-                            if (event.skillId in VISUAL_SKILL_IDS) {
+                            if (isPhoneControlTask || event.skillId in VISUAL_SKILL_IDS) {
                                 if (event.skillId == "see_screen") auroraOverlay.flashFullScreen()
                                 else auroraOverlay.flash()
                             }
@@ -728,8 +754,8 @@ class MainViewModel : ViewModel() {
 
             val result = runCatching {
                 rt.run(
-                    goal             = effectiveGoal,
-                    taskType         = taskType,
+                    goal             = contextualGoal,
+                    taskType         = executionTaskType,
                     priorContext     = priorContext,
                     episodicContext  = episodicContext,
                     language         = config.language,
@@ -933,6 +959,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         _uiState.update { it.copy(inputImageBase64 = imageBase64) }
     }
 
+    fun sendImageMessage(imageBase64: String, prompt: String = "") {
+        runTaskInternal(prompt.ifBlank { "发送表情包" }, imageOverride = imageBase64)
+    }
+
     fun setFileAttachment(attachment: FileAttachment?) {
         _uiState.update { it.copy(inputFileAttachment = attachment) }
     }
@@ -978,7 +1008,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     }
 
     fun navigateToBrowser(url: String) {
-        if (backStack.isEmpty() || backStack.last() != AppPage.BROWSER) backStack.addLast(AppPage.BROWSER)
+        val currentPage = _uiState.value.currentPage
+        if (backStack.isEmpty()) {
+            backStack.addLast(if (currentPage == AppPage.BROWSER) AppPage.CHAT else currentPage)
+        } else if (backStack.last() != currentPage && currentPage != AppPage.BROWSER) {
+            backStack.addLast(currentPage)
+        }
+        if (backStack.last() != AppPage.BROWSER) backStack.addLast(AppPage.BROWSER)
         _uiState.update { it.copy(browserUrl = url, currentPage = AppPage.BROWSER, canNavigateBack = backStack.size > 1) }
     }
 
@@ -1002,11 +1038,17 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     }
 
     fun openHtmlViewer(attachment: SkillAttachment.HtmlData) {
-        _uiState.update { it.copy(openHtmlAttachment = attachment) }
+        _uiState.update {
+            val stack = it.htmlAttachmentStack + attachment
+            it.copy(openHtmlAttachment = attachment, htmlAttachmentStack = stack)
+        }
     }
 
     fun closeHtmlViewer() {
-        _uiState.update { it.copy(openHtmlAttachment = null) }
+        _uiState.update {
+            val stack = it.htmlAttachmentStack.dropLast(1)
+            it.copy(openHtmlAttachment = stack.lastOrNull(), htmlAttachmentStack = stack)
+        }
     }
 
     // ── Group chat ────────────────────────────────────────────────────────────
@@ -1029,6 +1071,101 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         val text: String,
         val attachments: List<SkillAttachment> = emptyList(),
     )
+
+    private fun groupHistoryFile(groupId: String): File =
+        File(app.filesDir, "group_history/$groupId.jsonl").also { it.parentFile?.mkdirs() }
+
+    private fun groupHistoryDir(): File =
+        File(app.filesDir, "group_history").also { it.mkdirs() }
+
+    private fun appendGroupHistoryBackup(message: GroupMessage) {
+        runCatching {
+            val payload = mapOf(
+                "id" to message.id,
+                "groupId" to message.groupId,
+                "senderId" to message.senderId,
+                "senderName" to message.senderName,
+                "senderAvatar" to message.senderAvatar,
+                "text" to message.text,
+                "attachmentsJson" to serializeAttachments(message.attachments),
+                "createdAt" to message.createdAt,
+            )
+            groupHistoryFile(message.groupId).appendText(gson.toJson(payload) + "\n")
+        }
+    }
+
+    private fun readGroupHistoryBackup(groupId: String): List<GroupMessage> {
+        return runCatching {
+            val file = groupHistoryFile(groupId)
+            if (!file.exists()) return@runCatching emptyList()
+            file.readLines().mapNotNull { line ->
+                runCatching {
+                    val obj = JsonParser.parseString(line).asJsonObject
+                    GroupMessage(
+                        id = obj["id"]?.asLong ?: 0L,
+                        groupId = obj["groupId"]?.asString ?: groupId,
+                        senderId = obj["senderId"]?.asString ?: "",
+                        senderName = obj["senderName"]?.asString ?: "",
+                        senderAvatar = obj["senderAvatar"]?.asString ?: "🤖",
+                        text = obj["text"]?.asString ?: "",
+                        attachments = deserializeAttachments(obj["attachmentsJson"]?.asString ?: "[]"),
+                        createdAt = obj["createdAt"]?.asLong ?: 0L,
+                    )
+                }.getOrNull()
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun mergeGroupHistory(primary: List<GroupMessage>, backup: List<GroupMessage>): List<GroupMessage> {
+        return (primary + backup)
+            .distinctBy { "${it.groupId}:${it.senderId}:${it.createdAt}:${it.text}:${it.attachments.size}" }
+            .sortedBy { it.createdAt }
+            .takeLast(300)
+    }
+
+    private suspend fun logGroupRuntimeDiagnostics(
+        marker: String,
+        groups: List<com.mobileclaw.agent.Group>,
+        activeGroup: com.mobileclaw.agent.Group? = null,
+        activeMessages: List<GroupMessage> = emptyList(),
+        activeBackupMessages: List<GroupMessage> = emptyList(),
+    ) {
+        val roles = roleManager.all()
+        val roleIds = roles.map { it.id }.toSet()
+        val groupIds = groups.map { it.id }.toSet()
+        val dbCounts = runCatching { database.groupMessageDao().groupCounts() }.getOrDefault(emptyList())
+        val backupFiles = groupHistoryDir().listFiles { file -> file.extension == "jsonl" }?.toList().orEmpty()
+        val backupSummary = backupFiles.joinToString(limit = 20) { file ->
+            val id = file.nameWithoutExtension
+            "$id:${runCatching { file.useLines { lines -> lines.count() } }.getOrDefault(0)}"
+        }
+        val orphanDbGroups = dbCounts.map { it.groupId }.filterNot { it in groupIds }
+        val orphanBackupGroups = backupFiles.map { it.nameWithoutExtension }.filterNot { it in groupIds }
+        val missingRoles = groups.associate { group ->
+            group.id to group.memberRoleIds.filterNot { it in roleIds }
+        }.filterValues { it.isNotEmpty() }
+        val possibleHistoryMismatch = activeGroup?.takeIf { activeMessages.isEmpty() }?.let { group ->
+            val sameNameGroups = groups.filter { it.name == group.name && it.id != group.id }.map { it.id }
+            val orphanCandidates = (orphanDbGroups + orphanBackupGroups).distinct()
+            "sameName=${sameNameGroups.joinToString(limit = 10)} orphanCandidates=${orphanCandidates.joinToString(limit = 16)}"
+        }.orEmpty()
+        val activeSenderSummary = activeMessages
+            .groupingBy { it.senderId.ifBlank { "(blank)" } }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .joinToString(limit = 16) { "${it.key}:${it.value}" }
+        android.util.Log.d(
+            "ClawGroup",
+            "diag[$marker] groups=${groups.size} groupIds=${groups.joinToString(limit = 20) { it.id }} " +
+                "dbGroups=${dbCounts.joinToString(limit = 20) { "${it.groupId}:${it.count}@${it.latestAt}" }} " +
+                "backupGroups=$backupSummary orphanDb=${orphanDbGroups.joinToString(limit = 20)} " +
+                "orphanBackup=${orphanBackupGroups.joinToString(limit = 20)} missingRoles=$missingRoles " +
+                "active=${activeGroup?.id.orEmpty()} activeDbOrMerged=${activeMessages.size} " +
+                "activeBackup=${activeBackupMessages.size} activeSenders=$activeSenderSummary " +
+                "possibleMismatch=$possibleHistoryMismatch"
+        )
+    }
     @Volatile private var groupChatStopped = false
     private val pendingGroupTurns = ArrayDeque<PendingGroupTurn>()
     private val GROUP_TASK_POOL_LIMIT = 4
@@ -1036,8 +1173,40 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     fun loadGroups() {
         viewModelScope.launch(Dispatchers.IO) {
             val groups = groupManager.all()
-            _uiState.update { it.copy(groups = groups) }
+            val previews = groups.associate { group ->
+                val dbLatest = database.groupMessageDao().latestForGroup(group.id)?.let {
+                    GroupMessage(it.id, it.groupId, it.senderId, it.senderName, it.senderAvatar, it.text, deserializeAttachments(it.attachmentsJson), it.createdAt)
+                }
+                val backupLatest = readGroupHistoryBackup(group.id).maxByOrNull { it.createdAt }
+                val latest = listOfNotNull(dbLatest, backupLatest).maxByOrNull { it.createdAt }
+                group.id to latest?.let {
+                    GroupPreview(
+                        senderName = it.senderName,
+                        text = groupPreviewText(it.text, serializeAttachments(it.attachments)),
+                        createdAt = it.createdAt,
+                    )
+                }
+            }.filterValues { it != null }.mapValues { it.value!! }
+            android.util.Log.d("ClawGroup", "loadGroups groups=${groups.size} previews=${previews.size} ids=${groups.joinToString { it.id }}")
+            logGroupRuntimeDiagnostics("loadGroups", groups)
+            _uiState.update { it.copy(groups = groups, groupPreviews = previews) }
         }
+    }
+
+    private fun groupPreviewText(text: String, attachmentsJson: String): String {
+        val cleanText = text.trim().replace(Regex("\\s+"), " ")
+        if (cleanText.isNotBlank()) return cleanText
+        return deserializeAttachments(attachmentsJson).firstOrNull()?.let { attachment ->
+            when (attachment) {
+                is SkillAttachment.ImageData -> str(R.string.group_label_image)
+                is SkillAttachment.FileData -> attachment.name.ifBlank { str(R.string.group_label_file) }
+                is SkillAttachment.HtmlData -> attachment.title.ifBlank { str(R.string.group_label_web) }
+                is SkillAttachment.WebPage -> attachment.title.ifBlank { str(R.string.group_label_link) }
+                is SkillAttachment.SearchResults -> str(R.string.group_label_search)
+                is SkillAttachment.FileList -> str(R.string.group_label_file_list)
+                is SkillAttachment.AccessibilityRequest -> str(R.string.group_label_permission)
+            }
+        }.orEmpty()
     }
 
     fun createGroup(group: com.mobileclaw.agent.Group) {
@@ -1051,6 +1220,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         viewModelScope.launch(Dispatchers.IO) {
             groupManager.delete(id)
             database.groupMessageDao().deleteForGroup(id)
+            runCatching { groupHistoryFile(id).delete() }
             loadGroups()
             if (_uiState.value.openGroup?.id == id) closeGroupChat()
         }
@@ -1060,13 +1230,44 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         viewModelScope.launch(Dispatchers.IO) {
             val entities = database.groupMessageDao().forGroup(group.id)
             val messages = entities.map { e ->
-                GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, deserializeAttachments(e.attachmentsJson), e.createdAt)
+                runCatching {
+                    GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, deserializeAttachments(e.attachmentsJson), e.createdAt)
+                }.getOrElse {
+                    GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, emptyList(), e.createdAt)
+                }
             }
-            _uiState.update { it.copy(openGroup = group, groupMessages = messages, groupRunning = false, groupUnreadCount = 0) }
+            val backupMessages = readGroupHistoryBackup(group.id)
+            val mergedMessages = mergeGroupHistory(messages, backupMessages)
+            val currentRoles = roleManager.all()
+            val missingRoles = group.memberRoleIds.filter { roleId -> currentRoles.none { it.id == roleId } }
+            android.util.Log.d(
+                "ClawGroup",
+                "openGroup id=${group.id} name=${group.name} members=${group.memberRoleIds.joinToString()} " +
+                    "missingRoles=${missingRoles.joinToString()} dbMessages=${messages.size} backupMessages=${backupMessages.size} " +
+                    "merged=${mergedMessages.size} dbLatest=${messages.lastOrNull()?.createdAt} backupLatest=${backupMessages.lastOrNull()?.createdAt}"
+            )
+            logGroupRuntimeDiagnostics(
+                marker = "openGroup",
+                groups = groupManager.all(),
+                activeGroup = group,
+                activeMessages = mergedMessages,
+                activeBackupMessages = backupMessages,
+            )
+            val running = groupAgentJobs.isNotEmpty()
+            _uiState.update {
+                it.copy(
+                    openGroup = group,
+                    groupMessages = mergedMessages,
+                    groupRunning = running,
+                    groupTypingAgents = if (running) it.groupTypingAgents else emptySet(),
+                    groupWorkingAgents = if (running) it.groupWorkingAgents else emptySet(),
+                    groupUnreadCount = 0,
+                )
+            }
             navigate(AppPage.GROUP_CHAT)
 
             // Auto-spark: if group has members and conversation is cold (no messages or last msg > 15 min ago)
-            val lastMsgTime = messages.lastOrNull()?.createdAt ?: 0L
+            val lastMsgTime = mergedMessages.lastOrNull()?.createdAt ?: 0L
             val isCold = System.currentTimeMillis() - lastMsgTime > 15 * 60 * 1000L
             val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
             if (allMembers.isNotEmpty() && isCold && !groupChatStopped) {
@@ -1079,11 +1280,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     }
 
     fun closeGroupChat() {
-        groupChatStopped = true
-        groupAgentJobs.values.forEach { it.cancel() }
-        groupAgentJobs.clear()
-        pendingGroupTurns.clear()
-        _uiState.update { it.copy(openGroup = null, groupMessages = emptyList(), groupRunning = false, groupTypingAgents = emptySet(), groupPendingMessages = emptyList()) }
+        _uiState.update { it.copy(openGroup = null, groupMessages = emptyList(), groupPendingMessages = emptyList()) }
         navigateBack()
     }
 
@@ -1092,13 +1289,14 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         groupAgentJobs.values.forEach { it.cancel() }
         groupAgentJobs.clear()
         pendingGroupTurns.clear()
-        _uiState.update { it.copy(groupRunning = false, groupTypingAgents = emptySet(), groupPendingMessages = emptyList()) }
+        overlay.hide()
+        _uiState.update { it.copy(groupRunning = false, groupTypingAgents = emptySet(), groupWorkingAgents = emptySet(), groupPendingMessages = emptyList()) }
     }
 
     fun stopGroupAgent(roleId: String) {
         groupAgentJobs[roleId]?.cancel()
         groupAgentJobs.remove(roleId)
-        _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents - roleId) }
+        _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents - roleId, groupWorkingAgents = it.groupWorkingAgents - roleId) }
         if (groupAgentJobs.isEmpty()) {
             _uiState.update { it.copy(groupRunning = false) }
         }
@@ -1111,7 +1309,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         viewModelScope.launch(Dispatchers.IO) {
             val userMsg = GroupMessage(groupId = group.id, senderId = "user", senderName = str(R.string.group_chat_df1fd9), senderAvatar = "👤", text = text, attachments = attachments)
             val rowId = database.groupMessageDao().insert(userMsg.toEntity())
-            _uiState.update { it.copy(groupMessages = it.groupMessages + userMsg.copy(id = rowId)) }
+            val savedUserMsg = userMsg.copy(id = rowId)
+            appendGroupHistoryBackup(savedUserMsg)
+            android.util.Log.d("ClawGroup", "insert user groupId=${group.id} rowId=$rowId textLen=${text.length} attachments=${attachments.size}")
+            _uiState.update { it.copy(groupMessages = it.groupMessages + savedUserMsg) }
 
             val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
             if (allMembers.isEmpty()) return@launch
@@ -1201,7 +1402,17 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         val job = viewModelScope.launch(Dispatchers.IO) {
             if (delayMs > 0) delay(delayMs)
             if (groupChatStopped) return@launch
-            _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents + role.id) }
+            val taskType = TaskClassifier.classify(triggerText.ifBlank { _uiState.value.groupMessages.lastOrNull()?.text.orEmpty() })
+            val phoneTask = taskType == TaskType.PHONE_CONTROL
+            val startsWorking = longTask || phoneTask || taskType !in listOf(TaskType.CHAT, TaskType.GENERAL)
+            _uiState.update {
+                if (startsWorking) it.copy(groupWorkingAgents = it.groupWorkingAgents + role.id)
+                else it.copy(groupTypingAgents = it.groupTypingAgents + role.id)
+            }
+            if (phoneTask) {
+                overlay.showCompact("${role.name}: ${triggerText.take(40)}")
+                auroraOverlay.flash()
+            }
             try {
                 val history = _uiState.value.groupMessages
                 val systemPrompt = buildGroupSystemPrompt(role, group.name, allMembers)
@@ -1221,25 +1432,56 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     historyMsgs +
                     listOf(Message(role = "user", content = "[系统]: 轮到你了，${role.name}。"))
 
-                val taskType = TaskClassifier.classify(triggerText.ifBlank { history.lastOrNull()?.text.orEmpty() })
                 val response = runGroupAgentTurn(
                     role = role,
                     baseMessages = callMessages,
                     maxSkillCalls = if (longTask || taskType == TaskType.PHONE_CONTROL) 12 else 4,
+                    onToolStart = { skillId, params ->
+                        _uiState.update { st ->
+                            st.copy(
+                                groupTypingAgents = st.groupTypingAgents - role.id,
+                                groupWorkingAgents = st.groupWorkingAgents + role.id,
+                            )
+                        }
+                        if (phoneTask || skillId in VISUAL_SKILL_IDS) {
+                            overlay.onSkillCalling(skillId, params)
+                            if (skillId == "see_screen") auroraOverlay.flashFullScreen() else auroraOverlay.flash()
+                        }
+                    },
+                    onToolEnd = { output ->
+                        if (phoneTask) overlay.onObservation(output)
+                        if (!startsWorking) {
+                            _uiState.update { st ->
+                                st.copy(
+                                    groupWorkingAgents = st.groupWorkingAgents - role.id,
+                                    groupTypingAgents = st.groupTypingAgents + role.id,
+                                )
+                            }
+                        }
+                    },
                 )
                 val cleanResponse = response.text.trim()
 
                 // [PASS] means the agent found the message irrelevant to them — skip silently
-                if ((cleanResponse.isNotBlank() || response.attachments.isNotEmpty()) && !cleanResponse.equals("[PASS]", ignoreCase = true) && !groupChatStopped) {
+                if ((cleanResponse.isNotBlank() || response.attachments.isNotEmpty()) && !cleanResponse.equals("[PASS]", ignoreCase = true)) {
                     val agentMsg = GroupMessage(groupId = group.id, senderId = role.id,
                         senderName = role.name, senderAvatar = role.avatar, text = cleanResponse, attachments = response.attachments)
                     val rowId = database.groupMessageDao().insert(agentMsg.toEntity())
-                    val onScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT
+                    val savedAgentMsg = agentMsg.copy(id = rowId)
+                    appendGroupHistoryBackup(savedAgentMsg)
+                    android.util.Log.d("ClawGroup", "insert agent groupId=${group.id} role=${role.id} rowId=$rowId textLen=${cleanResponse.length} attachments=${response.attachments.size}")
+                    groupManager.touch(group.id)
+                    loadGroups()
+                    val onScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT && _uiState.value.openGroup?.id == group.id
                     _uiState.update { st ->
-                        st.copy(
-                            groupMessages = st.groupMessages + agentMsg.copy(id = rowId),
-                            groupUnreadCount = if (onScreen) 0 else st.groupUnreadCount + 1,
-                        )
+                        if (st.openGroup?.id == group.id) {
+                            st.copy(
+                                groupMessages = st.groupMessages + savedAgentMsg,
+                                groupUnreadCount = if (onScreen) 0 else st.groupUnreadCount + 1,
+                            )
+                        } else {
+                            st.copy(groupUnreadCount = st.groupUnreadCount + 1)
+                        }
                     }
 
                     if (!groupChatStopped) {
@@ -1278,11 +1520,15 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 }
             } finally {
                 groupAgentJobs.remove(role.id)
-                _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents - role.id) }
+                _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents - role.id, groupWorkingAgents = it.groupWorkingAgents - role.id) }
+                if (TaskClassifier.classify(triggerText.ifBlank { "" }) == TaskType.PHONE_CONTROL && groupAgentJobs.none { (_, job) -> job.isActive }) {
+                    overlay.hide()
+                }
 
                 drainPendingGroupTurns(group, allMembers)
                 if (groupAgentJobs.isEmpty() && pendingGroupTurns.isEmpty()) {
-                    _uiState.update { it.copy(groupRunning = false, groupPendingMessages = emptyList()) }
+                    overlay.hide()
+                    _uiState.update { it.copy(groupRunning = false, groupPendingMessages = emptyList(), groupTypingAgents = emptySet(), groupWorkingAgents = emptySet()) }
                 }
             }
         }
@@ -1330,6 +1576,8 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         role: Role,
         baseMessages: List<Message>,
         maxSkillCalls: Int = 3,
+        onToolStart: (skillId: String, params: Map<String, Any>) -> Unit = { _, _ -> },
+        onToolEnd: (output: String) -> Unit = {},
     ): GroupTurnResult {
         val forcedMetas = role.forcedSkillIds.mapNotNull { registry.get(it)?.meta }
         val tools = (registry.forInjection(maxLevel = 1) + forcedMetas).distinctBy { it.id }.map { m ->
@@ -1366,9 +1614,11 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             }
 
             val tc = resp.toolCall
+            onToolStart(tc.skillId, tc.params)
             val skillResult = registry.get(tc.skillId)
                 ?.let { runCatching { it.execute(tc.params) }.getOrElse { e -> com.mobileclaw.skill.SkillResult(false, "Error: ${e.message}") } }
                 ?: com.mobileclaw.skill.SkillResult(false, "Skill '${tc.skillId}' not found")
+            onToolEnd(skillResult.output.take(3000))
             (skillResult.data as? SkillAttachment)?.let { attachments += it }
             skillResult.imageBase64?.takeIf { it.isNotBlank() }?.let {
                 attachments += SkillAttachment.ImageData(it, prompt = "Generated by ${tc.skillId}")
@@ -1410,6 +1660,15 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         appendLine("• 你就是 ${role.name}，用你自己的说话方式，不要跑偏。")
         appendLine(str(R.string.vm_1acb86))
         appendLine(str(R.string.vm_93c334))
+        appendLine("• 你的群聊气泡是你的个人装扮。你可以自己选择或生成气泡主题，用户不需要手动编辑。")
+        appendLine("• 如果你还没有满意的气泡，或想让自己更有辨识度，可以调用 role_manager(action=update, id=\"${role.id}\", bubble_style_json={...}) 只更新自己的气泡样式。")
+        appendLine("• 默认尽量使用原生气泡 renderer=native。原生气泡支持 Markdown 内容，并且可以配置字体、字号、颜色、字重、文字动画、圆角、阴影、局部装饰等，能满足大多数个性化表达。")
+        appendLine("• 气泡主题可以包含 renderer、preset、emotion、backgroundColor、backgroundImage、gradient、textColor、borderColor、accentColor、radiusDp、radiusTopStartDp、radiusTopEndDp、radiusBottomEndDp、radiusBottomStartDp、tail、pattern、decoration、decorationText、decorationPosition、decorationAnimation、decorationSizeDp、animation、fontFamily、fontWeight、textAnimation、fontSizeSp、lineHeightSp、paddingHorizontalDp、paddingVerticalDp、shadow、shadowColor、shadowAlpha、shadowElevationDp、shadowOffsetXDp、shadowOffsetYDp、imageMode。")
+        appendLine("• 只有当原生气泡无法表达你的特殊结构、元素或复杂动效时，才切换 renderer=html，并配置 htmlTemplate、htmlHeightDp、htmlAllowJs、htmlAllowNetwork、htmlTransparent。")
+        appendLine("• decoration 是小装饰，不是大面积背景。可用 none/dot/sparkle/heart/star/moon/badge/text；decorationPosition 可用 top_start/top_end/bottom_start/bottom_end/tail；decorationAnimation 可用 none/pulse/float/sparkle。")
+        appendLine("• animation 可用 none/pulse/breath/float/sparkle/shake/pop/tilt/bounce，但应保持克制，优先用局部小装饰和文字动画，不要让整坨气泡大幅移动。")
+        appendLine("• emotion 可用 neutral/happy/sad/angry/shy/cool/excited/sleepy/love；textAnimation 可用 none/fade/pop/breath/shimmer/typewriter/marquee/wave。")
+        appendLine("• 只在需要表达人格时调整气泡；不要每次发言都修改主题。")
         appendLine()
 
         // ④ 行为规则
@@ -1421,20 +1680,36 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         appendLine(str(R.string.vm_abc7c8))
         appendLine(str(R.string.vm_8f6718))
         appendLine("• 如果你使用工具生成了图片、文件、网页或搜索结果，可以把这些结果作为附件发到群里。")
+        appendLine("• 表情包是你的群聊表达方式之一，不是只有用户明确要求才用。发言前先判断：你的这句话是否有明确情绪、梗、反应或斗图价值。")
+        appendLine("• 当你的回复适合用表情包强化时，应主动调用 sticker_bqb(action=\"search\", query=\"简短情绪词\")，例如 哈哈、笑死、牛、离谱、尴尬、无语、摸鱼、生气、谢谢、安慰、庆祝。")
+        appendLine("• 表情包必须和你要表达的内容匹配；每轮最多一个，不要连续刷屏；严肃任务、长任务结果、专业说明和安全相关内容少用或不用。")
+        appendLine("• 如果已经发送表情包，文字要短，不要解释“我发送了一个附件/表情包”。")
         appendLine("• 任务型请求必须做完再发言；不要做到一半就邀请别人接话。")
+    }
+
+    private fun shouldUseStickerAwareChat(goal: String): Boolean {
+        val text = goal.lowercase()
+        if (text.length > 120) return false
+        val triggers = listOf(
+            "表情", "表情包", "斗图", "哈哈", "hh", "笑死", "笑", "绷不住", "乐",
+            "牛", "666", "离谱", "尴尬", "无语", "摸鱼", "生气", "开心", "谢谢",
+            "感谢", "安慰", "难过", "哭", "庆祝", "太强", "太菜", "绝了", "破防",
+            "吐槽", "调侃", "整活", "尬", "惊了", "懵"
+        )
+        return triggers.any { text.contains(it) }
     }
 
     private fun parseMentions(text: String): List<String> =
         Regex("@([\\w\\u4e00-\\u9fff·]+)").findAll(text).map { it.groupValues[1] }.toList()
 
     private fun groupAttachmentPrompt(attachment: SkillAttachment): String = when (attachment) {
-        is SkillAttachment.ImageData -> "图片(${attachment.prompt ?: "image"})"
-        is SkillAttachment.FileData -> "文件(${attachment.name}, ${attachment.mimeType}, ${attachment.sizeBytes} bytes)"
-        is SkillAttachment.HtmlData -> "HTML(${attachment.title}, ${attachment.path})"
-        is SkillAttachment.WebPage -> "网页(${attachment.title}, ${attachment.url})"
-        is SkillAttachment.SearchResults -> "搜索结果(${attachment.query}, ${attachment.pages.size} pages)"
-        is SkillAttachment.FileList -> "文件列表(${attachment.files.size} files)"
-        is SkillAttachment.AccessibilityRequest -> "权限请求(${attachment.skillName})"
+        is SkillAttachment.ImageData -> str(R.string.group_prompt_image, attachment.prompt ?: "image")
+        is SkillAttachment.FileData -> str(R.string.group_prompt_file, attachment.name, attachment.mimeType, attachment.sizeBytes)
+        is SkillAttachment.HtmlData -> str(R.string.group_prompt_html, attachment.title, attachment.path)
+        is SkillAttachment.WebPage -> str(R.string.group_prompt_web, attachment.title, attachment.url)
+        is SkillAttachment.SearchResults -> str(R.string.group_prompt_search, attachment.query, attachment.pages.size)
+        is SkillAttachment.FileList -> str(R.string.group_prompt_file_list, attachment.files.size)
+        is SkillAttachment.AccessibilityRequest -> str(R.string.group_prompt_permission, attachment.skillName)
     }
 
     private fun GroupMessage.toEntity() = com.mobileclaw.memory.db.GroupMessageEntity(
@@ -1747,9 +2022,10 @@ $relevantFacts
 
     // ── Internals ────────────────────────────────────────────────────────────
 
-    private fun buildPriorContext(): String {
+    private fun buildPriorContext(activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null): String {
         val msgs = _uiState.value.currentRunState.messages
-        if (msgs.isEmpty()) return ""
+        val artifactContext = buildAiPageArtifactContext(activeAiPage)
+        if (msgs.isEmpty()) return artifactContext
         val recent = msgs.takeLast(8)
         val lines = recent.map { msg ->
             val raw = when (msg.role) {
@@ -1761,7 +2037,54 @@ $relevantFacts
         }
         // Hard cap on total prior context size
         val full = lines.joinToString("\n")
-        return if (full.length > 2000) full.takeLast(2000) else full
+        val capped = if (full.length > 2000) full.takeLast(2000) else full
+        return listOf(artifactContext, capped).filter { it.isNotBlank() }.joinToString("\n\n")
+    }
+
+    private fun buildAiPageArtifactContext(activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null): String {
+        val pages = app.aiPageStore.getAll().take(5)
+        if (pages.isEmpty() && activeAiPage == null) return ""
+        val active = activeAiPage ?: pages.firstOrNull()
+        val lines = pages.joinToString("\n") { page ->
+            val marker = if (page.id == active?.id) "active" else "recent"
+            "- [$marker] id=${page.id}, title=${page.title}, version=${page.version}, description=${page.description.take(80)}"
+        }
+        val activeLine = active?.let {
+            "\nCurrent AI Native Page target: id=${it.id}, title=${it.title}, version=${it.version}. For follow-up edits like “改一下/优化/继续/调整它”, use ui_builder(action=get/update/open) with this id. Do not use create_html and do not create a new page unless the user explicitly asks."
+        }.orEmpty()
+        return "## Current AI Native Page Artifacts\n$lines$activeLine"
+    }
+
+    private fun inferAiPageContextTarget(goal: String): com.mobileclaw.ui.aipage.AiPageDef? {
+        val pages = app.aiPageStore.getAll()
+        if (pages.isEmpty()) return null
+        val text = goal.lowercase()
+        val explicit = pages.firstOrNull { page ->
+            text.contains(page.id.lowercase()) ||
+                page.title.isNotBlank() && text.contains(page.title.lowercase())
+        }
+        if (explicit != null) return explicit
+        val refersToPrevious = text.contains("它") ||
+            text.contains("这个") ||
+            text.contains("刚才") ||
+            text.contains("上面") ||
+            text.contains("继续") ||
+            text.contains("修改") ||
+            text.contains("改下") ||
+            text.contains("改一下") ||
+            text.contains("调整") ||
+            text.contains("优化") ||
+            text.contains("美化") ||
+            text.contains("完善") ||
+            text.contains("更新")
+        val pageIntent = text.contains("页面") ||
+            text.contains("原生") ||
+            text.contains("native") ||
+            text.contains("aipage") ||
+            text.contains("ai page") ||
+            text.contains("ui") ||
+            text.length <= 40
+        return if (refersToPrevious && pageIntent) pages.firstOrNull() else null
     }
 
     private fun registerBuiltinSkills() {
@@ -1792,6 +2115,7 @@ $relevantFacts
             ReadFileSkill(app),
             ListFilesSkill(app),
             CreateHtmlSkill(app),
+            ChineseBqbStickerSkill(app),
             // Virtual display (background execution)
             BgLaunchSkill(app.virtualDisplayManager),
             BgReadScreenSkill(app.virtualDisplayManager),
@@ -1985,7 +2309,7 @@ $relevantFacts
     private fun serializeAttachments(attachments: List<SkillAttachment>): String {
         val list = attachments.map { att ->
             when (att) {
-                is SkillAttachment.ImageData -> mapOf("type" to "image", "base64" to att.base64, "prompt" to (att.prompt ?: ""))
+                is SkillAttachment.ImageData -> mapOf("type" to "image", "base64" to att.base64.takeIf { it.length <= 500_000 }.orEmpty(), "prompt" to (att.prompt ?: ""))
                 is SkillAttachment.FileData  -> mapOf("type" to "file", "path" to att.path, "name" to att.name, "mimeType" to att.mimeType, "sizeBytes" to att.sizeBytes.toString())
                 is SkillAttachment.HtmlData  -> mapOf("type" to "html", "path" to att.path, "title" to att.title, "htmlContent" to att.htmlContent)
                 is SkillAttachment.WebPage   -> mapOf("type" to "webpage", "url" to att.url, "title" to att.title, "excerpt" to att.excerpt)
@@ -2187,7 +2511,17 @@ internal fun friendlySkillDescription(skillId: String, params: Map<String, Any>)
         }
         "create_html"    -> {
             val title = p("title")
-            if (title.isNotBlank()) "🌐 Creating page: $title" else "🌐 Creating HTML page"
+            if (title.isNotBlank()) "🌐 Creating HTML preview: $title" else "🌐 Creating HTML preview"
+        }
+        "ui_builder"     -> {
+            val action = p("action"); val title = p("title").ifBlank { p("id") }
+            when (action) {
+                "create" -> if (title.isNotBlank()) "📄 Creating native page: $title" else "📄 Creating native page"
+                "update" -> if (title.isNotBlank()) "📄 Updating native page: $title" else "📄 Updating native page"
+                "open"   -> if (title.isNotBlank()) "📄 Opening native page: $title" else "📄 Opening native page"
+                "list"   -> "📋 Listing native pages"
+                else     -> "📄 Native page builder"
+            }
         }
         "switch_model"   -> {
             val model = p("model")
@@ -2210,9 +2544,9 @@ internal fun friendlySkillDescription(skillId: String, params: Map<String, Any>)
         "app_manager"    -> {
             val action = p("action"); val title = p("title").ifBlank { p("id") }
             when (action) {
-                "create" -> if (title.isNotBlank()) "📱 Creating app: $title" else "📱 Creating mini-app"
-                "update" -> if (title.isNotBlank()) "📱 Updating app: $title" else "📱 Updating mini-app"
-                "open"   -> if (title.isNotBlank()) "📱 Opening app: $title" else "📱 Opening mini-app"
+                "create" -> if (title.isNotBlank()) "📱 Creating MiniAPP program: $title" else "📱 Creating MiniAPP program"
+                "update" -> if (title.isNotBlank()) "📱 Updating MiniAPP program: $title" else "📱 Updating MiniAPP program"
+                "open"   -> if (title.isNotBlank()) "📱 Opening MiniAPP program: $title" else "📱 Opening MiniAPP program"
                 "delete" -> "🗑 Deleting app: $title"
                 "list"   -> "📋 Listing mini-apps"
                 else     -> "📱 App manager"

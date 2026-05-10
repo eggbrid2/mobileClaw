@@ -89,6 +89,7 @@ import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
 import com.mobileclaw.skill.SkillAttachment
+import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import kotlin.math.PI
 import kotlin.math.cos
@@ -121,6 +122,7 @@ fun ChatScreen(
     onOpenSkillManager: () -> Unit,
     onOpenDrawer: () -> Unit = {},
     onAttachImage: (String?) -> Unit = {},
+    onSendImage: (String, String) -> Unit = { image, _ -> onAttachImage(image) },
     onAttachFile: (FileAttachment?) -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onModelChange: (String) -> Unit = {},
@@ -133,6 +135,7 @@ fun ChatScreen(
     onSwitchRole: () -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
     onLoadMoreHistory: () -> Unit = {},
+    classicMode: Boolean = false,
 ) {
     val c = LocalClawColors.current
     val runState = uiState.currentRunState
@@ -210,6 +213,8 @@ fun ChatScreen(
         }
     }
     var showAttachMenu by remember { mutableStateOf(false) }
+    var showStickerSearch by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // Scroll to bottom. Split into two effects:
     // 1) item count changes → animated scroll (new message completed)
@@ -250,12 +255,14 @@ fun ChatScreen(
     var selectedStepLog by remember { mutableStateOf<LogLine?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg).imePadding()) {
-        TopBar(
-            sessionTitle = sessionTitle,
-            onOpenDrawer = onOpenDrawer,
-            onRenameSession = { showRenameDialog = true },
-            onOpenDesktop = onOpenDesktop,
-        )
+        if (!classicMode) {
+            TopBar(
+                sessionTitle = sessionTitle,
+                onOpenDrawer = onOpenDrawer,
+                onRenameSession = { showRenameDialog = true },
+                onOpenDesktop = onOpenDesktop,
+            )
+        }
 
         if (!uiState.isConfigured && runState.messages.isEmpty()) {
             SetupBanner(onOpenSettings)
@@ -383,8 +390,25 @@ fun ChatScreen(
             onAttachClick = { showAttachMenu = !showAttachMenu },
             onPickImage = { showAttachMenu = false; imagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
             onPickFile = { showAttachMenu = false; filePicker.launch("*/*") },
+            onPickSticker = { showAttachMenu = false; showStickerSearch = true },
             onRemoveImage = { onAttachImage(null) },
             onRemoveFile = { onAttachFile(null) },
+        )
+    }
+
+    if (showStickerSearch) {
+        StickerSearchSheet(
+            onDismiss = { showStickerSearch = false },
+            onSelected = { file ->
+                scope.launch {
+                    val dataUri = stickerFileToDataUri(file)
+                    if (dataUri != null) {
+                        onSendImage(dataUri, "")
+                    } else {
+                        Toast.makeText(context, str(R.string.sticker_download_failed), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
         )
     }
 
@@ -469,6 +493,7 @@ private fun TopBar(
     onOpenDrawer: () -> Unit,
     onRenameSession: () -> Unit,
     onOpenDesktop: () -> Unit,
+    classicMode: Boolean = false,
 ) {
     val c = LocalClawColors.current
     Column(
@@ -500,8 +525,12 @@ private fun TopBar(
                     textAlign = TextAlign.Center,
                 )
             }
-            IconButton(onClick = onOpenDesktop) {
-                Icon(Icons.Outlined.GridView, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
+            if (!classicMode) {
+                IconButton(onClick = onOpenDesktop) {
+                    Icon(Icons.Outlined.GridView, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
+                }
+            } else {
+                Spacer(Modifier.size(48.dp))
             }
         }
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
@@ -719,23 +748,24 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
             if (imageBase64 != null) {
                 val bitmap = remember(imageBase64) {
                     runCatching {
-                        val clean = imageBase64
-                            .removePrefix("data:image/jpeg;base64,")
-                            .removePrefix("data:image/png;base64,")
+                        val clean = stripDataUriPrefix(imageBase64)
                         val bytes = Base64.decode(clean, Base64.NO_WRAP)
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     }.getOrNull()
                 }
                 if (bitmap != null) {
+                    val ratio = remember(bitmap) {
+                        (bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
+                    }
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = null,
                         modifier = Modifier
-                            .widthIn(max = 200.dp)
-                            .heightIn(max = 160.dp)
+                            .widthIn(max = 220.dp)
+                            .aspectRatio(ratio)
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { showFullscreen = true },
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                     )
                     if (showFullscreen) {
                         FullscreenImageDialog(bitmap = bitmap, onDismiss = { showFullscreen = false })
@@ -745,10 +775,8 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
             if (text.isNotBlank()) {
                 Box(
                     modifier = Modifier
-                        .background(
-                            Brush.linearGradient(listOf(c.accent.copy(alpha = 0.8f), c.accent)),
-                            RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp),
-                        )
+                        .background(Color(0xFF080808), RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp))
+                        .border(1.dp, if (c.isDark) c.border else Color.Transparent, RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
                     Text(text, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
@@ -861,12 +889,12 @@ private fun AgentBubble(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(c.accent.copy(alpha = 0.12f))
-                            .border(0.5.dp, c.accent.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                            .background(c.surface)
+                            .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
                             .clickable { onSendGoal(reply) }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
-                        Text(reply, fontSize = 13.sp, color = c.accent, fontWeight = FontWeight.Medium)
+                        Text(reply, fontSize = 13.sp, color = c.text, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -1195,6 +1223,8 @@ private fun chineseSkillLabel(skillId: String?): String = when (skillId) {
     "quick_skill", "meta"                   -> str(R.string.chat_81c3f4)
     "skill_check", "skill_market"           -> str(R.string.chat_735ac6)
     "generate_image"                        -> str(R.string.chat_f8d248)
+    "ui_builder"                            -> str(R.string.home_2d20d5)
+    "app_manager"                           -> str(R.string.drawer_apps)
     "create_file"                           -> str(R.string.chat_create)
     "create_html"                           -> str(R.string.chat_create_2)
     "switch_model"                          -> str(R.string.chat_756af3)
@@ -1231,6 +1261,8 @@ private val SkillColors = mapOf(
     "skill_check"     to 0xFFCE93D8,
     "skill_market"    to 0xFFCE93D8,
     "generate_image"  to 0xFFFF80AB,   // pink
+    "ui_builder"      to 0xFF2563EB,   // native page blue
+    "app_manager"     to 0xFFFF9F40,   // app orange
     "create_file"     to 0xFF80DEEA,   // cyan
     "create_html"     to 0xFFAED581,   // lime green
 )
@@ -1375,9 +1407,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                     if (hasImage) {
                         val bitmap = remember(line.imageBase64) {
                             runCatching {
-                                val clean = line.imageBase64!!
-                                    .removePrefix("data:image/jpeg;base64,")
-                                    .removePrefix("data:image/png;base64,")
+                                val clean = stripDataUriPrefix(line.imageBase64!!)
                                 val bytes = Base64.decode(clean, Base64.NO_WRAP)
                                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                             }.getOrNull()
@@ -1610,21 +1640,19 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
     val c = LocalClawColors.current
     val bitmap = remember(attachment.base64) {
         runCatching {
-            val clean = attachment.base64
-                .removePrefix("data:image/png;base64,")
-                .removePrefix("data:image/jpeg;base64,")
+            val clean = stripDataUriPrefix(attachment.base64)
             val bytes = Base64.decode(clean, Base64.NO_WRAP)
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }.getOrNull()
     }
     var showFullscreen by remember { mutableStateOf(false) }
     if (bitmap != null) {
+        val ratio = remember(bitmap) {
+            (bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
+        }
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, c.border, RoundedCornerShape(12.dp))
-                .background(c.card)
+                .widthIn(max = 260.dp)
                 .clickable { showFullscreen = true },
         ) {
             Image(
@@ -1632,9 +1660,9 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
                 contentDescription = attachment.prompt,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 320.dp)
-                    .clip(RoundedCornerShape(12.dp, 12.dp, 0.dp, 0.dp)),
-                contentScale = ContentScale.FillWidth,
+                    .aspectRatio(ratio)
+                    .clip(RoundedCornerShape(16.dp)),
+                contentScale = ContentScale.Fit,
             )
             if (!attachment.prompt.isNullOrBlank()) {
                 Text(
@@ -1655,8 +1683,7 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
 @Composable
 private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: android.content.Context) {
     val c = LocalClawColors.current
-    val isImage = attachment.mimeType.startsWith("image/") ||
-        attachment.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic")
+    val isImage = isImageFileAttachment(attachment)
 
     if (isImage) {
         ImageAttachmentCard(attachment, context, c)
@@ -1695,48 +1722,84 @@ private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: an
 @Composable
 private fun FileListCard(attachment: SkillAttachment.FileList, context: android.content.Context) {
     val c = LocalClawColors.current
+    var expanded by remember(attachment.files, attachment.directory) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
             .background(c.card),
     ) {
-        if (attachment.directory.isNotBlank()) {
-            Row(
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(c.surface)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text("📁", fontSize = 12.sp)
-                Text(attachment.directory, fontSize = 11.sp, color = c.subtext, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(str(R.string.files_count, attachment.files.size), fontSize = 11.sp, color = c.subtext)
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(c.text.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center,
+            ) { Text("≡", color = c.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    attachment.directory.ifBlank { str(R.string.group_label_file_list) },
+                    color = c.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val firstNames = attachment.files.take(2).joinToString(" · ") { it.name }
+                Text(
+                    if (firstNames.isBlank()) str(R.string.files_count, attachment.files.size) else firstNames,
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+            Text(str(R.string.files_count, attachment.files.size), fontSize = 11.sp, color = c.subtext)
+            Icon(
+                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = c.subtext,
+                modifier = Modifier.size(17.dp),
+            )
         }
-        attachment.files.forEachIndexed { index, entry ->
-            if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp, modifier = Modifier.padding(start = 48.dp))
-            val fileAttachment = SkillAttachment.FileData(entry.path, entry.name, entry.mimeType, entry.sizeBytes)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { openFileAttachment(context, fileAttachment) }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)).background(c.blue.copy(alpha = 0.10f)),
-                    contentAlignment = Alignment.Center,
-                ) { Text(mimeTypeEmoji(entry.mimeType), fontSize = 15.sp) }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(entry.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(formatFileSize(entry.sizeBytes), color = c.subtext, fontSize = 10.sp)
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(120)),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(120)),
+        ) {
+            Column {
+                HorizontalDivider(color = c.border.copy(alpha = 0.55f), thickness = 0.5.dp)
+                attachment.files.forEachIndexed { index, entry ->
+                    if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 54.dp))
+                    val fileAttachment = SkillAttachment.FileData(entry.path, entry.name, entry.mimeType, entry.sizeBytes)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { openFileAttachment(context, fileAttachment) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(c.text.copy(alpha = 0.06f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(mimeTypeEmoji(entry.mimeType), fontSize = 15.sp) }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(entry.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(formatFileSize(entry.sizeBytes), color = c.subtext, fontSize = 10.sp)
+                        }
+                        Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
-                Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -1748,59 +1811,41 @@ private fun ImageAttachmentCard(
     context: android.content.Context,
     c: ClawColors,
 ) {
-    // Load thumbnail on IO thread
-    val bitmap by produceState<android.graphics.ImageDecoder.Source?>(null, attachment.path) { }
-    val thumbnail by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, attachment.path) {
+    val bitmap by produceState<Bitmap?>(null, attachment.path) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val opts = BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                    BitmapFactory.decodeFile(attachment.path, this)
-                    val maxPx = 480
-                    inSampleSize = maxOf(1, maxOf(outWidth / maxPx, outHeight / maxPx))
-                    inJustDecodeBounds = false
-                }
-                BitmapFactory.decodeFile(attachment.path, opts)?.asImageBitmap()
-            }.getOrNull()
+            decodeFileAttachmentBitmap(context, attachment, maxPx = 1200)
         }
     }
+    var showFullscreen by remember { mutableStateOf(false) }
+    val isSticker = isStickerFileAttachment(attachment)
+    val maxThumbWidth = if (isSticker) 144.dp else 220.dp
 
-    Column(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .background(c.card)
-            .clickable { openFileAttachment(context, attachment) },
+            .widthIn(max = maxThumbWidth)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable { if (bitmap != null) showFullscreen = true else openFileAttachment(context, attachment) },
+        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 80.dp, max = 240.dp)
-                .background(c.cardAlt),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (thumbnail != null) {
-                Image(
-                    bitmap = thumbnail!!,
-                    contentDescription = attachment.name,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentScale = ContentScale.FillWidth,
-                )
-            } else {
-                Text("🖼️", fontSize = 36.sp)
+        if (bitmap != null) {
+            val ratio = remember(bitmap) {
+                (bitmap!!.width.toFloat() / bitmap!!.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
             }
+            Image(
+                bitmap = bitmap!!.asImageBitmap(),
+                contentDescription = attachment.name,
+                modifier = Modifier
+                    .width(maxThumbWidth)
+                    .aspectRatio(ratio)
+                    .clip(RoundedCornerShape(if (isSticker) 8.dp else 14.dp)),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Text("图", color = c.subtext, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(28.dp))
         }
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(attachment.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(formatFileSize(attachment.sizeBytes), color = c.subtext, fontSize = 11.sp)
-            }
-            Text(str(R.string.chat_607e7a), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        }
+    }
+    if (bitmap != null && showFullscreen) {
+        FullscreenImageDialog(bitmap = bitmap!!, onDismiss = { showFullscreen = false })
     }
 }
 
@@ -1818,18 +1863,22 @@ private fun mimeTypeEmoji(mimeType: String): String = when {
 }
 
 private fun openFileAttachment(context: android.content.Context, attachment: SkillAttachment.FileData) {
-    val file = java.io.File(attachment.path)
-    if (!file.exists()) {
-        android.widget.Toast.makeText(context, str(R.string.file_not_found, attachment.name), android.widget.Toast.LENGTH_SHORT).show()
-        return
-    }
+    val uri = if (attachment.path.startsWith("content://")) {
+        android.net.Uri.parse(attachment.path)
+    } else {
+        val file = java.io.File(attachment.path)
+        if (!file.exists()) {
+            android.widget.Toast.makeText(context, str(R.string.file_not_found, attachment.name), android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
 
-    // Build a content URI via FileProvider
-    val uri = runCatching {
-        androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    }.getOrElse { e ->
-        android.widget.Toast.makeText(context, str(R.string.share_failed, e.message?.take(80) ?: ""), android.widget.Toast.LENGTH_LONG).show()
-        return
+        // Build a content URI via FileProvider
+        runCatching {
+            androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }.getOrElse { e ->
+            android.widget.Toast.makeText(context, str(R.string.share_failed, e.message?.take(80) ?: ""), android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
     }
 
     val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -1872,6 +1921,34 @@ private fun openFileAttachment(context: android.content.Context, attachment: Ski
         android.widget.Toast.makeText(context, str(R.string.chat_none), android.widget.Toast.LENGTH_LONG).show()
     }
 }
+
+private fun decodeFileAttachmentBitmap(
+    context: android.content.Context,
+    attachment: SkillAttachment.FileData,
+    maxPx: Int,
+): Bitmap? = runCatching {
+    if (attachment.path.startsWith("content://")) {
+        context.contentResolver.openInputStream(android.net.Uri.parse(attachment.path))?.use { stream ->
+            BitmapFactory.decodeStream(stream)
+        }?.let { bitmap ->
+            val scale = minOf(maxPx.toFloat() / bitmap.width, maxPx.toFloat() / bitmap.height, 1f)
+            if (scale < 1f) {
+                android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+                    .also { bitmap.recycle() }
+            } else {
+                bitmap
+            }
+        }
+    } else {
+        val opts = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+            BitmapFactory.decodeFile(attachment.path, this)
+            inSampleSize = maxOf(1, maxOf(outWidth / maxPx, outHeight / maxPx))
+            inJustDecodeBounds = false
+        }
+        BitmapFactory.decodeFile(attachment.path, opts)
+    }
+}.getOrNull()
 
 @Composable
 private fun HtmlAttachmentCard(
@@ -2069,6 +2146,17 @@ private fun formatFileSize(bytes: Long): String = when {
     else                 -> "${bytes / (1024 * 1024)} MB"
 }
 
+private fun stripDataUriPrefix(value: String): String =
+    if (value.startsWith("data:")) value.substringAfter(",") else value
+
+private fun isImageFileAttachment(attachment: SkillAttachment.FileData): Boolean =
+    attachment.mimeType.startsWith("image/") ||
+        attachment.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic")
+
+private fun isStickerFileAttachment(attachment: SkillAttachment.FileData): Boolean =
+    attachment.path.contains("/stickers/", ignoreCase = true) ||
+        attachment.name.contains("bqb", ignoreCase = true)
+
 // ── Input Bar ─────────────────────────────────────────────────────────────────
 @Composable
 private fun InputBar(
@@ -2084,6 +2172,7 @@ private fun InputBar(
     onAttachClick: () -> Unit,
     onPickImage: () -> Unit,
     onPickFile: () -> Unit,
+    onPickSticker: () -> Unit,
     onRemoveImage: () -> Unit,
     onRemoveFile: () -> Unit,
 ) {
@@ -2100,41 +2189,10 @@ private fun InputBar(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Attach type menu (shown when attach button tapped)
-        if (showAttachMenu) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.card)
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                TextButton(
-                    onClick = if (supportsMultimodal) onPickImage else { {} },
-                    modifier = Modifier.weight(1f),
-                    enabled = supportsMultimodal,
-                ) {
-                    Icon(Icons.Default.AttachFile, contentDescription = null,
-                        tint = if (supportsMultimodal) c.accent else c.subtext.copy(alpha = 0.35f),
-                        modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(str(R.string.chat_20def7), fontSize = 12.sp, color = if (supportsMultimodal) c.text else c.subtext.copy(alpha = 0.35f))
-                }
-                TextButton(onClick = onPickFile, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Extension, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(str(R.string.chat_325369), fontSize = 12.sp, color = c.text)
-                }
-            }
-        }
-
         if (attachedImageBase64 != null) {
             val bitmap = remember(attachedImageBase64) {
                 runCatching {
-                    val clean = attachedImageBase64
-                        .removePrefix("data:image/jpeg;base64,")
-                        .removePrefix("data:image/png;base64,")
+                    val clean = stripDataUriPrefix(attachedImageBase64)
                     val bytes = Base64.decode(clean, Base64.NO_WRAP)
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }.getOrNull()
@@ -2188,18 +2246,17 @@ private fun InputBar(
             }
         }
 
-        Row(verticalAlignment = Alignment.Bottom) {
-            IconButton(
-                onClick = onAttachClick,
-                enabled = !isRunning,
-                modifier = Modifier.size(44.dp),
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(c.cardAlt)
+                    .border(0.5.dp, c.border, CircleShape)
+                    .clickable(enabled = !isRunning) { onPickSticker() },
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    Icons.Default.AttachFile,
-                    contentDescription = "Attach",
-                    tint = if (isRunning) c.subtext.copy(alpha = 0.3f) else if (showAttachMenu) c.accent else c.subtext,
-                    modifier = Modifier.size(20.dp),
-                )
+                Text("BQB", color = if (isRunning) c.subtext.copy(alpha = 0.35f) else c.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
 
             OutlinedTextField(
@@ -2231,30 +2288,82 @@ private fun InputBar(
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
             )
-            Spacer(Modifier.width(8.dp))
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
                     .background(
                         if (isRunning) c.red.copy(alpha = 0.15f)
-                        else if (sendEnabled) c.accent
-                        else c.card
+                        else if (sendEnabled) c.text
+                        else if (showAttachMenu) c.text
+                        else c.cardAlt
                     )
-                    .clickable(enabled = true) { if (isRunning) onStop() else if (sendEnabled) onSend() },
+                    .border(0.5.dp, if (sendEnabled || showAttachMenu) Color.Transparent else c.border, CircleShape)
+                    .clickable(enabled = true) {
+                        when {
+                            isRunning -> onStop()
+                            sendEnabled -> onSend()
+                            else -> onAttachClick()
+                        }
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 if (isRunning) {
                     Icon(Icons.Default.Close, contentDescription = "Stop", tint = c.red, modifier = Modifier.size(20.dp))
+                } else if (sendEnabled) {
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = c.bg, modifier = Modifier.size(19.dp))
                 } else {
-                    Icon(
-                        Icons.Default.Send,
-                        contentDescription = "Send",
-                        tint = if (sendEnabled) Color.White else c.subtext.copy(alpha = buttonAlpha),
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Text(if (showAttachMenu) "×" else "+", color = if (showAttachMenu) c.bg else c.text, fontSize = 24.sp, fontWeight = FontWeight.Light)
                 }
             }
         }
+
+        if (showAttachMenu) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(c.surface)
+                    .border(0.5.dp, c.border, RoundedCornerShape(18.dp))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                InputCapabilityTile("BQB", str(R.string.sticker_button), onPickSticker, enabled = true)
+                InputCapabilityTile("IMG", str(R.string.chat_20def7), onPickImage, enabled = supportsMultimodal)
+                InputCapabilityTile("DOC", str(R.string.chat_325369), onPickFile, enabled = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InputCapabilityTile(
+    mark: String,
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .width(68.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (enabled) c.cardAlt else c.cardAlt.copy(alpha = 0.45f))
+                .border(0.5.dp, c.border, RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(mark, color = if (enabled) c.text else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(label, color = if (enabled) c.subtext else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

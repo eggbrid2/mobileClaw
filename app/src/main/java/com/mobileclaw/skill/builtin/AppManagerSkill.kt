@@ -49,13 +49,14 @@ class AppManagerSkill(
 
     override val meta = SkillMeta(
         id = "app_manager",
-        name = "Mini App Manager",
-        nameZh = "迷你应用管理",
-        description = "Creates and manages HTML+JS mini-apps that run inside MobileClaw. " +
+        name = "Mini App Program Builder",
+        nameZh = "MiniAPP 程序生成",
+        description = "Creates and manages persistent HTML+JS mini-app programs that run inside MobileClaw. " +
+            "Use for explicit app/mini-app/program/game requests, custom HTML/CSS/JavaScript, canvas, complex browser rendering, SQLite, or Python backend. " +
+            "For ordinary pages, dashboards, forms, settings panels, data viewers, and management screens, use ui_builder instead. " +
             "IMPORTANT: Always call action=get_guide before creating or updating an app to get the full API reference and starter template. " +
             "All Claw async methods (fetch/sql/python/shell) MUST be used with await — synchronous calls will freeze the UI.",
-        descriptionZh = "创建和管理在 MobileClaw 中运行的 HTML+JS 迷你应用。" +
-            "重要：创建或更新应用前请先调用 action=get_guide 获取完整 API 参考和起始模板。",
+        descriptionZh = "创建和管理在 MobileClaw 中运行的持久化 HTML+JS MiniAPP 程序。仅在用户明确要求应用/小程序/程序/游戏，或需要自定义 HTML/CSS/JavaScript、Canvas、复杂浏览器渲染、SQLite、Python 后端时使用。普通页面、仪表盘、表单、管理页优先使用 ui_builder。重要：创建或更新应用前请先调用 action=get_guide 获取完整 API 参考和起始模板。",
         parameters = listOf(
             SkillParam("action", "string", "Action: 'get_guide' | 'create' | 'update' | 'list' | 'delete' | 'open' | 'set_icon'"),
             SkillParam("id", "string", "App ID (snake_case). Required for update/delete/open. Auto-generated for create.", required = false),

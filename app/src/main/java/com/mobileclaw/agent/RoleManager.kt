@@ -74,6 +74,48 @@ class RoleManager(private val context: Context) {
             forcedSkillIds = role.forcedSkillIds ?: emptyList(),
             preferredTaskTypes = role.preferredTaskTypes ?: emptyList(),
             keywords = role.keywords ?: emptyList(),
+            chatBubbleStyle = normalizeBubbleStyle(role.chatBubbleStyle ?: ChatBubbleStyle()),
+        )
+    }
+
+    private fun normalizeBubbleStyle(style: ChatBubbleStyle): ChatBubbleStyle {
+        return style.copy(
+            preset = style.preset.ifBlank { "minimal" },
+            renderer = style.renderer.ifBlank { "native" },
+            htmlTemplate = style.htmlTemplate ?: "",
+            htmlHeightDp = style.htmlHeightDp.takeIf { it > 0 } ?: 160,
+            htmlAllowJs = style.htmlAllowJs,
+            htmlAllowNetwork = style.htmlAllowNetwork,
+            htmlTransparent = style.htmlTransparent,
+            radiusTopStartDp = style.radiusTopStartDp,
+            radiusTopEndDp = style.radiusTopEndDp,
+            radiusBottomEndDp = style.radiusBottomEndDp,
+            radiusBottomStartDp = style.radiusBottomStartDp,
+            tail = style.tail.ifBlank { "soft" },
+            pattern = style.pattern.ifBlank { "none" },
+            decoration = style.decoration.ifBlank { "none" },
+            decorationText = style.decorationText ?: "",
+            decorationPosition = style.decorationPosition.ifBlank { "top_end" },
+            decorationAnimation = style.decorationAnimation.ifBlank { "none" },
+            decorationSizeDp = style.decorationSizeDp.takeIf { it > 0 } ?: 14,
+            gradient = style.gradient ?: emptyList(),
+            animation = style.animation.ifBlank { "none" },
+            emotion = style.emotion.ifBlank { "neutral" },
+            fontFamily = style.fontFamily.ifBlank { "system" },
+            fontWeight = style.fontWeight.ifBlank { "regular" },
+            textAnimation = style.textAnimation.ifBlank { "none" },
+            fontSizeSp = style.fontSizeSp.takeIf { it > 0 } ?: 14,
+            lineHeightSp = style.lineHeightSp.takeIf { it > 0 } ?: 20,
+            paddingHorizontalDp = style.paddingHorizontalDp.takeIf { it > 0 } ?: 12,
+            paddingVerticalDp = style.paddingVerticalDp.takeIf { it > 0 } ?: 8,
+            shadow = style.shadow.ifBlank { "none" },
+            shadowColor = style.shadowColor ?: "",
+            shadowAlpha = style.shadowAlpha,
+            shadowElevationDp = style.shadowElevationDp,
+            shadowOffsetXDp = style.shadowOffsetXDp,
+            shadowOffsetYDp = style.shadowOffsetYDp,
+            imageMode = style.imageMode.ifBlank { "cover" },
+            schemaVersion = style.schemaVersion.takeIf { it > 0 } ?: 2,
         )
     }
 }

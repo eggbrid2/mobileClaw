@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
@@ -62,6 +65,7 @@ fun SkillsPage(
     onSaveNote: (skillId: String, note: String) -> Unit,
     onGenerateNote: (skillId: String, name: String, description: String) -> Unit,
     onBack: () -> Unit,
+    showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
     var pendingPromotion by remember { mutableStateOf<SkillMeta?>(null) }
@@ -118,9 +122,9 @@ fun SkillsPage(
             confirmButton = {
                 Button(
                     onClick = { onPromote(skill.id); pendingPromotion = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = c.accent),
-                    shape = RoundedCornerShape(8.dp),
-                ) { Text(str(R.string.skills_promote_confirm), color = Color.White) }
+                    colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                    shape = RoundedCornerShape(18.dp),
+                ) { Text(str(R.string.skills_promote_confirm), maxLines = 1) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingPromotion = null }) {
@@ -157,11 +161,11 @@ fun SkillsPage(
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg)
-            .statusBarsPadding()
+            .then(if (showHeader) Modifier.statusBarsPadding() else Modifier)
             .navigationBarsPadding(),
     ) {
         // ── Top bar ──────────────────────────────────────────────────────────
-        Row(
+        if (showHeader) Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.surface)
@@ -178,42 +182,17 @@ fun SkillsPage(
         }
 
         // ── Horizontal tab row ───────────────────────────────────────────────
-        ScrollableTabRow(
-            selectedTabIndex = safeTabIndex,
-            containerColor = c.surface,
-            contentColor = c.accent,
-            edgePadding = 4.dp,
-            divider = { HorizontalDivider(color = c.border, thickness = 0.5.dp) },
-        ) {
-            tagGroups.forEachIndexed { index, (tag, emoji, skills) ->
-                val selected = safeTabIndex == index
-                Tab(
-                    selected = selected,
-                    onClick = { selectedTabIndex = index },
-                    modifier = Modifier.height(44.dp),
-                    selectedContentColor = c.accent,
-                    unselectedContentColor = c.subtext,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("$emoji $tag", fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                        Text("${skills.size}", fontSize = 9.sp, color = if (selected) c.accent else c.subtext.copy(0.6f))
-                    }
+        CompactScrollableTabs(
+            items = tagGroups.mapIndexed { index, (tag, emoji, skills) ->
+                CompactTabItem("$emoji $tag", skills.size.toString(), safeTabIndex == index) {
+                    selectedTabIndex = index
                 }
-            }
-            // Market tab
-            Tab(
-                selected = isMarketTab,
-                onClick = { selectedTabIndex = tagGroups.size },
-                modifier = Modifier.height(44.dp),
-                selectedContentColor = c.accent,
-                unselectedContentColor = c.subtext,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(str(R.string.skills_0e0282), fontSize = 12.sp, fontWeight = if (isMarketTab) FontWeight.SemiBold else FontWeight.Normal)
-                    Text("${SkillMarket.catalog.size}", fontSize = 9.sp, color = if (isMarketTab) c.accent else c.subtext.copy(0.6f))
-                }
-            }
-        }
+            } + CompactTabItem(str(R.string.skills_0e0282), SkillMarket.catalog.size.toString(), isMarketTab) {
+                selectedTabIndex = tagGroups.size
+            },
+            modifier = Modifier.background(c.surface),
+        )
+        HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
         // ── Tab content ──────────────────────────────────────────────────────
         LazyColumn(
@@ -261,6 +240,67 @@ fun SkillsPage(
                             onGenerateNote = { onGenerateNote(skill.id, skill.name, skill.description) },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+data class CompactTabItem(
+    val label: String,
+    val meta: String = "",
+    val selected: Boolean,
+    val onClick: () -> Unit,
+)
+
+@Composable
+fun CompactScrollableTabs(
+    items: List<CompactTabItem>,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        lazyItems(items) { item ->
+            Row(
+                modifier = Modifier
+                    .height(38.dp)
+                    .widthIn(min = 74.dp, max = 132.dp)
+                    .clip(RoundedCornerShape(19.dp))
+                    .background(if (item.selected) c.text else c.cardAlt)
+                    .border(
+                        0.5.dp,
+                        if (item.selected) c.text else c.border,
+                        RoundedCornerShape(19.dp),
+                    )
+                    .clickable(onClick = item.onClick)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    item.label,
+                    color = if (item.selected) c.bg else c.text,
+                    fontSize = 12.sp,
+                    fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (item.meta.isNotBlank()) {
+                    Text(
+                        item.meta,
+                        color = if (item.selected) c.bg.copy(alpha = 0.72f) else c.subtext,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -697,12 +737,12 @@ private fun SkillRow(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
-                            .background(c.accent.copy(alpha = 0.10f))
-                            .border(0.5.dp, c.accent.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            .background(c.surface)
+                            .border(0.5.dp, c.border, RoundedCornerShape(4.dp))
                             .clickable { onGenerateNote() }
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     ) {
-                        Text("✨ AI", color = c.accent, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                        Text("AI", color = c.text, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -718,12 +758,12 @@ private fun SkillRow(
                     modifier = Modifier
                         .clip(RoundedCornerShape(5.dp))
                         .background(
-                            if (selected) c.accent.copy(alpha = 0.15f)
+                            if (selected) c.text
                             else c.surface,
                         )
                         .border(
                             1.dp,
-                            if (selected) c.accent.copy(alpha = 0.6f) else c.border,
+                            if (selected) c.text else c.border,
                             RoundedCornerShape(5.dp),
                         )
                         .clickable {
@@ -739,7 +779,7 @@ private fun SkillRow(
                 ) {
                     Text(
                         label + if (!isDefault && selected) " *" else "",
-                        color = if (selected) c.accent else c.subtext.copy(alpha = 0.7f),
+                        color = if (selected) c.bg else c.subtext.copy(alpha = 0.7f),
                         fontSize = 10.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )

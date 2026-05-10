@@ -1,6 +1,7 @@
 package com.mobileclaw.skill.builtin
 
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.skill.Skill
@@ -29,10 +30,12 @@ class UiBuilderSkill(
 
     override val meta = SkillMeta(
         id = "ui_builder",
-        name = "UI Builder",
-        description = "Create and manage native Android Compose pages with full system capabilities. " +
-            "Pages support real UI components, Android APIs, HTTP, shell, notifications, sensors. " +
-            "Actions: create | update | list | get | delete | open | pin_shortcut | get_guide",
+        name = "AI Native Page Builder",
+        nameZh = "AI 原生页面生成",
+        description = "Preferred tool for creating user-facing pages inside MobileClaw: native Android pages, dashboards, forms, settings panels, management screens, data viewers, control pages, and lightweight tools. " +
+            "Use this before mini-app/HTML unless the user explicitly needs a program/game/custom HTML runtime. Never return page JSON or code in chat; call this tool. " +
+            "Pages support real UI components, Android APIs, app context data, HTTP, shell, notifications, sensors. Actions: create | update | list | get | delete | open | pin_shortcut | get_guide",
+        descriptionZh = "优先用于创建 MobileClaw 内的用户可见原生页面：AI 页面、仪表盘、表单、设置面板、管理页、数据查看器、控制页和轻量工具。除非用户明确需要程序/小游戏/自定义 HTML 运行时，否则优先用此工具，不要在聊天里返回页面 JSON 或代码。",
         parameters = listOf(
             SkillParam("action", "string", required = true,
                 description = "create | update | list | get | delete | open | pin_shortcut | get_guide"),
@@ -41,15 +44,16 @@ class UiBuilderSkill(
             SkillParam("title", "string", required = false, description = "Display title shown in the top bar"),
             SkillParam("icon", "string", required = false, description = "Emoji icon for the page"),
             SkillParam("description", "string", required = false, description = "Short description of the page"),
-            SkillParam("state", "string", required = false,
-                description = "JSON object of initial state values: {\"key\": \"initial_value\"}"),
-            SkillParam("layout", "string", required = false,
-                description = "Component tree JSON (see get_guide for reference). Must be a valid JSON object."),
-            SkillParam("actions", "string", required = false,
-                description = "Actions JSON: {\"actionName\": [{\"type\":\"...\",\"key\":\"...\"},...]}"),
+            SkillParam("state", "object", required = false,
+                description = "Initial state object: {\"key\": \"initial_value\"}. String JSON is also accepted."),
+            SkillParam("layout", "object", required = false,
+                description = "Component tree object (see get_guide for reference). String JSON is also accepted."),
+            SkillParam("actions", "object", required = false,
+                description = "Actions object: {\"actionName\": [{\"type\":\"...\",\"key\":\"...\"},...]}. String JSON is also accepted."),
         ),
         injectionLevel = 1,
         type = SkillType.NATIVE,
+        tags = listOf("页面", "应用"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -87,21 +91,17 @@ class UiBuilderSkill(
                 val icon = params["icon"] as? String ?: existing?.icon ?: "📄"
                 val description = params["description"] as? String ?: existing?.description ?: ""
 
-                @Suppress("UNCHECKED_CAST")
                 val state: Map<String, String> = params["state"]?.let { raw ->
-                    runCatching {
-                        val parsed = JsonParser.parseString(raw.toString()).asJsonObject
-                        parsed.entrySet().associate { (k, v) -> k to v.asString }
-                    }.getOrNull()
+                    parseJsonObject(raw)?.entrySet()?.associate { (k, v) -> k to jsonValueToStateString(v) }
                 } ?: existing?.state ?: emptyMap()
 
-                val layout: JsonObject = params["layout"]?.let { raw ->
-                    runCatching { JsonParser.parseString(raw.toString()).asJsonObject }.getOrNull()
-                } ?: existing?.layout ?: JsonObject()
+                val layout: JsonObject = params["layout"]?.let { raw -> parseJsonObject(raw) }
+                    ?: existing?.layout
+                    ?: JsonObject()
 
-                val actions: JsonObject = params["actions"]?.let { raw ->
-                    runCatching { JsonParser.parseString(raw.toString()).asJsonObject }.getOrNull()
-                } ?: existing?.actions ?: JsonObject()
+                val actions: JsonObject = params["actions"]?.let { raw -> parseJsonObject(raw) }
+                    ?: existing?.actions
+                    ?: JsonObject()
 
                 val def = AiPageDef(
                     id = id,
@@ -141,6 +141,28 @@ class UiBuilderSkill(
             }
 
             else -> SkillResult(false, "Unknown action: $action. Use: create | update | list | get | delete | open | pin_shortcut | get_guide")
+        }
+    }
+
+    private fun parseJsonObject(raw: Any): JsonObject? {
+        return when (raw) {
+            is JsonObject -> raw
+            is JsonElement -> runCatching { raw.asJsonObject }.getOrNull()
+            is String -> runCatching { JsonParser.parseString(raw).asJsonObject }.getOrNull()
+            else -> runCatching { gson.toJsonTree(raw).asJsonObject }.getOrNull()
+        }
+    }
+
+    private fun jsonValueToStateString(value: JsonElement): String {
+        return when {
+            value.isJsonNull -> ""
+            value.isJsonPrimitive -> value.asJsonPrimitive.let { primitive ->
+                when {
+                    primitive.isString -> primitive.asString
+                    else -> primitive.toString()
+                }
+            }
+            else -> gson.toJson(value)
         }
     }
 
@@ -205,6 +227,7 @@ All string values support ${'$'}{expr} template interpolation.
 - metric_grid: items:[{label,value,color?},...], cols (default 2)
 - info_rows: items:[{label,value,color?},...]
 - table: headers:[...], rows:[[...]]
+- json_view: content (JSON string), max_chars — pretty JSON inspector for app_context/skill_call outputs
 - chart_bar: data:[floats], labels:[strings], title
 - chart_line: data:[floats], labels:[strings], title
 
@@ -227,6 +250,20 @@ Body stored in state[result_key]; use ${'$'}{state.response} in layout.
 ### Shell
 {"type":"shell","cmd":"date +%Y-%m-%d","result_key":"today"}
 stdout → state[result_key]
+
+### MobileClaw App Context
+Read structured app data that MobileClaw already has. Result is JSON stored in state[result_key].
+Domains: all, summary, memory, chat, groups, settings, skills, roles, pages, vpn.
+Sensitive config values and API keys are redacted.
+{"type":"app_context","domain":"summary","limit":20,"result_key":"ctx"}
+{"type":"app_context","domain":"chat","limit":10,"result_key":"chat_json"}
+
+### Existing Skill Calls
+Call any registered MobileClaw skill by id. Params are the same as the skill parameters.
+Result output is stored in state[result_key]; full result fields are available via ${'$'}{result.output}, ${'$'}{result.ok}, ${'$'}{result.data}.
+Use app_context(domain="skills") first if you need the current skill inventory.
+{"type":"skill_call","skill":"memory","params":{"action":"list"},"result_key":"memory_out"}
+{"type":"skill_call","skill":"web_search","params":{"query":"${'$'}{input.query}"},"result_key":"search_out"}
 
 ### Android System
 {"type":"notify","title":"完成","body":"${'$'}{state.result}"}
@@ -282,6 +319,8 @@ ui_builder(action=create, id="weather", title="天气查询", icon="🌤️",
 ## Notes
 - Pages survive app restarts; state resets to initial values on each open.
 - Actions run on background thread; UI updates via Compose state flow.
+- AI pages can now build dashboards or tools from app memory, chats, group chats, settings, roles, skills, AI pages, and VPN summaries.
+- Prefer app_context for reading MobileClaw data and skill_call for doing work through existing capabilities.
 - Call get_guide to see this reference; call list to see existing pages.
 """.trimIndent()
     }

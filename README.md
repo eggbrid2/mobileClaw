@@ -117,6 +117,8 @@ MobileClaw has two app-building paths:
 
 Both are created from chat through skills. Mini apps are good for fast web-like tools. AI Pages are better when a workflow should feel native.
 
+Follow-up edits keep artifact context. If the user asks to change "that page" after creating an AI Page, MobileClaw carries the recent page ID into the next task and routes the update back through `ui_builder` instead of falling back to one-off HTML.
+
 ### VPN And Proxy Runtime
 
 MobileClaw includes a VPN stack designed for Android agent use:
@@ -139,6 +141,9 @@ This stack does not use Xray. mihomo handles the proxy protocols; hev is kept be
 - Group chat supports user and AI attachments.
 - Group chat has a small task pool. A long task occupies its agent and one pool slot, not the whole group.
 - Agents can be interrupted by newer user turns when capacity is available.
+- Group chat roles can own their own bubble style. Native bubbles support presets, glow, gradients, patterns, emotion fields, font choices, and lightweight animations.
+- Roles may opt into constrained HTML bubble rendering for compact custom effects. Native rendering remains the default; HTML templates are local, sanitized, and intended for personality-level presentation rather than full mini-app behavior.
+- Built-in ChineseBQB stickers can be searched or favorited from a thumbnail grid. Selecting a sticker sends it directly as a sticker/image message instead of staging it as a generic attachment.
 
 ### Memory
 

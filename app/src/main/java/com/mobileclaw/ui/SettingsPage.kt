@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -37,9 +38,12 @@ import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.config.GatewayConfig
+import com.mobileclaw.config.CacheCategory
+import com.mobileclaw.config.CacheCleaner
 import com.mobileclaw.perception.VirtualDisplayManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import java.util.UUID
 import com.mobileclaw.str
 
@@ -53,13 +57,11 @@ private val GATEWAY_PRESETS = listOf(
 )
 
 private val LANGUAGES = listOf(
-    "auto" to R.string.lang_auto,
     "zh"   to R.string.lang_zh,
     "en"   to R.string.lang_en,
-    "ja"   to R.string.lang_ja,
 )
 
-private enum class SettingsSub { GATEWAY, APPEARANCE, FILES, VIRTUAL_DISPLAY }
+private enum class SettingsSub { GATEWAY, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CACHE }
 
 @Composable
 fun SettingsPage(
@@ -69,6 +71,7 @@ fun SettingsPage(
     privServerConnected: Boolean,
     onSave: (ConfigSnapshot) -> Unit,
     onBack: () -> Unit,
+    onOpenHelp: () -> Unit,
     onTestVirtualDisplay: () -> Unit,
     onCheckPrivServer: () -> Unit,
 ) {
@@ -78,12 +81,13 @@ fun SettingsPage(
     var activeGatewayId by remember(snapshot.activeGatewayId) { mutableStateOf(snapshot.activeGatewayId) }
     var language  by remember(snapshot.language) { mutableStateOf(snapshot.language) }
     var darkTheme by remember(snapshot.darkTheme) { mutableStateOf(snapshot.darkTheme) }
-    var accent    by remember(snapshot.accentColor) { mutableStateOf<Long>(snapshot.accentColor) }
+    var accent    by remember(snapshot.accentColor) { mutableStateOf<Long>(0xFFC7F43AL) }
+    var uiStyle   by remember(snapshot.uiStyle) { mutableStateOf(snapshot.uiStyle) }
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
 
     val currentSnapshot = {
-        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent)
+        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent, uiStyle = uiStyle)
     }
 
     BackHandler {
@@ -120,23 +124,23 @@ fun SettingsPage(
                     SettingsCategoryRow(
                         emoji = "🎨",
                         title = str(R.string.settings_ce650e),
-                        subtitle = ThemePresets.find { it.darkTheme == darkTheme && it.accentColor == accent }?.name ?: str(R.string.settings_f1d4ff),
+                        subtitle = if (darkTheme) str(R.string.settings_theme_night_short) else str(R.string.settings_theme_day_short),
                         statusOk = true,
                         c = c,
                     ) { subPage = SettingsSub.APPEARANCE }
                 }
 
                 SettingsHubCard(c) {
-                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val ctx = LocalContext.current
                     val storageManager = remember { com.mobileclaw.config.UserStorageManager(ctx) }
                     val hasFileAccess = remember { storageManager.hasAllFilesAccess() }
                     SettingsCategoryRow(
-                        emoji = "📁",
-                        title = str(R.string.settings_bc417e),
+                        emoji = "🔐",
+                        title = str(R.string.settings_permissions),
                         subtitle = if (hasFileAccess) str(R.string.settings_done) else str(R.string.settings_not),
                         statusOk = hasFileAccess,
                         c = c,
-                    ) { subPage = SettingsSub.FILES }
+                    ) { subPage = SettingsSub.PERMISSIONS }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
                         emoji = "🖥️",
@@ -149,6 +153,23 @@ fun SettingsPage(
                         statusOk = vdTestResult?.startsWith("ok:") == true || vdRunning,
                         c = c,
                     ) { subPage = SettingsSub.VIRTUAL_DISPLAY }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        emoji = "🧹",
+                        title = str(R.string.cache_title),
+                        subtitle = str(R.string.cache_subtitle),
+                        statusOk = true,
+                        c = c,
+                    ) { subPage = SettingsSub.CACHE }
+                }
+                SettingsHubCard(c) {
+                    SettingsCategoryRow(
+                        emoji = "❔",
+                        title = str(R.string.help_9a2407),
+                        subtitle = str(R.string.settings_help_entry_subtitle),
+                        statusOk = true,
+                        c = c,
+                    ) { onOpenHelp() }
                 }
             }
         }
@@ -168,12 +189,13 @@ fun SettingsPage(
             )
             SettingsSub.APPEARANCE -> AppearanceSubPage(
                 darkTheme = darkTheme, onDarkTheme = { darkTheme = it },
-                accent = accent, onAccent = { accent = it },
+                accent = accent, onAccent = { accent = 0xFFC7F43AL },
                 language = language, onLanguage = { language = it },
+                uiStyle = uiStyle, onUiStyle = { uiStyle = it },
                 c = c, onBack = { subPage = null },
                 onSave = { onSave(currentSnapshot()); subPage = null },
             )
-            SettingsSub.FILES -> FilesSubPage(c = c, onBack = { subPage = null })
+            SettingsSub.PERMISSIONS -> PermissionsSubPage(c = c, onBack = { subPage = null })
             SettingsSub.VIRTUAL_DISPLAY -> VirtualDisplaySubPage(
                 virtualDisplayManager = virtualDisplayManager,
                 vdTestResult = vdTestResult,
@@ -183,6 +205,7 @@ fun SettingsPage(
                 onTestVirtualDisplay = onTestVirtualDisplay,
                 onCheckPrivServer = onCheckPrivServer,
             )
+            SettingsSub.CACHE -> CacheSubPage(c = c, onBack = { subPage = null })
             null -> {}
         }
     }
@@ -374,8 +397,8 @@ private fun GatewayListItem(
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(if (isActive) c.accent.copy(alpha = 0.08f) else c.surface)
-            .border(1.dp, if (isActive) c.accent.copy(alpha = 0.5f) else c.border, RoundedCornerShape(10.dp))
+            .background(c.surface)
+            .border(1.dp, if (isActive) c.text else c.border, RoundedCornerShape(10.dp))
             .clickable(onClick = onActivate)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -387,7 +410,7 @@ private fun GatewayListItem(
         )
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (isActive) c.accent else c.text)
+                Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                 if (gateway.supportsMultimodal) {
                     Text("👁", fontSize = 10.sp)
                 }
@@ -435,10 +458,10 @@ private fun GatewayEditorSubPage(
                     ))
                 },
                 enabled = isValid,
-                colors = ButtonDefaults.buttonColors(containerColor = c.accent, disabledContainerColor = c.border),
-                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg, disabledContainerColor = c.border),
+                shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text(str(R.string.role_save), color = Color.White, fontSize = 13.sp) }
+            ) { Text(str(R.string.role_save), fontSize = 13.sp, maxLines = 1) }
             Spacer(Modifier.width(4.dp))
         }
         Column(
@@ -453,8 +476,8 @@ private fun GatewayEditorSubPage(
                         val active = endpoint == preset.endpoint && model == preset.model
                         Box(
                             Modifier.clip(RoundedCornerShape(8.dp))
-                                .background(if (active) c.accent.copy(alpha = 0.15f) else c.cardAlt)
-                                .border(1.dp, if (active) c.accent.copy(alpha = 0.6f) else c.border, RoundedCornerShape(8.dp))
+                                .background(if (active) c.text else c.cardAlt)
+                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(8.dp))
                                 .clickable {
                                     name = preset.name
                                     endpoint = preset.endpoint
@@ -463,7 +486,7 @@ private fun GatewayEditorSubPage(
                                 }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                         ) {
-                            Text(preset.name, color = if (active) c.accent else c.subtext, fontSize = 11.sp,
+                            Text(preset.name, color = if (active) c.bg else c.subtext, fontSize = 11.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
@@ -520,6 +543,7 @@ private fun AppearanceSubPage(
     darkTheme: Boolean, onDarkTheme: (Boolean) -> Unit,
     accent: Long, onAccent: (Long) -> Unit,
     language: String, onLanguage: (String) -> Unit,
+    uiStyle: String, onUiStyle: (String) -> Unit,
     c: ClawColors,
     onBack: () -> Unit,
     onSave: () -> Unit,
@@ -528,10 +552,10 @@ private fun AppearanceSubPage(
         ClawPageHeader(title = str(R.string.settings_ce650e), onBack = onBack) {
             Button(
                 onClick = onSave,
-                colors = ButtonDefaults.buttonColors(containerColor = c.accent),
-                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text(str(R.string.role_save), color = Color.White, fontSize = 13.sp) }
+            ) { Text(str(R.string.role_save), fontSize = 13.sp, maxLines = 1) }
             Spacer(Modifier.width(4.dp))
         }
         Column(
@@ -539,30 +563,43 @@ private fun AppearanceSubPage(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             SettingsSection(str(R.string.section_theme), c) {
-                ThemePresets.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { preset ->
-                            val isActive = darkTheme == preset.darkTheme && accent == preset.accentColor
-                            Column(
-                                Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                                    .background(if (isActive) c.accent.copy(alpha = 0.12f) else c.cardAlt)
-                                    .border(1.5.dp, if (isActive) c.accent.copy(alpha = 0.7f) else c.border, RoundedCornerShape(10.dp))
-                                    .clickable { onDarkTheme(preset.darkTheme); onAccent(preset.accentColor) }
-                                    .padding(vertical = 10.dp, horizontal = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(5.dp),
-                            ) {
-                                Box(Modifier.size(width = 36.dp, height = 20.dp).clip(RoundedCornerShape(5.dp)).background(Color(preset.previewBg))) {
-                                    Box(Modifier.size(8.dp).align(Alignment.Center).clip(CircleShape).background(Color(preset.previewAccent)))
-                                }
-                                Text(preset.name, color = if (isActive) c.accent else c.subtext, fontSize = 9.sp,
-                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                            }
-                        }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                    Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemeModeCard(
+                        modifier = Modifier.weight(1f),
+                        title = str(R.string.settings_day_mode),
+                        subtitle = str(R.string.settings_day_mode_desc),
+                        active = !darkTheme,
+                        dark = false,
+                        c = c,
+                    ) { onDarkTheme(false); onAccent(0xFFC7F43AL) }
+                    ThemeModeCard(
+                        modifier = Modifier.weight(1f),
+                        title = str(R.string.settings_night_mode),
+                        subtitle = str(R.string.settings_night_mode_desc),
+                        active = darkTheme,
+                        dark = true,
+                        c = c,
+                    ) { onDarkTheme(true); onAccent(0xFFC7F43AL) }
+                }
+            }
+            SettingsSection(str(R.string.settings_ui_style), c) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemeModeCard(
+                        modifier = Modifier.weight(1f),
+                        title = str(R.string.settings_style_desk),
+                        subtitle = str(R.string.settings_style_desk_desc),
+                        active = uiStyle == "desk",
+                        dark = darkTheme,
+                        c = c,
+                    ) { onUiStyle("desk") }
+                    ThemeModeCard(
+                        modifier = Modifier.weight(1f),
+                        title = str(R.string.settings_style_classic),
+                        subtitle = str(R.string.settings_style_classic_desc),
+                        active = uiStyle == "classic",
+                        dark = false,
+                        c = c,
+                    ) { onUiStyle("classic") }
                 }
             }
             SettingsSection(str(R.string.section_language), c) {
@@ -571,13 +608,13 @@ private fun AppearanceSubPage(
                         val active = language == code
                         Box(
                             Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                                .background(if (active) c.accent.copy(alpha = 0.15f) else c.cardAlt)
-                                .border(1.dp, if (active) c.accent.copy(alpha = 0.6f) else c.border, RoundedCornerShape(8.dp))
+                                .background(if (active) c.text else c.cardAlt)
+                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(8.dp))
                                 .clickable { onLanguage(code) }
                                 .padding(vertical = 9.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(stringResource(resId), color = if (active) c.accent else c.subtext, fontSize = 11.sp,
+                            Text(stringResource(resId), color = if (active) c.bg else c.subtext, fontSize = 11.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
@@ -588,47 +625,237 @@ private fun AppearanceSubPage(
 }
 
 @Composable
-private fun FilesSubPage(c: ClawColors, onBack: () -> Unit) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+private fun ThemeModeCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    subtitle: String,
+    active: Boolean,
+    dark: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.surface)
+            .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(74.dp).clip(RoundedCornerShape(12.dp))
+                .background(if (dark) Color(0xFF050505) else Color(0xFFF6F6F4)),
+        ) {
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(22.dp).clip(CircleShape).background(if (dark) Color.White else Color(0xFF101010)))
+            Box(Modifier.align(Alignment.BottomStart).padding(12.dp).size(width = 78.dp, height = 10.dp).clip(RoundedCornerShape(8.dp)).background(if (dark) Color(0xFF2A2A2A) else Color(0xFFE0E0DC)))
+        }
+        Text(title, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(subtitle, color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
+    }
+}
+
+@Composable
+private fun PermissionsSubPage(c: ClawColors, onBack: () -> Unit) {
+    val ctx = LocalContext.current
     val storageManager = remember { com.mobileclaw.config.UserStorageManager(ctx) }
+    val permissionManager = remember { com.mobileclaw.permission.PermissionManager(ctx) }
     var hasFileAccess by remember { mutableStateOf(storageManager.hasAllFilesAccess()) }
     val fileAccessLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { hasFileAccess = storageManager.hasAllFilesAccess() }
+    val activityLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { }
 
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
-        ClawPageHeader(title = stringResource(R.string.settings_bc417e), onBack = onBack)
+        ClawPageHeader(title = stringResource(R.string.settings_permissions), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .background(if (hasFileAccess) c.green.copy(alpha = 0.07f) else c.cardAlt, RoundedCornerShape(10.dp))
-                    .border(1.dp, if (hasFileAccess) c.green.copy(alpha = 0.3f) else c.border, RoundedCornerShape(10.dp))
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(if (hasFileAccess) c.green else c.subtext.copy(alpha = 0.4f)))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(if (hasFileAccess) stringResource(R.string.settings_done_2) else stringResource(R.string.settings_not_3),
-                        color = if (hasFileAccess) c.green else c.subtext, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(2.dp))
-                    Text(if (hasFileAccess) stringResource(R.string.settings_5b5f15) else stringResource(R.string.settings_tap_2),
-                        color = c.subtext, fontSize = 12.sp, lineHeight = 16.sp)
-                }
+            PermissionStatusRow("♿", stringResource(R.string.perm_accessibility_title), stringResource(R.string.perm_accessibility_desc), permissionManager.isAccessibilityEnabled(), true, c) {
+                activityLauncher.launch(permissionManager.openAccessibilitySettings())
             }
-            if (!hasFileAccess) {
-                Button(
-                    onClick = { fileAccessLauncher.launch(storageManager.allFilesAccessSettingsIntent()) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = c.accent),
-                    shape = RoundedCornerShape(10.dp),
-                ) { Text(stringResource(R.string.settings_f0bdc1), color = Color.White, fontSize = 14.sp) }
+            PermissionStatusRow("🪟", stringResource(R.string.perm_overlay_title), stringResource(R.string.perm_overlay_desc), permissionManager.isOverlayEnabled(), true, c) {
+                activityLauncher.launch(permissionManager.openOverlaySettings())
+            }
+            PermissionStatusRow("📁", stringResource(R.string.settings_bc417e), stringResource(R.string.settings_tap_2), hasFileAccess, false, c) {
+                fileAccessLauncher.launch(storageManager.allFilesAccessSettingsIntent())
+            }
+            PermissionStatusRow("🔔", stringResource(R.string.perm_notification_title), stringResource(R.string.perm_notification_desc), permissionManager.isNotificationGranted(), false, c) {
+                activityLauncher.launch(permissionManager.openAppDetails())
+            }
+            PermissionStatusRow("⚡", stringResource(R.string.perm_background_title), stringResource(R.string.perm_background_desc), permissionManager.isBatteryOptimizationExempt(), false, c) {
+                activityLauncher.launch(permissionManager.openBatteryOptimizationRequest())
+            }
+            permissionManager.pendingPermissions()
+                .filter { it.id.startsWith("rom_") }
+                .forEach { item ->
+                    PermissionStatusRow(item.icon, item.title, item.description, false, item.isBlocking, c) {
+                        activityLauncher.launch(permissionManager.openRomSettingFor(item))
+                    }
+                }
+        }
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(
+    icon: String,
+    title: String,
+    description: String,
+    granted: Boolean,
+    required: Boolean,
+    c: ClawColors,
+    onOpen: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (granted) c.green.copy(alpha = 0.07f) else c.surface)
+            .border(1.dp, if (granted) c.green.copy(alpha = 0.28f) else c.border, RoundedCornerShape(14.dp))
+            .clickable(onClick = onOpen)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(icon, fontSize = 22.sp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(title, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (required) str(R.string.settings_required) else str(R.string.settings_recommended), color = if (required) c.red else c.subtext, fontSize = 10.sp)
+            }
+            Text(description, color = c.subtext, fontSize = 12.sp, lineHeight = 16.sp)
+        }
+        Text(if (granted) str(R.string.settings_enabled) else str(R.string.settings_go_configure), color = if (granted) c.green else c.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun CacheSubPage(c: ClawColors, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val cleaner = remember { CacheCleaner(ctx.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var categories by remember { mutableStateOf<List<CacheCategory>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var clearingId by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        scope.launch {
+            loading = true
+            categories = cleaner.scan()
+            loading = false
+        }
+    }
+
+    LaunchedEffect(Unit) { refresh() }
+
+    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+        ClawPageHeader(title = str(R.string.cache_title), onBack = onBack) {
+            TextButton(
+                enabled = !loading && clearingId == null && categories.any { it.sizeBytes > 0L },
+                onClick = {
+                    scope.launch {
+                        clearingId = "__all__"
+                        cleaner.clearAll()
+                        categories = cleaner.scan()
+                        clearingId = null
+                    }
+                },
+            ) {
+                Text(str(R.string.cache_clear_all), color = if (clearingId == null) c.red else c.subtext, fontSize = 13.sp, maxLines = 1)
+            }
+        }
+
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            val total = categories.sumOf { it.sizeBytes }
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(c.surface)
+                    .border(0.5.dp, c.border, RoundedCornerShape(20.dp))
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(str(R.string.cache_total), color = c.subtext, fontSize = 12.sp)
+                Text(formatCacheSize(total), color = c.text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text(str(R.string.cache_notice), color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+
+            if (loading) {
+                Box(Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = c.text, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                categories.forEach { category ->
+                    CacheCategoryRow(
+                        category = category,
+                        c = c,
+                        clearing = clearingId == category.id || clearingId == "__all__",
+                        onClear = {
+                            scope.launch {
+                                clearingId = category.id
+                                cleaner.clear(category.id)
+                                categories = cleaner.scan()
+                                clearingId = null
+                            }
+                        },
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun CacheCategoryRow(
+    category: CacheCategory,
+    c: ClawColors,
+    clearing: Boolean,
+    onClear: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.surface)
+            .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(category.titleRes), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(formatCacheSize(category.sizeBytes), color = c.subtext, fontSize = 12.sp)
+            }
+            Text(stringResource(category.subtitleRes), color = c.subtext, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(str(R.string.cache_paths_count, category.pathCount), color = c.subtext.copy(alpha = 0.7f), fontSize = 10.sp)
+        }
+        Box(
+            Modifier.size(width = 64.dp, height = 34.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(if (category.sizeBytes > 0L) c.text else c.cardAlt)
+                .clickable(enabled = category.sizeBytes > 0L && !clearing) { onClear() },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (clearing) {
+                CircularProgressIndicator(color = c.bg, modifier = Modifier.size(14.dp), strokeWidth = 1.6.dp)
+            } else {
+                Text(str(R.string.cache_clear), color = if (category.sizeBytes > 0L) c.bg else c.subtext, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+private fun formatCacheSize(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024 -> "${bytes / 1024L} KB"
+    bytes < 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+    else -> String.format(java.util.Locale.US, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }
 
 @Composable
@@ -891,7 +1118,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        if (romInfo.adbNote.isNotEmpty()) "ADB 命令（${romInfo.adbNote}）:" else stringResource(R.string.settings_12a860),
+                        if (romInfo.adbNote.isNotEmpty()) stringResource(R.string.settings_adb_commands_with_note, romInfo.adbNote) else stringResource(R.string.settings_12a860),
                         color = c.subtext, fontSize = 10.sp, lineHeight = 14.sp,
                     )
                     romInfo.adbCommands.forEach { cmd ->
