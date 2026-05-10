@@ -113,11 +113,28 @@ fun GradientAvatar(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
+            } else {
+                Text(safeAvatarGlyph(emoji), fontSize = fontSize)
             }
         } else {
-            Text(emoji, fontSize = fontSize)
+            Text(safeAvatarGlyph(emoji), fontSize = fontSize, maxLines = 1)
         }
     }
+}
+
+fun safeAvatarGlyph(raw: String, fallback: String = "🤖"): String {
+    val value = raw.trim()
+    if (value.isBlank()) return fallback
+    if (
+        value.equals("file", ignoreCase = true) ||
+        value.startsWith("file://") ||
+        value.startsWith("content://") ||
+        value.startsWith("data:") ||
+        value.startsWith("/") ||
+        value.contains("/data/", ignoreCase = true) ||
+        value.contains("/cache/", ignoreCase = true)
+    ) return fallback
+    return if (value.codePointCount(0, value.length) <= 3) value else fallback
 }
 
 /**

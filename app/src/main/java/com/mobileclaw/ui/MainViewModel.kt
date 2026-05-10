@@ -8,6 +8,7 @@ import com.google.gson.JsonParser
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.agent.AgentEvent
 import com.mobileclaw.agent.AgentRuntime
+import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChatRouter
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleScheduler
@@ -32,6 +33,7 @@ import com.mobileclaw.skill.builtin.BgStopSkill
 import com.mobileclaw.skill.builtin.VirtualDisplaySetupSkill
 import com.mobileclaw.skill.builtin.ClipboardSkill
 import com.mobileclaw.skill.builtin.ChineseBqbStickerSkill
+import com.mobileclaw.skill.builtin.ChineseBqbStickerRepository
 import com.mobileclaw.skill.builtin.CreateFileSkill
 import com.mobileclaw.skill.builtin.CreateHtmlSkill
 import com.mobileclaw.skill.builtin.DeviceInfoSkill
@@ -87,6 +89,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 import com.mobileclaw.R
@@ -1211,10 +1214,76 @@ For pure conversational replies (greetings, simple factual answers) — plain te
 
     fun createGroup(group: com.mobileclaw.agent.Group) {
         viewModelScope.launch(Dispatchers.IO) {
+            initializeGroupBubbleStyles(group)
             groupManager.save(group)
             loadGroups()
         }
     }
+
+    private fun initializeGroupBubbleStyles(group: com.mobileclaw.agent.Group) {
+        group.memberRoleIds.forEachIndexed { index, roleId ->
+            val role = roleManager.get(roleId) ?: return@forEachIndexed
+            if (role.chatBubbleStyle != ChatBubbleStyle()) return@forEachIndexed
+            roleManager.save(role.copy(chatBubbleStyle = defaultGroupBubbleStyleFor(role, index)))
+        }
+    }
+
+    private fun defaultGroupBubbleStyleFor(role: Role, index: Int): ChatBubbleStyle {
+        val palettes = listOf(
+            BubbleStyleSeed("#F8F8F6", "#111111", "#D7D7D2", "#111111", "minimal", "contour", "dot", "medium", "neutral", "none"),
+            BubbleStyleSeed("#050505", "#FFFFFF", "#050505", "#C7F43A", "ink", "none", "sparkle", "semibold", "cool", "shimmer"),
+            BubbleStyleSeed("#FFFFFF", "#121212", "#D8D8D8", "#56D6BA", "outline", "dot", "badge", "medium", "happy", "breath"),
+            BubbleStyleSeed("#F7F7F2", "#171717", "#E5E5DE", "#8A8A8A", "paper", "grid", "moon", "regular", "sleepy", "fade"),
+            BubbleStyleSeed("#111111", "#F8F8F5", "#242424", "#C7F43A", "glass", "stripe", "star", "medium", "excited", "pop"),
+            BubbleStyleSeed("#FAFAF7", "#0C0C0C", "#DBDBD4", "#56D6BA", "minimal", "star", "heart", "semibold", "love", "wave"),
+        )
+        val seed = palettes[index % palettes.size]
+        val radius = 16 + ((role.id.hashCode() and 0x7fffffff) % 9)
+        return ChatBubbleStyle(
+            preset = seed.preset,
+            renderer = "native",
+            backgroundColor = seed.background,
+            textColor = seed.text,
+            borderColor = seed.border,
+            accentColor = seed.accent,
+            radiusDp = radius,
+            radiusTopStartDp = radius,
+            radiusTopEndDp = (radius + 4).coerceAtMost(28),
+            radiusBottomEndDp = radius,
+            radiusBottomStartDp = (radius - 6).coerceAtLeast(6),
+            pattern = seed.pattern,
+            decoration = seed.decoration,
+            decorationText = role.name.take(2),
+            decorationPosition = if (index % 2 == 0) "top_end" else "bottom_end",
+            decorationAnimation = if (index % 3 == 0) "pulse" else "none",
+            emotion = seed.emotion,
+            fontFamily = if (index % 3 == 1) "rounded" else "system",
+            fontWeight = seed.fontWeight,
+            textAnimation = seed.textAnimation,
+            fontSizeSp = 14,
+            lineHeightSp = 20,
+            paddingHorizontalDp = 13,
+            paddingVerticalDp = 9,
+            shadow = if (index % 2 == 0) "soft" else "none",
+            shadowColor = "#000000",
+            shadowAlpha = if (index % 2 == 0) 0.12f else -1f,
+            shadowElevationDp = if (index % 2 == 0) 4 else -1,
+            imageMode = "cover",
+        )
+    }
+
+    private data class BubbleStyleSeed(
+        val background: String,
+        val text: String,
+        val border: String,
+        val accent: String,
+        val preset: String,
+        val pattern: String,
+        val decoration: String,
+        val fontWeight: String,
+        val emotion: String,
+        val textAnimation: String,
+    )
 
     fun deleteGroup(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1349,14 +1418,14 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             // No @mention: shuffle, stagger a random 1-3 agents as initial responders.
             // They self-filter via [PASS]; their responses invite others via probability decay (depth 5→4→…→0).
             val shuffled = allMembers.shuffled()
-            val activeCount = (1..minOf(3, shuffled.size)).random()
+            val activeCount = if (shuffled.size <= 1) 1 else (1..minOf(2, shuffled.size)).random()
             shuffled.take(activeCount).forEachIndexed { idx, role ->
                 val delayMs = when (idx) {
                     0    -> (200L..800L).random()
                     1    -> (1500L..3000L).random()
                     else -> (3000L..5500L).random()
                 }
-                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = 5, triggerText = userText)
+                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = 2, triggerText = userText)
             }
         }
     }
@@ -1370,10 +1439,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 listOfNotNull(allMembers.firstOrNull { it.id == selected.id } ?: allMembers.firstOrNull())
             }
             mentioned.isNotEmpty() -> allMembers.filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
-            else -> allMembers.shuffled().take(minOf(2, allMembers.size))
+            else -> allMembers.shuffled().take(1)
         }
         targets.forEach { role ->
-            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 5 else 2, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH)))
+            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 3 else 1, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH)))
         }
         _uiState.update { it.copy(groupPendingMessages = it.groupPendingMessages + userText) }
     }
@@ -1497,14 +1566,16 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                         // Organic reactions: let all idle members evaluate whether to join.
                         // Probability decays with depth so the conversation tapers naturally.
                         if (chainDepth > 0) {
-                            // Base probability per depth level: 0.80 → 0.65 → 0.50 → 0.35 → 0.20
+                            // Keep group chat lively without leaving users stuck in endless typing.
                             val reactionProb = when (chainDepth) {
-                                5 -> 0.80f; 4 -> 0.65f; 3 -> 0.50f; 2 -> 0.35f; else -> 0.20f
+                                3 -> 0.42f; 2 -> 0.30f; else -> 0.18f
                             }
                             allMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
                                     mentions.none { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) }
                                 }
+                                .shuffled()
+                                .take(2)
                                 .forEach { reactor ->
                                     // Relevance boost: if the response text mentions this reactor's name, higher chance
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
@@ -1599,18 +1670,23 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             if (groupChatStopped) return GroupTurnResult(finalText, attachments)
             var accumulated = ""
             val resp = runCatching {
-                llm.chat(ChatRequest(
-                    messages = messages,
-                    tools = if (iteration < maxSkillCalls) tools else emptyList(),
-                    stream = true,
-                    onToken = { tok -> accumulated += tok },  // buffer locally, not shown during inference
-                    onThinkToken = null,                      // discard thinking completely
-                ))
+                withTimeoutOrNull(35_000L) {
+                    llm.chat(ChatRequest(
+                        messages = messages,
+                        tools = if (iteration < maxSkillCalls) tools else emptyList(),
+                        stream = true,
+                        onToken = { tok -> accumulated += tok },  // buffer locally, not shown during inference
+                        onThinkToken = null,                      // discard thinking completely
+                    ))
+                }
             }.getOrElse { return GroupTurnResult(finalText, attachments) }
+                ?: return GroupTurnResult(finalText.ifBlank { "[PASS]" }, attachments)
 
             if (resp.toolCall == null) {
                 finalText = accumulated.ifBlank { resp.content ?: "" }
-                return GroupTurnResult(finalText, attachments)
+                val autoSticker = maybeCreateGroupStickerAttachment(finalText)
+                    ?.takeIf { attachments.none { existing -> existing is SkillAttachment.FileData && existing.path == it.path } }
+                return GroupTurnResult(finalText, if (autoSticker != null) attachments + autoSticker else attachments)
             }
 
             val tc = resp.toolCall
@@ -1629,6 +1705,34 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         }
 
         return GroupTurnResult(finalText, attachments)
+    }
+
+    private suspend fun maybeCreateGroupStickerAttachment(text: String): SkillAttachment.FileData? {
+        val query = stickerQueryForText(text) ?: return null
+        return withTimeoutOrNull<SkillAttachment.FileData?>(2500L) {
+            runCatching {
+                val entries = ChineseBqbStickerRepository.search(app, query, limit = 24)
+                val chosen = entries.firstOrNull() ?: return@withTimeoutOrNull null
+                ChineseBqbStickerRepository.download(app, chosen)
+            }.getOrNull()
+        }
+    }
+
+    private fun stickerQueryForText(text: String): String? {
+        val clean = text.trim()
+        if (clean.length !in 1..90) return null
+        val lowered = clean.lowercase()
+        val candidates = listOf(
+            listOf("哈哈", "笑死", "笑", "绷不住", "乐", "hh", "233") to "哈哈",
+            listOf("牛", "太强", "厉害", "666", "绝了") to "牛",
+            listOf("离谱", "逆天", "破防", "无语", "尴尬") to "无语",
+            listOf("摸鱼", "开摆", "摆烂") to "摸鱼",
+            listOf("谢谢", "感谢", "感恩") to "谢谢",
+            listOf("庆祝", "恭喜", "赢", "成功") to "庆祝",
+            listOf("安慰", "抱抱", "难过", "哭") to "安慰",
+            listOf("生气", "气", "怒") to "生气",
+        )
+        return candidates.firstOrNull { (triggers, _) -> triggers.any { lowered.contains(it) } }?.second
     }
 
     private fun buildGroupSystemPrompt(
@@ -1662,12 +1766,14 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         appendLine(str(R.string.vm_93c334))
         appendLine("• 你的群聊气泡是你的个人装扮。你可以自己选择或生成气泡主题，用户不需要手动编辑。")
         appendLine("• 如果你还没有满意的气泡，或想让自己更有辨识度，可以调用 role_manager(action=update, id=\"${role.id}\", bubble_style_json={...}) 只更新自己的气泡样式。")
-        appendLine("• 默认尽量使用原生气泡 renderer=native。原生气泡支持 Markdown 内容，并且可以配置字体、字号、颜色、字重、文字动画、圆角、阴影、局部装饰等，能满足大多数个性化表达。")
+        appendLine("• 默认可以使用原生气泡 renderer=native；如果你想做复杂字体、局部元素、CSS 动画、可爱装饰或不想被 Markdown 分段影响，也可以直接选择 renderer=html。")
         appendLine("• 气泡主题可以包含 renderer、preset、emotion、backgroundColor、backgroundImage、gradient、textColor、borderColor、accentColor、radiusDp、radiusTopStartDp、radiusTopEndDp、radiusBottomEndDp、radiusBottomStartDp、tail、pattern、decoration、decorationText、decorationPosition、decorationAnimation、decorationSizeDp、animation、fontFamily、fontWeight、textAnimation、fontSizeSp、lineHeightSp、paddingHorizontalDp、paddingVerticalDp、shadow、shadowColor、shadowAlpha、shadowElevationDp、shadowOffsetXDp、shadowOffsetYDp、imageMode。")
-        appendLine("• 只有当原生气泡无法表达你的特殊结构、元素或复杂动效时，才切换 renderer=html，并配置 htmlTemplate、htmlHeightDp、htmlAllowJs、htmlAllowNetwork、htmlTransparent。")
+        appendLine("• HTML 气泡是开放表达通道，可以配置 htmlTemplate、htmlHeightDp、htmlAllowJs、htmlAllowNetwork、htmlTransparent；适合自定义字体、CSS 动画、局部装饰和多元素气泡。")
         appendLine("• decoration 是小装饰，不是大面积背景。可用 none/dot/sparkle/heart/star/moon/badge/text；decorationPosition 可用 top_start/top_end/bottom_start/bottom_end/tail；decorationAnimation 可用 none/pulse/float/sparkle。")
         appendLine("• animation 可用 none/pulse/breath/float/sparkle/shake/pop/tilt/bounce，但应保持克制，优先用局部小装饰和文字动画，不要让整坨气泡大幅移动。")
         appendLine("• emotion 可用 neutral/happy/sad/angry/shy/cool/excited/sleepy/love；textAnimation 可用 none/fade/pop/breath/shimmer/typewriter/marquee/wave。")
+        appendLine("• 当你的回复有明显情绪时，可以先用 role_manager 轻量更新自己的原生气泡状态，例如开心用 emotion=happy + decoration=sparkle，吐槽/无语用 emotion=cool 或 sleepy，安慰用 love/shy，庆祝用 excited。")
+        appendLine("• 气泡表情适合表达当轮心情；表情包适合更强的梗、斗图、反应和娱乐感。好笑、吐槽、庆祝、尴尬、无语、感谢、安慰时要更主动使用表情包。")
         appendLine("• 只在需要表达人格时调整气泡；不要每次发言都修改主题。")
         appendLine()
 

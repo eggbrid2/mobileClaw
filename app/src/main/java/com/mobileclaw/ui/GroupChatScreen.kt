@@ -61,6 +61,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -257,14 +258,19 @@ fun GroupChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
                 }
-                Text(group.emoji, fontSize = 18.sp)
-                Spacer(Modifier.size(6.dp))
+                GroupMemberIconButton(
+                    memberRoles = memberRoles,
+                    totalMembers = totalMembers,
+                    c = c,
+                    onClick = { showMemberDrawer = true },
+                )
+                Spacer(Modifier.size(10.dp))
                 Text(
                     group.name,
                     color = c.text,
@@ -276,36 +282,6 @@ fun GroupChatScreen(
                 if (isRunning) {
                     IconButton(onClick = onStop) {
                         Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color(0xFFEF4444), modifier = Modifier.size(22.dp))
-                    }
-                }
-
-                // Member count button → opens member drawer
-                Box(
-                    modifier = Modifier
-                        .padding(end = 4.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(c.accent.copy(alpha = 0.10f))
-                        .clickable { showMemberDrawer = true }
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        // Show up to 3 avatars overlapping
-                        Box(modifier = Modifier.width((14 + (minOf(totalMembers, 3) - 1) * 10).dp)) {
-                            listOf("👤").plus(memberRoles.take(2).map { it.avatar })
-                                .forEachIndexed { i, av ->
-                                    Text(av, fontSize = 13.sp, modifier = Modifier.offset(x = (i * 10).dp))
-                                }
-                        }
-                        Text(
-                            "$totalMembers",
-                            color = c.accent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
                     }
                 }
             }
@@ -588,6 +564,44 @@ fun GroupChatScreen(
 }
 
 @Composable
+private fun GroupMemberIconButton(
+    memberRoles: List<Role>,
+    totalMembers: Int,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(width = 48.dp, height = 32.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(c.bg)
+            .border(1.dp, c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Default.Group,
+            contentDescription = str(R.string.group_field_members),
+            tint = c.text,
+            modifier = Modifier.size(18.dp),
+        )
+        if (totalMembers > 3) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = (-3).dp, y = (-3).dp)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(c.text),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("+", color = c.bg, fontSize = 8.sp, lineHeight = 8.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 private fun MemberDrawerRow(
     avatar: String,
     name: String,
@@ -852,16 +866,18 @@ private fun GroupMessageBubble(
                                         overflow = if (visual.textAnimation == "marquee") TextOverflow.Ellipsis else TextOverflow.Clip,
                                     )
                                 } else {
-                                    if (visual.textAnimation == "marquee") {
+                                    if (visual.textAnimation != "none") {
                                         Text(
-                                            text = message.text.replace('\n', ' '),
+                                            text = animatedTextForBubble(message.text, visual.textAnimation).let {
+                                                if (visual.textAnimation == "marquee") it.replace('\n', ' ') else it
+                                            },
                                             color = visual.textColor,
                                             fontSize = visual.fontSizeSp.sp,
                                             lineHeight = visual.lineHeightSp.sp,
                                             fontFamily = visual.fontFamily,
                                             fontWeight = visual.fontWeight,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                            maxLines = if (visual.textAnimation == "marquee") 1 else Int.MAX_VALUE,
+                                            overflow = if (visual.textAnimation == "marquee") TextOverflow.Ellipsis else TextOverflow.Clip,
                                             modifier = textAnimationModifier(visual, pulse, textAlpha, textScale),
                                         )
                                     } else {
@@ -1972,7 +1988,7 @@ private fun MemberChip(avatar: String, name: String, color: Color) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(avatar, fontSize = 11.sp)
+        Text(safeAvatarGlyph(avatar), fontSize = 11.sp, maxLines = 1)
         Text(name, color = color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }

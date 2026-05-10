@@ -206,7 +206,7 @@ private fun GroupCard(
     val fallbackPreview = remember(members) {
         buildString {
             append(str(R.string.groups_you))
-            members.take(3).forEach { append(" · ${it.avatar} ${it.name}") }
+            members.take(3).forEach { append(" · ${safeAvatarGlyph(it.avatar)} ${it.name}") }
             if (members.size > 3) append(" · +${members.size - 3}")
         }
     }
