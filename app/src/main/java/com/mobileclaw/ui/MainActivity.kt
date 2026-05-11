@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -550,16 +551,18 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 val role = uiState.editingRole
                                 if (role != null) {
-                                    RoleEditPage(
-                                        initial = role,
-                                        availableModels = uiState.availableModels,
-                                        modelsLoading = uiState.modelsLoading,
-                                        allSkills = uiState.allSkills,
-                                        onSave = { vm.saveCustomRole(it); vm.navigateBack() },
-                                        onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
-                                        onFetchModels = { vm.fetchModels() },
-                                        onBack = { vm.navigateBack() },
-                                    )
+                                    key(role.id) {
+                                        RoleEditPage(
+                                            initial = role,
+                                            availableModels = uiState.availableModels,
+                                            modelsLoading = uiState.modelsLoading,
+                                            allSkills = uiState.allSkills,
+                                            onSave = { vm.saveCustomRole(it); vm.navigateBack() },
+                                            onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
+                                            onFetchModels = { vm.fetchModels() },
+                                            onBack = { vm.navigateBack() },
+                                        )
+                                    }
                                 }
                             }
                             AnimatedVisibility(

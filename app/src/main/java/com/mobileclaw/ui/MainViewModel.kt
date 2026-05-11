@@ -114,6 +114,7 @@ class MainViewModel : ViewModel() {
     // Role switch requests emitted by SwitchRoleSkill / RoleManagerSkill, consumed in init
     private val roleRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val switchRoleSkill = SwitchRoleSkill(roleManager, roleRequests)
+    private val recentGroupStickerPaths = ArrayDeque<String>()
 
     // Mini-app open requests emitted by AppManagerSkill
     private val appOpenRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -1415,10 +1416,14 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 .filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
                 .forEach { launchGroupAgentTurn(group, it, allMembers, delayMs = 0, chainDepth = 5, triggerText = userText) }
         } else {
-            // No @mention: shuffle, stagger a random 1-3 agents as initial responders.
+            // No @mention: shuffle, stagger a random 2-3 agents as initial responders.
             // They self-filter via [PASS]; their responses invite others via probability decay (depth 5→4→…→0).
             val shuffled = allMembers.shuffled()
-            val activeCount = if (shuffled.size <= 1) 1 else (1..minOf(2, shuffled.size)).random()
+            val activeCount = when {
+                shuffled.size <= 1 -> 1
+                shuffled.size == 2 -> 2
+                else -> (2..minOf(3, shuffled.size)).random()
+            }
             shuffled.take(activeCount).forEachIndexed { idx, role ->
                 val delayMs = when (idx) {
                     0    -> (200L..800L).random()
@@ -1439,7 +1444,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 listOfNotNull(allMembers.firstOrNull { it.id == selected.id } ?: allMembers.firstOrNull())
             }
             mentioned.isNotEmpty() -> allMembers.filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
-            else -> allMembers.shuffled().take(1)
+            else -> allMembers.shuffled().take(if (allMembers.size <= 1) 1 else 2)
         }
         targets.forEach { role ->
             pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 3 else 1, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH)))
@@ -1568,14 +1573,14 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                         if (chainDepth > 0) {
                             // Keep group chat lively without leaving users stuck in endless typing.
                             val reactionProb = when (chainDepth) {
-                                3 -> 0.42f; 2 -> 0.30f; else -> 0.18f
+                                3 -> 0.52f; 2 -> 0.40f; else -> 0.24f
                             }
                             allMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
                                     mentions.none { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) }
                                 }
                                 .shuffled()
-                                .take(2)
+                                .take(3)
                                 .forEach { reactor ->
                                     // Relevance boost: if the response text mentions this reactor's name, higher chance
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
@@ -1684,9 +1689,16 @@ For pure conversational replies (greetings, simple factual answers) — plain te
 
             if (resp.toolCall == null) {
                 finalText = accumulated.ifBlank { resp.content ?: "" }
-                val autoSticker = maybeCreateGroupStickerAttachment(finalText)
-                    ?.takeIf { attachments.none { existing -> existing is SkillAttachment.FileData && existing.path == it.path } }
-                return GroupTurnResult(finalText, if (autoSticker != null) attachments + autoSticker else attachments)
+                val cleanedAttachments = normalizeGroupTurnAttachments(attachments)
+                val autoSticker = if (cleanedAttachments.none { it.isStickerLikeAttachment() || it is SkillAttachment.ImageData }) {
+                    maybeCreateGroupStickerAttachment(finalText, role.id)
+                } else {
+                    null
+                }
+                return GroupTurnResult(
+                    finalText,
+                    normalizeGroupTurnAttachments(if (autoSticker != null) cleanedAttachments + autoSticker else cleanedAttachments),
+                )
             }
 
             val tc = resp.toolCall
@@ -1695,7 +1707,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 ?.let { runCatching { it.execute(tc.params) }.getOrElse { e -> com.mobileclaw.skill.SkillResult(false, "Error: ${e.message}") } }
                 ?: com.mobileclaw.skill.SkillResult(false, "Skill '${tc.skillId}' not found")
             onToolEnd(skillResult.output.take(3000))
-            (skillResult.data as? SkillAttachment)?.let { attachments += it }
+            (skillResult.data as? SkillAttachment)?.let { attachment ->
+                if (attachment.isStickerLikeAttachment() || attachment is SkillAttachment.ImageData) {
+                    attachments.removeAll { it.isStickerLikeAttachment() || it is SkillAttachment.ImageData }
+                }
+                attachments += attachment
+                rememberGroupStickerAttachment(attachment)
+            }
             skillResult.imageBase64?.takeIf { it.isNotBlank() }?.let {
                 attachments += SkillAttachment.ImageData(it, prompt = "Generated by ${tc.skillId}")
             }
@@ -1704,18 +1722,66 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             messages.add(Message(role = "tool", content = skillResult.output.take(3000), toolCallId = tc.id))
         }
 
-        return GroupTurnResult(finalText, attachments)
+        return GroupTurnResult(finalText, normalizeGroupTurnAttachments(attachments))
     }
 
-    private suspend fun maybeCreateGroupStickerAttachment(text: String): SkillAttachment.FileData? {
+    private suspend fun maybeCreateGroupStickerAttachment(text: String, roleId: String): SkillAttachment.FileData? {
         val query = stickerQueryForText(text) ?: return null
         return withTimeoutOrNull<SkillAttachment.FileData?>(2500L) {
             runCatching {
-                val entries = ChineseBqbStickerRepository.search(app, query, limit = 24)
-                val chosen = entries.firstOrNull() ?: return@withTimeoutOrNull null
-                ChineseBqbStickerRepository.download(app, chosen)
+                val entries = ChineseBqbStickerRepository.search(app, query, limit = 48)
+                    .let { list ->
+                        if (list.isEmpty()) list else {
+                            val salt = kotlin.math.abs((roleId + query + System.currentTimeMillis() / 30_000L).hashCode())
+                            list.drop(salt % minOf(list.size, 7)) + list.take(salt % minOf(list.size, 7))
+                        }
+                    }
+                for (entry in entries.take(16)) {
+                    val sticker = ChineseBqbStickerRepository.download(app, entry)
+                    if (sticker.path !in recentGroupStickerPaths) {
+                        rememberGroupStickerAttachment(sticker)
+                        return@withTimeoutOrNull sticker
+                    }
+                }
+                entries.firstOrNull()?.let { ChineseBqbStickerRepository.download(app, it).also(::rememberGroupStickerAttachment) }
             }.getOrNull()
         }
+    }
+
+    private fun normalizeGroupTurnAttachments(attachments: List<SkillAttachment>): List<SkillAttachment> {
+        var stickerOrImageAdded = false
+        return attachments.asReversed().filter { attachment ->
+            if (attachment.isStickerLikeAttachment() || attachment is SkillAttachment.ImageData) {
+                if (stickerOrImageAdded) {
+                    false
+                } else {
+                    stickerOrImageAdded = true
+                    rememberGroupStickerAttachment(attachment)
+                    true
+                }
+            } else {
+                true
+            }
+        }.asReversed()
+    }
+
+    private fun SkillAttachment.isStickerLikeAttachment(): Boolean =
+        this is SkillAttachment.FileData && (
+            path.contains("/stickers/", ignoreCase = true) ||
+                name.contains("bqb", ignoreCase = true) ||
+                mimeType.startsWith("image/")
+        )
+
+    private fun rememberGroupStickerAttachment(attachment: SkillAttachment) {
+        val path = when (attachment) {
+            is SkillAttachment.FileData -> attachment.path
+            is SkillAttachment.ImageData -> attachment.base64.take(48)
+            else -> return
+        }
+        if (path.isBlank()) return
+        recentGroupStickerPaths.remove(path)
+        recentGroupStickerPaths.addLast(path)
+        while (recentGroupStickerPaths.size > 18) recentGroupStickerPaths.removeFirst()
     }
 
     private fun stickerQueryForText(text: String): String? {
@@ -1791,9 +1857,9 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         appendLine(str(R.string.vm_8f6718))
         appendLine("• 如果你使用工具生成了图片、文件、网页或搜索结果，可以把这些结果作为附件发到群里。")
         appendLine("• 表情包是你的群聊表达方式之一，不是只有用户明确要求才用。发言前先判断：你的这句话是否有明确情绪、梗、反应或斗图价值。")
-        appendLine("• 当你的回复适合用表情包强化时，应主动调用 sticker_bqb(action=\"search\", query=\"简短情绪词\")，例如 哈哈、笑死、牛、离谱、尴尬、无语、摸鱼、生气、谢谢、安慰、庆祝。")
-        appendLine("• 表情包必须和你要表达的内容匹配；每轮最多一个，不要连续刷屏；严肃任务、长任务结果、专业说明和安全相关内容少用或不用。")
-        appendLine("• 如果已经发送表情包，文字要短，不要解释“我发送了一个附件/表情包”。")
+        appendLine("• 当你的回复明显适合表情包强化时，可以调用 sticker_bqb(action=\"search\", query=\"简短情绪词\")，例如 哈哈、笑死、牛、离谱、尴尬、无语、摸鱼、生气、谢谢、安慰、庆祝。")
+        appendLine("• 表情包必须和你要表达的内容匹配；每轮最多一个，不要连续刷屏，不要和其他 AI 重复同一张。系统也会按你的文字情绪自动补一个合适表情，所以不确定时直接发文字即可。")
+        appendLine("• 如果已经发送表情包，文字要短，不要解释“我发送了一个附件/表情包”。严肃任务、长任务结果、专业说明和安全相关内容少用或不用。")
         appendLine("• 任务型请求必须做完再发言；不要做到一半就邀请别人接话。")
     }
 
@@ -2134,7 +2200,7 @@ $relevantFacts
 
     private fun buildPriorContext(activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null): String {
         val msgs = _uiState.value.currentRunState.messages
-        val artifactContext = buildAiPageArtifactContext(activeAiPage)
+        val artifactContext = activeAiPage?.let { buildAiPageArtifactContext(it) }.orEmpty()
         if (msgs.isEmpty()) return artifactContext
         val recent = msgs.takeLast(8)
         val lines = recent.map { msg ->
@@ -2176,6 +2242,8 @@ $relevantFacts
         if (explicit != null) return explicit
         val refersToPrevious = text.contains("它") ||
             text.contains("这个") ||
+            text.contains("这个页面") ||
+            text.contains("这个ui") ||
             text.contains("刚才") ||
             text.contains("上面") ||
             text.contains("继续") ||
@@ -2192,9 +2260,26 @@ $relevantFacts
             text.contains("native") ||
             text.contains("aipage") ||
             text.contains("ai page") ||
-            text.contains("ui") ||
-            text.length <= 40
-        return if (refersToPrevious && pageIntent) pages.firstOrNull() else null
+            text.contains("ui")
+        val recentPageContext = currentConversationMentionsAiPage(pages)
+        return if (refersToPrevious && (pageIntent || recentPageContext)) pages.firstOrNull() else null
+    }
+
+    private fun currentConversationMentionsAiPage(pages: List<com.mobileclaw.ui.aipage.AiPageDef>): Boolean {
+        val recent = _uiState.value.currentRunState.messages.takeLast(10)
+        if (recent.isEmpty()) return false
+        val text = recent.joinToString("\n") { it.text.lowercase() }
+        if (text.contains("ai native page") ||
+            text.contains("原生页面") ||
+            text.contains("ai页面") ||
+            text.contains("aipage") ||
+            text.contains("ui_builder")) {
+            return true
+        }
+        return pages.take(5).any { page ->
+            page.id.isNotBlank() && text.contains(page.id.lowercase()) ||
+                page.title.isNotBlank() && text.contains(page.title.lowercase())
+        }
     }
 
     private fun registerBuiltinSkills() {

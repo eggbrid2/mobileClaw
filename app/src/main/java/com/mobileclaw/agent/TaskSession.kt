@@ -158,15 +158,24 @@ object TaskClassifier {
         }
         if (text.anyContains("搜索", "查询", "查一下", "网页", "浏览", "新闻", "最新", "资料", "research", "search", "browse")) return TaskType.WEB_RESEARCH
         if (text.anyContains("生成图片", "画图", "图片", "图标", "视频", "image", "icon", "video")) return TaskType.IMAGE_GENERATION
-        if (text.anyContains("创建页面", "生成页面", "做个页面", "做一个页面", "原生页面", "ai页面", "aipage", "dashboard", "仪表盘", "表单", "管理页")) return TaskType.APP_BUILD
+        if (hasExplicitPageBuildIntent(text)) return TaskType.APP_BUILD
         if (text.anyContains("做个app", "做一个app", "创建应用", "小应用", "网页应用", "miniapp", "mini app", "html", "game", "calculator", "小游戏", "程序")) return TaskType.APP_BUILD
         if (text.anyContains("文件", "文档", "ppt", "docx", "xlsx", "pdf", "csv", "markdown")) return TaskType.FILE_CREATE
+        if (text.anyContains("role", "persona", "角色", "人设", "创建角色", "新建角色", "修改角色", "角色管理", "切换角色")) return TaskType.SKILL_MANAGEMENT
         if (text.anyContains("skill", "技能", "安装能力", "创建技能", "技能市场")) return TaskType.SKILL_MANAGEMENT
         if (text.anyContains("shell", "python", "脚本", "执行命令", "运行代码", "pip")) return TaskType.CODE_EXECUTION
         return TaskType.GENERAL
     }
 
     private fun String.anyContains(vararg needles: String): Boolean = needles.any { contains(it) }
+
+    private fun hasExplicitPageBuildIntent(text: String): Boolean {
+        if (text.anyContains("创建页面", "生成页面", "做个页面", "做一个页面", "新建页面", "设计页面", "开发页面", "搭建页面")) return true
+        if (text.anyContains("创建原生页面", "生成原生页面", "创建ai页面", "生成ai页面", "aipage", "ai native page")) return true
+        val pageNoun = text.anyContains("页面", "原生页面", "ai页面", "dashboard", "仪表盘", "表单", "管理页")
+        val buildVerb = text.anyContains("创建", "生成", "做个", "做一个", "新建", "设计", "开发", "搭建", "build", "create")
+        return pageNoun && buildVerb
+    }
 }
 
 object TaskToolPolicy {
@@ -219,6 +228,7 @@ object TaskToolPolicy {
         TaskType.SKILL_MANAGEMENT -> """
 ## Current Task Mode: SKILL_MANAGEMENT
 - Use skill inventory, market, or creation tools. Keep new skills disabled/on-demand unless the user promotes them.
+- For role/persona requests, use `role_manager` to list, create, update, delete, or activate roles. Use `switch_role` only for simple activation.
 """.trimIndent()
         TaskType.CODE_EXECUTION -> """
 ## Current Task Mode: CODE_EXECUTION
@@ -243,13 +253,13 @@ object TaskToolPolicy {
         TaskType.APP_BUILD -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
         TaskType.IMAGE_GENERATION -> listOf("generate_image", "generate_icon", "generate_video", "create_file")
         TaskType.VPN_CONTROL -> listOf("vpn_control")
-        TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes")
+        TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes", "role_manager", "switch_role")
         TaskType.CODE_EXECUTION -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files")
         TaskType.CHAT -> listOf("sticker_bqb")
         TaskType.GENERAL -> listOf(
             "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate",
             "web_search", "fetch_url", "create_file", "read_file", "list_files",
-            "ui_builder", "app_manager", "create_html", "memory", "user_profile", "vpn_control", "sticker_bqb",
+            "memory", "user_profile", "vpn_control", "role_manager", "switch_role", "sticker_bqb",
         )
     }
 }
