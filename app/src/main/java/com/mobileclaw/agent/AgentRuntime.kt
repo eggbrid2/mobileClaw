@@ -25,7 +25,6 @@ class AgentRuntime(
 ) {
     private val _events = MutableSharedFlow<AgentEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<AgentEvent> = _events
-
     private val loopGuard = LoopGuard()
 
     suspend fun run(
@@ -74,83 +73,152 @@ class AgentRuntime(
             taskPlan = taskPlan,
         )
 
-        while (!ctx.isExhausted()) {
-            if (loopGuard.check(ctx.steps)) {
-                val msg = "Loop detected — same action repeated ${loopGuard.windowSize} times. Stopping."
-                emit(AgentEvent.Error(msg))
-                return AgentResult(success = false, summary = msg, context = ctx)
-            }
+        var completedSegments = 0
+        while (completedSegments < MAX_SEGMENTS) {
+            val segmentStart = ctx.steps.size
 
-            val messages = ctx.toMessages(systemPrompt, workingMemory.steps())
-
-            emit(AgentEvent.Thinking)
-
-            val response = runCatching {
-                llm.chat(ChatRequest(
-                    messages = messages,
-                    tools = tools,
-                    stream = onToken != null || onThinkToken != null,
-                    onToken = onToken,
-                    onThinkToken = onThinkToken,
-                ))
-            }.getOrElse { e ->
-                val msg = "LLM error: ${e.message}"
-                emit(AgentEvent.Error(msg))
-                return AgentResult(success = false, summary = msg, context = ctx)
-            }
-
-            // No tool call → task complete
-            if (response.toolCall == null) {
-                val summary = response.content ?: "Task completed."
-                emit(AgentEvent.Completed(summary))
-                return AgentResult(success = true, summary = summary, context = ctx)
-            }
-
-            // Emit the thought text so the UI can display it before the action
-            val thought = response.content?.trim() ?: ""
-            if (thought.isNotBlank()) emit(AgentEvent.ThinkingComplete(thought))
-
-            val tc = response.toolCall
-            emit(AgentEvent.SkillCalling(tc.skillId, tc.params))
-
-            val skill = registry.get(tc.skillId)
-            val skillResult = repeatedPerceptionResult(ctx.steps, tc.skillId)
-                ?: if (skill == null) {
-                    SkillResult(success = false, output = "Error: skill '${tc.skillId}' not found.")
-                } else {
-                    runCatching { skill.execute(tc.params) }
-                        .getOrElse { e -> SkillResult(success = false, output = "Error executing ${tc.skillId}: ${e.message}") }
+            while (ctx.steps.size - segmentStart < ctx.maxSteps) {
+                if (loopGuard.check(ctx.steps)) {
+                    val reflectionStep = AgentStep(
+                        index = ctx.steps.size,
+                        thought = "Repeated action reflection",
+                        toolCallId = null,
+                        skillId = null,
+                        skillParams = null,
+                        observation = """
+                            Reflection checkpoint:
+                            The last ${loopGuard.windowSize} actions used the same tool with the same parameters. Do not stop the task.
+                            Analyze why the repeated operation did not make progress, then choose a different strategy, different parameters, a different tool, or finish if the goal is already complete.
+                        """.trimIndent(),
+                    )
+                    ctx.steps.add(reflectionStep)
+                    workingMemory.push(reflectionStep)
+                    emit(AgentEvent.ThinkingComplete("检测到重复操作，正在反思并切换策略。"))
+                    if (ctx.steps.size - segmentStart >= ctx.maxSteps) break
                 }
 
-            emit(AgentEvent.Observation(
-                text = skillResult.output,
-                imageBase64 = skillResult.imageBase64,
-                attachment = skillResult.data as? SkillAttachment,
-            ))
+                val messages = ctx.toMessages(systemPrompt, workingMemory.steps())
 
-            val truncatedObservation = skillResult.output.let {
-                if (it.length > 4000) it.take(4000) + "\n…[truncated ${it.length - 4000} chars]" else it
+                emit(AgentEvent.Thinking)
+
+                val response = runCatching {
+                    llm.chat(ChatRequest(
+                        messages = messages,
+                        tools = tools,
+                        stream = onToken != null || onThinkToken != null,
+                        onToken = onToken,
+                        onThinkToken = onThinkToken,
+                    ))
+                }.getOrElse { e ->
+                    val msg = "LLM error: ${e.message}"
+                    emit(AgentEvent.Error(msg))
+                    return AgentResult(success = false, summary = msg, context = ctx)
+                }
+
+                // No tool call → task complete
+                if (response.toolCall == null) {
+                    val summary = response.content ?: "Task completed."
+                    emit(AgentEvent.Completed(summary))
+                    return AgentResult(success = true, summary = summary, context = ctx)
+                }
+
+                // Emit the thought text so the UI can display it before the action
+                val thought = response.content?.trim() ?: ""
+                if (thought.isNotBlank()) emit(AgentEvent.ThinkingComplete(thought))
+
+                val tc = response.toolCall
+                emit(AgentEvent.SkillCalling(tc.skillId, tc.params))
+
+                val skill = registry.get(tc.skillId)
+                val skillResult = repeatedPerceptionResult(ctx.steps, tc.skillId)
+                    ?: if (skill == null) {
+                        SkillResult(success = false, output = "Error: skill '${tc.skillId}' not found.")
+                    } else {
+                        runCatching { skill.execute(tc.params) }
+                            .getOrElse { e -> SkillResult(success = false, output = "Error executing ${tc.skillId}: ${e.message}") }
+                    }
+
+                emit(AgentEvent.Observation(
+                    text = skillResult.output,
+                    imageBase64 = skillResult.imageBase64,
+                    attachment = skillResult.data as? SkillAttachment,
+                ))
+
+                val truncatedObservation = skillResult.output.let {
+                    if (it.length > 4000) it.take(4000) + "\n…[truncated ${it.length - 4000} chars]" else it
+                }
+                val step = AgentStep(
+                    index = ctx.steps.size,
+                    thought = response.content ?: "",
+                    toolCallId = tc.id,
+                    skillId = tc.skillId,
+                    skillParams = tc.params,
+                    observation = truncatedObservation,
+                    isError = !skillResult.success,
+                    imageBase64 = skillResult.imageBase64,
+                )
+                ctx.steps.add(step)
+                workingMemory.push(step)
             }
-            val step = AgentStep(
-                index = ctx.steps.size,
-                thought = response.content ?: "",
-                toolCallId = tc.id,
-                skillId = tc.skillId,
-                skillParams = tc.params,
-                observation = truncatedObservation,
-                isError = !skillResult.success,
-                imageBase64 = skillResult.imageBase64,
-            )
-            ctx.steps.add(step)
-            workingMemory.push(step)
+
+            completedSegments += 1
+            if (completedSegments < MAX_SEGMENTS) {
+                val checkpoint = createContinuationCheckpoint(
+                    systemPrompt = systemPrompt,
+                    ctx = ctx,
+                    workingMemory = workingMemory,
+                )
+                val checkpointStep = AgentStep(
+                    index = ctx.steps.size,
+                    thought = "20-step continuation checkpoint",
+                    toolCallId = null,
+                    skillId = null,
+                    skillParams = null,
+                    observation = checkpoint,
+                )
+                ctx.steps.add(checkpointStep)
+                workingMemory.push(checkpointStep)
+                emit(AgentEvent.ThinkingComplete("已完成 20 步检查点，整理进展并继续。"))
+            }
         }
 
-        val msg = "Reached step limit (${ctx.maxSteps}). Task may be incomplete."
-        emit(AgentEvent.Error(msg))
-        return AgentResult(success = false, summary = msg, context = ctx)
+        val finalSummary = runCatching {
+            llm.chat(ChatRequest(
+                messages = ctx.toMessages(
+                    systemPrompt + "\n\nYou have reached the internal action budget. Do not call tools. Summarize the useful progress and current state for the user, and say what remains only if it is genuinely unresolved.",
+                    workingMemory.steps(),
+                ),
+                tools = emptyList(),
+                stream = false,
+            )).content.orEmpty()
+        }.getOrDefault("")
+            .ifBlank { "已完成当前可执行步骤。" }
+        emit(AgentEvent.Completed(finalSummary))
+        return AgentResult(success = true, summary = finalSummary, context = ctx)
     }
 
     private suspend fun emit(event: AgentEvent) = _events.emit(event)
+
+    private suspend fun createContinuationCheckpoint(
+        systemPrompt: String,
+        ctx: AgentContext,
+        workingMemory: WorkingMemory,
+    ): String {
+        val summary = runCatching {
+            llm.chat(ChatRequest(
+                messages = ctx.toMessages(
+                    systemPrompt + "\n\nYou are at an internal 20-step checkpoint. Do not call tools. Summarize the useful progress, current screen/state, blockers if any, and write a direct self-instruction for the next segment. This is internal context for yourself, not a final answer to the user.",
+                    workingMemory.steps(),
+                ),
+                tools = emptyList(),
+                stream = false,
+            )).content.orEmpty()
+        }.getOrDefault("")
+
+        return summary.ifBlank {
+            "20-step checkpoint: continue the same user task from the latest observation. Avoid repeating failed actions; choose the next concrete action based on current state."
+        }
+    }
 
     private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
         if (skillId !in perceptionSkillIds) return null
@@ -168,6 +236,7 @@ class AgentRuntime(
     private companion object {
         val perceptionSkillIds = setOf("see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen")
         val screenshotFallbackSourceIds = setOf("see_screen", "read_screen", "bg_read_screen")
+        const val MAX_SEGMENTS = 5
     }
 }
 

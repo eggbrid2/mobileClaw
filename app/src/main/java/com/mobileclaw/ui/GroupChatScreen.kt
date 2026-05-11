@@ -67,9 +67,11 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -153,6 +155,9 @@ fun GroupChatScreen(
     isRunning: Boolean,
     typingAgentIds: Set<String>,
     workingAgentIds: Set<String>,
+    historyHasMore: Boolean,
+    historyLoading: Boolean,
+    onLoadMoreHistory: () -> Unit,
     onSend: (String, List<SkillAttachment>) -> Unit,
     onStop: () -> Unit,
     onBack: () -> Unit,
@@ -231,9 +236,17 @@ fun GroupChatScreen(
     val colorMap: Map<String, Color> = memberRoles.mapIndexed { i, r -> r.id to agentColor(i) }.toMap()
     val totalMembers = memberRoles.size + 1 // +1 for the user
 
-    LaunchedEffect(messages.size, typingAgentIds.size, workingAgentIds.size) {
+    val lastMessageId = messages.lastOrNull()?.let { "${it.id}:${it.createdAt}:${it.senderId}" }
+    LaunchedEffect(lastMessageId, typingAgentIds.size, workingAgentIds.size) {
         if (listState.layoutInfo.totalItemsCount > 0) {
             listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+        }
+    }
+
+    val firstVisibleIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    LaunchedEffect(firstVisibleIndex, historyHasMore, historyLoading) {
+        if (firstVisibleIndex == 0 && historyHasMore && !historyLoading) {
+            onLoadMoreHistory()
         }
     }
 
@@ -333,7 +346,21 @@ fun GroupChatScreen(
         ) {
             item { Spacer(Modifier.height(8.dp)) }
 
-            items(messages, key = { it.id }) { msg ->
+            if (historyLoading) {
+                item(key = "group_history_loading") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.subtext)
+                    }
+                }
+            } else if (historyHasMore) {
+                item(key = "group_history_hint") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                        Text(str(R.string.chat_b721d3), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.45f))
+                    }
+                }
+            }
+
+            items(messages, key = { "${it.id}:${it.createdAt}:${it.senderId}" }) { msg ->
                 val isUser = msg.senderId == "user"
                 val agentColor = if (isUser) c.green else colorMap[msg.senderId] ?: c.accent
                 val senderRole = memberRoles.firstOrNull { it.id == msg.senderId }
@@ -412,7 +439,7 @@ fun GroupChatScreen(
                     .clickable { showStickerSearch = true },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("BQB", color = c.text, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                GroupStickerIcon(tint = c.text, modifier = Modifier.size(22.dp))
             }
 
             Box(
@@ -486,7 +513,7 @@ fun GroupChatScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                GroupInputCapabilityTile("BQB", str(R.string.sticker_button)) { showStickerSearch = true }
+                GroupInputCapabilityTile("sticker", str(R.string.sticker_button)) { showStickerSearch = true }
                 GroupInputCapabilityTile("DOC", str(R.string.chat_325369)) { filePicker.launch("*/*") }
                 GroupInputCapabilityTile("@", str(R.string.group_field_members)) { showMentionPicker = true }
             }
@@ -1806,9 +1833,49 @@ private fun GroupInputCapabilityTile(
                 .border(0.5.dp, c.border, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(mark, color = c.text, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (mark == "sticker") {
+                GroupStickerIcon(tint = c.text, modifier = Modifier.size(24.dp))
+            } else {
+                Text(mark, color = c.text, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
         }
         Text(label, color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun GroupStickerIcon(
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val stroke = Stroke(width = size.minDimension * 0.085f)
+        val center = Offset(size.width * 0.48f, size.height * 0.48f)
+        val radius = size.minDimension * 0.36f
+        drawCircle(color = tint, radius = radius, center = center, style = stroke)
+        drawCircle(color = tint, radius = size.minDimension * 0.035f, center = Offset(size.width * 0.36f, size.height * 0.42f))
+        drawCircle(color = tint, radius = size.minDimension * 0.035f, center = Offset(size.width * 0.58f, size.height * 0.42f))
+        drawArc(
+            color = tint,
+            startAngle = 18f,
+            sweepAngle = 144f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.34f, size.height * 0.43f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.28f, size.height * 0.24f),
+            style = stroke,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.72f, size.height * 0.70f),
+            end = Offset(size.width * 0.86f, size.height * 0.86f),
+            strokeWidth = stroke.width,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.86f, size.height * 0.86f),
+            end = Offset(size.width * 0.70f, size.height * 0.82f),
+            strokeWidth = stroke.width,
+        )
     }
 }
 

@@ -25,6 +25,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -2256,7 +2257,10 @@ private fun InputBar(
                     .clickable(enabled = !isRunning) { onPickSticker() },
                 contentAlignment = Alignment.Center,
             ) {
-                Text("BQB", color = if (isRunning) c.subtext.copy(alpha = 0.35f) else c.text, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                StickerIcon(
+                    tint = if (isRunning) c.subtext.copy(alpha = 0.35f) else c.text,
+                    modifier = Modifier.size(22.dp),
+                )
             }
 
             OutlinedTextField(
@@ -2329,7 +2333,7 @@ private fun InputBar(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                InputCapabilityTile("BQB", str(R.string.sticker_button), onPickSticker, enabled = true)
+                InputCapabilityTile("sticker", str(R.string.sticker_button), onPickSticker, enabled = true)
                 InputCapabilityTile("IMG", str(R.string.chat_20def7), onPickImage, enabled = supportsMultimodal)
                 InputCapabilityTile("DOC", str(R.string.chat_325369), onPickFile, enabled = true)
             }
@@ -2362,8 +2366,51 @@ private fun InputCapabilityTile(
                 .border(0.5.dp, c.border, RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(mark, color = if (enabled) c.text else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            if (mark == "sticker") {
+                StickerIcon(
+                    tint = if (enabled) c.text else c.subtext.copy(alpha = 0.45f),
+                    modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Text(mark, color = if (enabled) c.text else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
         }
         Text(label, color = if (enabled) c.subtext else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun StickerIcon(
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val stroke = Stroke(width = size.minDimension * 0.085f)
+        val center = Offset(size.width * 0.48f, size.height * 0.48f)
+        val radius = size.minDimension * 0.36f
+        drawCircle(color = tint, radius = radius, center = center, style = stroke)
+        drawCircle(color = tint, radius = size.minDimension * 0.035f, center = Offset(size.width * 0.36f, size.height * 0.42f))
+        drawCircle(color = tint, radius = size.minDimension * 0.035f, center = Offset(size.width * 0.58f, size.height * 0.42f))
+        drawArc(
+            color = tint,
+            startAngle = 18f,
+            sweepAngle = 144f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.34f, size.height * 0.43f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.28f, size.height * 0.24f),
+            style = stroke,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.72f, size.height * 0.70f),
+            end = Offset(size.width * 0.86f, size.height * 0.86f),
+            strokeWidth = stroke.width,
+        )
+        drawLine(
+            color = tint,
+            start = Offset(size.width * 0.86f, size.height * 0.86f),
+            end = Offset(size.width * 0.70f, size.height * 0.82f),
+            strokeWidth = stroke.width,
+        )
     }
 }

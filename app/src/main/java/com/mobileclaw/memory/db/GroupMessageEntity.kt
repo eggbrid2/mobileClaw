@@ -29,6 +29,12 @@ interface GroupMessageDao {
     @Query("SELECT * FROM group_messages WHERE groupId = :groupId ORDER BY createdAt ASC LIMIT 200")
     suspend fun forGroup(groupId: String): List<GroupMessageEntity>
 
+    @Query("SELECT * FROM group_messages WHERE groupId = :groupId ORDER BY createdAt DESC, id DESC LIMIT :limit OFFSET :offset")
+    suspend fun forGroupPaged(groupId: String, limit: Int, offset: Int): List<GroupMessageEntity>
+
+    @Query("SELECT COUNT(*) FROM group_messages WHERE groupId = :groupId")
+    suspend fun countForGroup(groupId: String): Int
+
     @Insert
     suspend fun insert(msg: GroupMessageEntity): Long
 

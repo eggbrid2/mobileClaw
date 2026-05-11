@@ -107,6 +107,9 @@ data class MainUiState(
     val groupPreviews: Map<String, GroupPreview> = emptyMap(),
     val openGroup: Group? = null,
     val groupMessages: List<GroupMessage> = emptyList(),
+    val groupHistoryOffset: Int = 0,
+    val groupHistoryHasMore: Boolean = false,
+    val groupHistoryLoading: Boolean = false,
     val groupRunning: Boolean = false,
     val groupTypingAgents: Set<String> = emptySet(),   // roleIds currently running inference
     val groupWorkingAgents: Set<String> = emptySet(),  // roleIds currently using tools / doing long work

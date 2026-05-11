@@ -438,6 +438,27 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    private suspend fun persistUserOnlyMessage(
+        sessionId: String,
+        userMsg: ChatMessage,
+        fallbackTitle: String,
+    ) {
+        if (sessionId.isBlank()) return
+        database.sessionMessageDao().insert(SessionMessageEntity(
+            sessionId = sessionId,
+            role = "user",
+            text = userMsg.text,
+            imageBase64 = userMsg.imageBase64,
+        ))
+
+        val session = database.sessionDao().recent(50).find { it.id == sessionId }
+        if (session != null && session.title == str(R.string.vm_new_)) {
+            val title = userMsg.text.take(30).ifBlank { fallbackTitle }
+            database.sessionDao().updateTitle(sessionId, title)
+            loadSessions()
+        }
+    }
+
     private fun buildAgentMessages(
         summary: String,
         logLines: List<LogLine>,
@@ -964,7 +985,26 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     }
 
     fun sendImageMessage(imageBase64: String, prompt: String = "") {
-        runTaskInternal(prompt.ifBlank { "发送表情包" }, imageOverride = imageBase64)
+        if (prompt.isNotBlank()) {
+            runTaskInternal(prompt, imageOverride = imageBase64)
+            return
+        }
+
+        val currentSessionId = _uiState.value.currentSessionId
+        if (_uiState.value.sessionStates[currentSessionId]?.isRunning == true) return
+        val userMessage = ChatMessage(role = MessageRole.USER, text = "", imageBase64 = imageBase64)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            var sessionId = currentSessionId
+            if (sessionId.isBlank()) {
+                createNewSessionInternal()
+                sessionId = _uiState.value.currentSessionId
+            }
+            updateSession(sessionId) { state ->
+                state.copy(messages = state.messages + userMessage)
+            }
+            persistUserOnlyMessage(sessionId, userMessage, fallbackTitle = str(R.string.sticker_button))
+        }
     }
 
     fun setFileAttachment(attachment: FileAttachment?) {
@@ -1070,6 +1110,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         val chainDepth: Int,
         val priority: Int,
         val longTask: Boolean,
+        val requireResponse: Boolean = false,
     )
     private data class GroupTurnResult(
         val text: String,
@@ -1122,10 +1163,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
 
     private fun mergeGroupHistory(primary: List<GroupMessage>, backup: List<GroupMessage>): List<GroupMessage> {
         return (primary + backup)
-            .distinctBy { "${it.groupId}:${it.senderId}:${it.createdAt}:${it.text}:${it.attachments.size}" }
+            .distinctBy(::groupMessageDedupeKey)
             .sortedBy { it.createdAt }
             .takeLast(300)
     }
+
+    private fun groupMessageDedupeKey(message: GroupMessage): String =
+        "${message.groupId}:${message.senderId}:${message.createdAt}:${message.text}:${message.attachments.size}"
 
     private suspend fun logGroupRuntimeDiagnostics(
         marker: String,
@@ -1173,6 +1217,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     @Volatile private var groupChatStopped = false
     private val pendingGroupTurns = ArrayDeque<PendingGroupTurn>()
     private val GROUP_TASK_POOL_LIMIT = 4
+    private val GROUP_MESSAGE_PAGE_SIZE = 20
 
     fun loadGroups() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1298,7 +1343,9 @@ For pure conversational replies (greetings, simple factual answers) — plain te
 
     fun openGroupChat(group: com.mobileclaw.agent.Group) {
         viewModelScope.launch(Dispatchers.IO) {
-            val entities = database.groupMessageDao().forGroup(group.id)
+            val pageSize = GROUP_MESSAGE_PAGE_SIZE
+            val total = runCatching { database.groupMessageDao().countForGroup(group.id) }.getOrDefault(0)
+            val entities = database.groupMessageDao().forGroupPaged(group.id, pageSize, 0).reversed()
             val messages = entities.map { e ->
                 runCatching {
                     GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, deserializeAttachments(e.attachmentsJson), e.createdAt)
@@ -1306,8 +1353,8 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, emptyList(), e.createdAt)
                 }
             }
-            val backupMessages = readGroupHistoryBackup(group.id)
-            val mergedMessages = mergeGroupHistory(messages, backupMessages)
+            val backupMessages = if (messages.isEmpty()) readGroupHistoryBackup(group.id).takeLast(pageSize) else emptyList()
+            val mergedMessages = mergeGroupHistory(messages, backupMessages).takeLast(pageSize)
             val currentRoles = roleManager.all()
             val missingRoles = group.memberRoleIds.filter { roleId -> currentRoles.none { it.id == roleId } }
             android.util.Log.d(
@@ -1328,6 +1375,9 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 it.copy(
                     openGroup = group,
                     groupMessages = mergedMessages,
+                    groupHistoryOffset = pageSize,
+                    groupHistoryHasMore = total > pageSize,
+                    groupHistoryLoading = false,
                     groupRunning = running,
                     groupTypingAgents = if (running) it.groupTypingAgents else emptySet(),
                     groupWorkingAgents = if (running) it.groupWorkingAgents else emptySet(),
@@ -1349,8 +1399,49 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         }
     }
 
+    fun loadOlderGroupMessages() {
+        val group = _uiState.value.openGroup ?: return
+        val state = _uiState.value
+        if (state.groupHistoryLoading || !state.groupHistoryHasMore) return
+        _uiState.update { it.copy(groupHistoryLoading = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val pageSize = GROUP_MESSAGE_PAGE_SIZE
+            val offset = _uiState.value.groupHistoryOffset
+            val total = runCatching { database.groupMessageDao().countForGroup(group.id) }.getOrDefault(0)
+            val entities = runCatching {
+                database.groupMessageDao().forGroupPaged(group.id, pageSize, offset)
+            }.getOrDefault(emptyList()).reversed()
+            val older = entities.map { e ->
+                runCatching {
+                    GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, deserializeAttachments(e.attachmentsJson), e.createdAt)
+                }.getOrElse {
+                    GroupMessage(e.id, e.groupId, e.senderId, e.senderName, e.senderAvatar, e.text, emptyList(), e.createdAt)
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    groupMessages = (older + it.groupMessages)
+                        .distinctBy { msg -> groupMessageDedupeKey(msg) }
+                        .sortedBy { msg -> msg.createdAt },
+                    groupHistoryOffset = offset + pageSize,
+                    groupHistoryHasMore = offset + pageSize < total,
+                    groupHistoryLoading = false,
+                )
+            }
+        }
+    }
+
     fun closeGroupChat() {
-        _uiState.update { it.copy(openGroup = null, groupMessages = emptyList(), groupPendingMessages = emptyList()) }
+        _uiState.update {
+            it.copy(
+                openGroup = null,
+                groupMessages = emptyList(),
+                groupHistoryOffset = 0,
+                groupHistoryHasMore = false,
+                groupHistoryLoading = false,
+                groupPendingMessages = emptyList(),
+            )
+        }
         navigateBack()
     }
 
@@ -1406,7 +1497,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             val selected = RoleScheduler.schedule(taskType, userText, allMembers, allMembers.first()).role
                 .takeIf { role -> allMembers.any { it.id == role.id } }
                 ?: allMembers.first()
-            launchGroupAgentTurn(group, selected, allMembers, delayMs = 0, chainDepth = 0, longTask = true, triggerText = userText)
+            launchGroupAgentTurn(group, selected, allMembers, delayMs = 0, chainDepth = 0, longTask = true, triggerText = userText, requireResponse = true)
             return
         }
         val mentioned = parseMentions(userText)
@@ -1414,7 +1505,9 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             // Explicit @mention: those agents respond immediately, full chain depth
             allMembers
                 .filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
-                .forEach { launchGroupAgentTurn(group, it, allMembers, delayMs = 0, chainDepth = 5, triggerText = userText) }
+                .forEachIndexed { index, role ->
+                    launchGroupAgentTurn(group, role, allMembers, delayMs = 0, chainDepth = 5, triggerText = userText, requireResponse = index == 0)
+                }
         } else {
             // No @mention: shuffle, stagger a random 2-3 agents as initial responders.
             // They self-filter via [PASS]; their responses invite others via probability decay (depth 5→4→…→0).
@@ -1430,7 +1523,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     1    -> (1500L..3000L).random()
                     else -> (3000L..5500L).random()
                 }
-                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = 2, triggerText = userText)
+                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = 4, triggerText = userText, requireResponse = idx < 2)
             }
         }
     }
@@ -1444,10 +1537,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 listOfNotNull(allMembers.firstOrNull { it.id == selected.id } ?: allMembers.firstOrNull())
             }
             mentioned.isNotEmpty() -> allMembers.filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
-            else -> allMembers.shuffled().take(if (allMembers.size <= 1) 1 else 2)
+            else -> allMembers.shuffled().take(if (allMembers.size <= 1) 1 else minOf(3, allMembers.size))
         }
         targets.forEach { role ->
-            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 3 else 1, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH)))
+            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 4 else 3, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH), requireResponse = true))
         }
         _uiState.update { it.copy(groupPendingMessages = it.groupPendingMessages + userText) }
     }
@@ -1466,10 +1559,11 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         chainDepth: Int = 0,
         longTask: Boolean = false,
         triggerText: String = "",
+        requireResponse: Boolean = false,
     ) {
         if (groupAgentJobs.containsKey(role.id)) return
         if (groupAgentJobs.size >= GROUP_TASK_POOL_LIMIT) {
-            pendingGroupTurns.addLast(PendingGroupTurn(role.id, triggerText, chainDepth, priority = if (longTask) 80 else 10, longTask = longTask))
+            pendingGroupTurns.addLast(PendingGroupTurn(role.id, triggerText, chainDepth, priority = if (longTask) 80 else 10, longTask = longTask, requireResponse = requireResponse))
             return
         }
 
@@ -1504,12 +1598,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 }
                 val callMessages = listOf(Message(role = "system", content = systemPrompt)) +
                     historyMsgs +
-                    listOf(Message(role = "user", content = "[系统]: 轮到你了，${role.name}。"))
+                    listOf(Message(role = "user", content = buildGroupTurnInstruction(role.name, triggerText, requireResponse)))
 
                 val response = runGroupAgentTurn(
                     role = role,
                     baseMessages = callMessages,
                     maxSkillCalls = if (longTask || taskType == TaskType.PHONE_CONTROL) 12 else 4,
+                    requireResponse = requireResponse,
                     onToolStart = { skillId, params ->
                         _uiState.update { st ->
                             st.copy(
@@ -1573,22 +1668,36 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                         if (chainDepth > 0) {
                             // Keep group chat lively without leaving users stuck in endless typing.
                             val reactionProb = when (chainDepth) {
-                                3 -> 0.52f; 2 -> 0.40f; else -> 0.24f
+                                5 -> 0.72f
+                                4 -> 0.62f
+                                3 -> 0.52f
+                                2 -> 0.40f
+                                else -> 0.24f
                             }
                             allMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
                                     mentions.none { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) }
                                 }
                                 .shuffled()
-                                .take(3)
-                                .forEach { reactor ->
+                                .take(4)
+                                .forEachIndexed { index, reactor ->
                                     // Relevance boost: if the response text mentions this reactor's name, higher chance
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
-                                    val effectiveProb = if (nameHit) minOf(reactionProb + 0.20f, 1.0f) else reactionProb
+                                    val shouldContinue = shouldContinueGroupThread(cleanResponse)
+                                    val effectiveProb = when {
+                                        shouldContinue && index == 0 -> 1.0f
+                                        nameHit -> minOf(reactionProb + 0.28f, 1.0f)
+                                        shouldContinue -> minOf(reactionProb + 0.18f, 1.0f)
+                                        else -> reactionProb
+                                    }
                                     if (kotlin.random.Random.nextFloat() < effectiveProb) {
                                         val reactionDelay = (300L..1600L).random()
                                         launchGroupAgentTurn(group, reactor, allMembers,
-                                            delayMs = reactionDelay, chainDepth = chainDepth - 1, triggerText = cleanResponse)
+                                            delayMs = reactionDelay,
+                                            chainDepth = chainDepth - 1,
+                                            triggerText = cleanResponse,
+                                            requireResponse = shouldRequireGroupReaction(cleanResponse, chainDepth, index),
+                                        )
                                     }
                                 }
                         }
@@ -1628,9 +1737,38 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     chainDepth = nextTurn.chainDepth,
                     longTask = nextTurn.longTask,
                     triggerText = nextTurn.triggerText,
+                    requireResponse = nextTurn.requireResponse,
                 )
             }
         }
+    }
+
+    private fun buildGroupTurnInstruction(roleName: String, triggerText: String, requireResponse: Boolean): String {
+        val trigger = triggerText.trim().take(500)
+        return if (requireResponse) {
+            "[系统]: 用户刚在群里问/说：${trigger.ifBlank { "请你开启一个自然话题" }}\n轮到你了，$roleName。你是本轮指定回应者，必须给出一条自然、有内容的群聊回复，不要输出 [PASS]，不要只发表情。"
+        } else {
+            "[系统]: 最新触发内容：${trigger.ifBlank { "群聊冷启动" }}\n轮到你了，$roleName。优先自然接一句，让群聊继续有来有回；只有内容确实和你完全无关、且你没有任何有趣角度时，才输出 [PASS]。"
+        }
+    }
+
+    private fun shouldContinueGroupThread(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isBlank()) return false
+        val lowered = clean.lowercase()
+        return clean.contains("？") ||
+            clean.contains("?") ||
+            listOf(
+                "怎么看", "你们觉得", "大家觉得", "继续", "往下聊", "接着聊", "补充",
+                "谁来", "有没有", "可以聊", "展开", "还有", "另一个角度", "我觉得",
+                "哈哈", "笑死", "离谱", "无语", "牛", "绝了", "有意思",
+            ).any { lowered.contains(it) }
+    }
+
+    private fun shouldRequireGroupReaction(triggerText: String, chainDepth: Int, reactorIndex: Int): Boolean {
+        if (chainDepth <= 1) return false
+        if (reactorIndex > 0) return false
+        return shouldContinueGroupThread(triggerText)
     }
 
     /** Triggers a random member to proactively start a conversation — call when group opens or chat is cold. */
@@ -1643,7 +1781,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             if (allMembers.isEmpty()) return@launch
             groupChatStopped = false
             _uiState.update { it.copy(groupRunning = true) }
-            launchGroupAgentTurn(group, allMembers.random(), allMembers, chainDepth = 5)
+            launchGroupAgentTurn(group, allMembers.random(), allMembers, chainDepth = 5, triggerText = "群聊冷启动", requireResponse = true)
         }
     }
 
@@ -1652,6 +1790,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         role: Role,
         baseMessages: List<Message>,
         maxSkillCalls: Int = 3,
+        requireResponse: Boolean = false,
         onToolStart: (skillId: String, params: Map<String, Any>) -> Unit = { _, _ -> },
         onToolEnd: (output: String) -> Unit = {},
     ): GroupTurnResult {
@@ -1684,11 +1823,16 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                         onThinkToken = null,                      // discard thinking completely
                     ))
                 }
-            }.getOrElse { return GroupTurnResult(finalText, attachments) }
-                ?: return GroupTurnResult(finalText.ifBlank { "[PASS]" }, attachments)
+            }.getOrElse {
+                return GroupTurnResult(finalText.ifBlank { if (requireResponse) fallbackGroupReply(role, baseMessages) else "[PASS]" }, attachments)
+            }
+                ?: return GroupTurnResult(finalText.ifBlank { if (requireResponse) fallbackGroupReply(role, baseMessages) else "[PASS]" }, attachments)
 
             if (resp.toolCall == null) {
                 finalText = accumulated.ifBlank { resp.content ?: "" }
+                if (requireResponse && (finalText.isBlank() || finalText.trim().equals("[PASS]", ignoreCase = true))) {
+                    finalText = fallbackGroupReply(role, baseMessages)
+                }
                 val cleanedAttachments = normalizeGroupTurnAttachments(attachments)
                 val autoSticker = if (cleanedAttachments.none { it.isStickerLikeAttachment() || it is SkillAttachment.ImageData }) {
                     maybeCreateGroupStickerAttachment(finalText, role.id)
@@ -1722,7 +1866,26 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             messages.add(Message(role = "tool", content = skillResult.output.take(3000), toolCallId = tc.id))
         }
 
-        return GroupTurnResult(finalText, normalizeGroupTurnAttachments(attachments))
+        return GroupTurnResult(finalText.ifBlank { if (requireResponse) fallbackGroupReply(role, baseMessages) else "" }, normalizeGroupTurnAttachments(attachments))
+    }
+
+    private fun fallbackGroupReply(role: Role, baseMessages: List<Message>): String {
+        val latestUser = baseMessages
+            .asReversed()
+            .firstOrNull { it.role == "user" && !it.content.orEmpty().startsWith("[系统]:") }
+            ?.content
+            ?.substringAfter("]:", "")
+            ?.trim()
+            ?.take(120)
+            .orEmpty()
+        return when {
+            latestUser.contains("?", ignoreCase = true) || latestUser.contains("？") ->
+                "我先接一下：这个问题我理解是在问「$latestUser」。我的看法是可以先把目标拆清楚，再看要不要让其他人补充。"
+            latestUser.isNotBlank() ->
+                "我来接一句：$latestUser。这个点我觉得可以继续往下聊，我先说我的角度。"
+            else ->
+                "我先开个头：我在，咱们继续聊。"
+        }
     }
 
     private suspend fun maybeCreateGroupStickerAttachment(text: String, roleId: String): SkillAttachment.FileData? {

@@ -33,6 +33,7 @@ class LoopGuard(val windowSize: Int = 3) {
         if (steps.size < windowSize) return false
         val recent = steps.takeLast(windowSize)
         val first = recent.first()
+        if (first.skillId == null) return false
         return recent.all { it.skillId == first.skillId && it.skillParams == first.skillParams }
     }
 }
