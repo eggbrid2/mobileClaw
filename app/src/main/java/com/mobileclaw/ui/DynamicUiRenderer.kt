@@ -301,7 +301,7 @@ private fun RenderNode(
                     singleLine = !multiline,
                     minLines = if (multiline) 2 else 1,
                     maxLines = if (multiline) 5 else 1,
-                    textStyle = TextStyle(color = c.text, fontSize = 14.sp, lineHeight = 20.sp),
+                    textStyle = TextStyle(color = c.text, fontSize = 13.sp, lineHeight = 18.sp),
                     decorationBox = { inner ->
                         Box(
                             modifier = Modifier
@@ -309,10 +309,10 @@ private fun RenderNode(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(c.cardAlt)
                                 .border(1.dp, c.border, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
                         ) {
                             if (value.isEmpty()) {
-                                Text(str(R.string.dynamic_ui_input), fontSize = 14.sp, color = c.subtext.copy(alpha = 0.5f))
+                                Text(str(R.string.dynamic_ui_input), fontSize = 13.sp, color = c.subtext.copy(alpha = 0.5f))
                             }
                             inner()
                         }
@@ -389,7 +389,12 @@ private fun RenderNode(
                     modifier = Modifier.fillMaxWidth().height(heightDp.dp)
                         .clip(RoundedCornerShape(8.dp)).background(c.cardAlt).then(padMod),
                     contentAlignment = Alignment.Center,
-                ) { Text("🖼️ ${src.take(50)}", fontSize = 11.sp, color = c.subtext) }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ClawSymbolIcon("image", tint = c.subtext, modifier = Modifier.size(16.dp))
+                        Text(src.take(50), fontSize = 11.sp, color = c.subtext)
+                    }
+                }
             }
         }
 
@@ -525,7 +530,7 @@ private fun RenderNode(
                                     .padding(12.dp),
                             ) {
                                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = color)
+                                    Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color)
                                     Text(label, fontSize = 11.sp, color = c.subtext)
                                 }
                             }

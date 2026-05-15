@@ -57,7 +57,7 @@ data class Role(
                 name = "手机操控",
                 description = "专注于控制 Android 界面、点击、滑动和应用操作",
                 avatar = "📱",
-                systemPromptAddendum = "You specialize in PHONE_CONTROL tasks. Use the observe -> act -> verify loop. Start with see_screen, use screenshot only when XML/accessibility nodes or markers are unusable, then take a concrete action before observing again. Prefer foreground phone control and pixel coordinates from the latest observation.",
+                systemPromptAddendum = "You specialize in VLM phone-control tasks. Use the observe -> act -> verify loop. Start with see_screen, use screenshot only when markers are unusable, then take a concrete action before observing again. Coordinates from see_screen/screenshot are image pixels; tap/scroll/long_click map them to device pixels. Verify target app state with foreground package/activity from tool results or phone_status.",
                 preferredTaskTypes = listOf(TaskType.PHONE_CONTROL),
                 keywords = listOf("手机", "打开", "点击", "滑动", "输入", "长按", "屏幕", "app", "android"),
                 isBuiltin = true,

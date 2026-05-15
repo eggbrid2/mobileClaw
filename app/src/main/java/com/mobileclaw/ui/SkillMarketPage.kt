@@ -87,7 +87,7 @@ fun SkillMarketPage(
 ) {
     val c = LocalClawColors.current
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf(str(R.string.skill_market_228a7d), "🌐 ClawHub", "📦 SkillsMP")
+    val tabs = listOf(str(R.string.skill_market_228a7d), "ClawHub", "SkillsMP")
 
     BackHandler { onBack() }
 
@@ -106,7 +106,7 @@ fun SkillMarketPage(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+                    .padding(start = 4.dp, end = 14.dp, top = 3.dp, bottom = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -119,7 +119,7 @@ fun SkillMarketPage(
                 }
                 Text(
                     text = str(R.string.skill_market_5917e2),
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = c.text,
                 )
@@ -176,7 +176,7 @@ private fun RecommendedTab(
                     fontWeight = FontWeight.SemiBold,
                     color = c.subtext,
                     letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                 )
             }
             items(entries, key = { it.def.meta.id }) { entry ->
@@ -293,7 +293,7 @@ private fun RemoteSearchTab(
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("😕", fontSize = 36.sp)
+                    ClawIconTile("help", size = 58.dp, iconSize = 30.dp, tint = c.text, background = c.cardAlt, border = c.border)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         error!!,
@@ -312,7 +312,7 @@ private fun RemoteSearchTab(
             results.isNotEmpty() -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(results, key = { it.id }) { entry ->
                     MarketSkillRow(
-                        emoji = "🔌",
+                        emoji = "gateway",
                         name = entry.nameZh ?: entry.name,
                         description = entry.descriptionZh ?: entry.description,
                         tags = entry.tags,
@@ -328,7 +328,7 @@ private fun RemoteSearchTab(
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🔍", fontSize = 40.sp)
+                    ClawIconTile("search", size = 62.dp, iconSize = 32.dp, tint = c.text, background = c.cardAlt, border = c.border)
                     Spacer(Modifier.height(8.dp))
                     Text(
                         str(R.string.search_skills_placeholder, platform),
@@ -362,22 +362,22 @@ private fun MarketSkillRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Icon
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(40.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(c.cardAlt)
                 .border(0.5.dp, c.border, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(emoji, fontSize = 22.sp)
+            ClawSymbolIcon(emoji, tint = c.text, modifier = Modifier.size(20.dp))
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
 
         // Info
         Column(modifier = Modifier.weight(1f)) {

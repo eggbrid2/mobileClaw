@@ -15,6 +15,9 @@ data class SessionMessageEntity(
     val logLinesJson: String = "[]",
     val attachmentsJson: String = "[]",
     val imageBase64: String? = null,
+    val senderRoleId: String = "",
+    val senderRoleName: String = "",
+    val senderRoleAvatar: String = "",
     val createdAt: Long = System.currentTimeMillis(),
 )
 

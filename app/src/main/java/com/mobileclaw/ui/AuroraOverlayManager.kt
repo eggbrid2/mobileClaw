@@ -182,15 +182,13 @@ class AuroraOverlayManager(private val context: Context) {
 
 // ── Aurora border composable ───────────────────────────────────────────────────
 
-// Aurora palette — teal → violet → azure → pink → green → cobalt (with wrap)
+// Minimal AI aurora palette: mostly monochrome with a restrained mint/lime pulse.
 private val AURORA_PALETTE = listOf(
-    Color(0xFF00FFD4),
-    Color(0xFF7B00FF),
-    Color(0xFF0088FF),
-    Color(0xFFFF00BB),
-    Color(0xFF00FF88),
-    Color(0xFF3355FF),
-    Color(0xFF00FFD4),  // wrap-around
+    Color(0xFFFFFFFF),
+    Color(0xFF56D6BA),
+    Color(0xFFC7F43A),
+    Color(0xFF8A8A8A),
+    Color(0xFFFFFFFF),
 )
 
 // (thicknessDp, alpha) — widest/most-transparent first so inner layers composite on top

@@ -70,14 +70,14 @@ import androidx.compose.ui.res.stringResource
 import com.mobileclaw.R
 import com.mobileclaw.str
 
-private val V_BG = Color(0xFF080810)
-private val V_SURFACE = Color(0xFF0F0F1A)
-private val V_CARD = Color(0xFF161624)
-private val V_BORDER = Color(0xFF252538)
-private val V_TEXT = Color(0xFFEEEEFF)
-private val V_SUB = Color(0xFF7070A0)
-private val V_ACCENT = Color(0xFFFF6B35)
-private val V_GREEN = Color(0xFF34D399)
+private val V_BG = Color(0xFF050505)
+private val V_SURFACE = Color(0xFF0D0D0D)
+private val V_CARD = Color(0xFF151515)
+private val V_BORDER = Color(0xFF292929)
+private val V_TEXT = Color(0xFFF7F7F4)
+private val V_SUB = Color(0xFFA0A0A0)
+private val V_ACCENT = Color(0xFFC7F43A)
+private val V_GREEN = Color(0xFF56D6BA)
 
 @Composable
 fun VpnPage(
@@ -117,7 +117,7 @@ fun VpnPage(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
@@ -126,7 +126,7 @@ fun VpnPage(
             Text(
                 str(R.string.vpn_23cd83),
                 color = V_TEXT,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
@@ -170,9 +170,9 @@ fun VpnPage(
         if (uiState.vpnSubscriptions.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(str(R.string.vpn_empty), color = V_SUB, fontSize = 15.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text(str(R.string.vpn_tap), color = V_SUB.copy(alpha = 0.6f), fontSize = 12.sp)
+                    Text(str(R.string.vpn_empty), color = V_SUB, fontSize = 14.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(str(R.string.vpn_tap), color = V_SUB.copy(alpha = 0.6f), fontSize = 11.sp)
                 }
             }
         } else {
@@ -216,20 +216,20 @@ fun VpnPage(
                 modifier = Modifier
                     .background(V_CARD, RoundedCornerShape(16.dp))
                     .border(1.dp, V_BORDER, RoundedCornerShape(16.dp))
-                    .padding(24.dp),
+                    .padding(18.dp),
             ) {
-                Text(str(R.string.vpn_delete), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                Spacer(Modifier.height(12.dp))
-                Text(str(R.string.vpn_ok), color = V_SUB, fontSize = 14.sp)
-                Spacer(Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(str(R.string.vpn_delete), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Spacer(Modifier.height(10.dp))
+                Text(str(R.string.vpn_ok), color = V_SUB, fontSize = 13.sp)
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextButton(
                         onClick = { deleteConfirmId = null },
                         modifier = Modifier.weight(1f),
                     ) { Text(str(R.string.btn_cancel), color = V_SUB) }
                     Button(
                         onClick = { vm.deleteVpnSubscription(id); deleteConfirmId = null },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF101010)),
                         modifier = Modifier.weight(1f),
                     ) { Text(str(R.string.skills_delete_confirm)) }
                 }
@@ -262,28 +262,28 @@ private fun VpnToggleCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
-            .background(V_CARD, RoundedCornerShape(14.dp))
-            .border(1.dp, if (isConnected) V_GREEN.copy(alpha = 0.3f) else V_BORDER, RoundedCornerShape(14.dp))
-            .padding(16.dp),
+            .background(V_CARD, RoundedCornerShape(12.dp))
+            .border(1.dp, if (isConnected) V_GREEN.copy(alpha = 0.3f) else V_BORDER, RoundedCornerShape(12.dp))
+            .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(38.dp)
                 .clip(CircleShape)
                 .background(statusColor.copy(alpha = 0.12f))
                 .border(1.5.dp, statusColor.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             if (isConnecting) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = V_ACCENT, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = V_ACCENT, strokeWidth = 2.dp)
             } else {
-                Text("🔒", fontSize = 18.sp)
+                ClawSymbolIcon("vpn", tint = V_TEXT, modifier = Modifier.size(18.dp))
             }
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(str(R.string.vpn_fbb570), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(str(R.string.vpn_fbb570), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(2.dp))
             Text(statusText, color = statusColor, fontSize = 12.sp)
         }
@@ -312,7 +312,7 @@ private fun DiagnosticRow(vm: MainViewModel) {
             .padding(horizontal = 12.dp)
             .background(V_CARD, RoundedCornerShape(12.dp))
             .border(1.dp, V_BORDER, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -366,7 +366,7 @@ private fun SubscriptionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onExpand() }
-                .padding(12.dp),
+                .padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -378,13 +378,13 @@ private fun SubscriptionCard(
                     fontSize = 12.sp,
                 )
             }
-            IconButton(onClick = onSpeedTest, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onSpeedTest, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Speed, contentDescription = str(R.string.vpn_c7f8d9), tint = V_ACCENT, modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onUpdate, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onUpdate, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Refresh, contentDescription = str(R.string.vpn_update), tint = V_SUB, modifier = Modifier.size(18.dp))
             }
-            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Delete, contentDescription = str(R.string.skills_delete_confirm), tint = V_SUB.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
             }
             Icon(
@@ -403,7 +403,7 @@ private fun SubscriptionCard(
                         str(R.string.vpn_empty_2),
                         color = V_SUB,
                         fontSize = 13.sp,
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(12.dp),
                     )
                 } else {
                     sub.proxies.forEach { proxy ->
@@ -432,7 +432,7 @@ private fun ProxyRow(
             .fillMaxWidth()
             .clickable { onSelect() }
             .background(if (selected) V_GREEN.copy(alpha = 0.06f) else Color.Transparent)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -462,13 +462,13 @@ private fun LatencyChip(latencyMs: Long?) {
             )
         }
         latencyMs == LATENCY_ERROR -> {
-            Text(stringResource(R.string.vpn_e944c7), color = Color(0xFFEF4444), fontSize = 11.sp)
+            Text(stringResource(R.string.vpn_e944c7), color = V_SUB, fontSize = 11.sp)
         }
         else -> {
             val color = when {
                 latencyMs < 200  -> V_GREEN
-                latencyMs < 500  -> Color(0xFFFBBF24)
-                else             -> Color(0xFFEF4444)
+                latencyMs < 500  -> V_ACCENT
+                else             -> V_SUB
             }
             Text("${latencyMs}ms", color = color, fontSize = 11.sp)
         }
@@ -490,10 +490,10 @@ private fun AddSubscriptionDialog(
                 .fillMaxWidth()
                 .background(V_CARD, RoundedCornerShape(16.dp))
                 .border(1.dp, V_BORDER, RoundedCornerShape(16.dp))
-                .padding(20.dp),
+                .padding(16.dp),
         ) {
-            Text(str(R.string.vpn_add), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Spacer(Modifier.height(16.dp))
+            Text(str(R.string.vpn_add), color = V_TEXT, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Spacer(Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = name,
@@ -504,7 +504,7 @@ private fun AddSubscriptionDialog(
                 modifier = Modifier.fillMaxWidth(),
                 colors = dialogTextFieldColors(),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -515,9 +515,9 @@ private fun AddSubscriptionDialog(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 colors = dialogTextFieldColors(),
             )
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TextButton(
                     onClick = onDismiss,
                     enabled = !adding,

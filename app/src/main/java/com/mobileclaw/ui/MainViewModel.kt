@@ -17,6 +17,8 @@ import com.mobileclaw.agent.TaskType
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.Message
+import com.mobileclaw.llm.HybridLlmGateway
+import com.mobileclaw.llm.LocalGemmaGateway
 import com.mobileclaw.llm.OpenAiGateway
 import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
@@ -53,6 +55,7 @@ import com.mobileclaw.skill.builtin.MetaSkill
 import com.mobileclaw.skill.builtin.NavigateSkill
 import com.mobileclaw.skill.builtin.PageControlSkill
 import com.mobileclaw.skill.builtin.PermissionSkill
+import com.mobileclaw.skill.builtin.PhoneStatusSkill
 import com.mobileclaw.skill.builtin.RoleManagerSkill
 import com.mobileclaw.skill.builtin.SessionManagerSkill
 import com.mobileclaw.skill.builtin.SessionRequest
@@ -109,7 +112,14 @@ class MainViewModel : ViewModel() {
     private val roleManager = app.roleManager
     private val userConfig = app.userConfig
     private val database = app.database
-    private val llm get() = OpenAiGateway(config)
+    private val llm get() = createLlmGateway()
+
+    private fun createLlmGateway() = HybridLlmGateway(
+        local = LocalGemmaGateway(app, app.localModelManager) { config.snapshot().localModelId },
+        cloud = OpenAiGateway(config),
+        useLocal = { config.snapshot().localModelEnabled },
+        canUseCloud = { config.snapshot().let { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() } },
+    )
 
     // Role switch requests emitted by SwitchRoleSkill / RoleManagerSkill, consumed in init
     private val roleRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -145,6 +155,7 @@ class MainViewModel : ViewModel() {
             currentModel = config.model,
             currentRole = Role.DEFAULT,
             consoleServerUrl = app.consoleServer.getLanUrl(),
+            localModels = app.localModelManager.models.value,
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState
@@ -170,9 +181,21 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             config.configFlow.collect { snap ->
                 _uiState.update { it.copy(
-                    isConfigured = snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank(),
+                    isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
+                        (snap.localModelEnabled && app.localModelManager.modelPath(snap.localModelId) != null),
                     currentModel = snap.model,
                     supportsMultimodal = snap.supportsMultimodal,
+                ) }
+            }
+        }
+
+        viewModelScope.launch {
+            app.localModelManager.models.collect { models ->
+                val snap = config.snapshot()
+                _uiState.update { it.copy(
+                    localModels = models,
+                    isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
+                        (snap.localModelEnabled && app.localModelManager.modelPath(snap.localModelId) != null),
                 ) }
             }
         }
@@ -426,13 +449,18 @@ class MainViewModel : ViewModel() {
                 text = agentMsg.text,
                 logLinesJson = gson.toJson(sanitizedLogLines),
                 attachmentsJson = serializeAttachments(agentMsg.attachments),
+                senderRoleId = agentMsg.senderRoleId,
+                senderRoleName = agentMsg.senderRoleName,
+                senderRoleAvatar = agentMsg.senderRoleAvatar,
             ))
         }
 
         // Update session title from first user message if still default
         val session = database.sessionDao().recent(50).find { it.id == sessionId }
         if (session != null && session.title == str(R.string.vm_new_)) {
-            val title = userMsg.text.take(30)
+            val title = userMsg.text.take(30).ifBlank {
+                if (userMsg.imageBase64 != null) str(R.string.sticker_button) else str(R.string.vm_new_)
+            }
             database.sessionDao().updateTitle(sessionId, title)
             loadSessions()
         }
@@ -463,6 +491,7 @@ class MainViewModel : ViewModel() {
         summary: String,
         logLines: List<LogLine>,
         attachments: List<SkillAttachment>,
+        senderRole: Role,
     ): List<ChatMessage> {
         val messages = mutableListOf<ChatMessage>()
         if (summary.isNotBlank() || logLines.isNotEmpty()) {
@@ -470,6 +499,9 @@ class MainViewModel : ViewModel() {
                 role = MessageRole.AGENT,
                 text = summary,
                 logLines = logLines,
+                senderRoleId = senderRole.id,
+                senderRoleName = senderRole.name,
+                senderRoleAvatar = senderRole.avatar,
             )
         }
         attachments.forEach { attachment ->
@@ -477,10 +509,19 @@ class MainViewModel : ViewModel() {
                 role = MessageRole.AGENT,
                 text = "",
                 attachments = listOf(attachment),
+                senderRoleId = senderRole.id,
+                senderRoleName = senderRole.name,
+                senderRoleAvatar = senderRole.avatar,
             )
         }
         if (messages.isEmpty()) {
-            messages += ChatMessage(role = MessageRole.AGENT, text = "Done.")
+            messages += ChatMessage(
+                role = MessageRole.AGENT,
+                text = "Done.",
+                senderRoleId = senderRole.id,
+                senderRoleName = senderRole.name,
+                senderRoleAvatar = senderRole.avatar,
+            )
         }
         return messages
     }
@@ -492,12 +533,17 @@ class MainViewModel : ViewModel() {
         if (role.modelOverride != null) {
             viewModelScope.launch {
                 val snap = config.snapshot()
-                val updatedGateways = snap.gateways.map {
-                    if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
-                        it.copy(model = role.modelOverride)
-                    else it
+                val model = role.modelOverride
+                if (model.startsWith("local:")) {
+                    config.update(snap.copy(localModelEnabled = true, localModelId = model.removePrefix("local:")))
+                } else {
+                    val updatedGateways = snap.gateways.map {
+                        if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
+                            it.copy(model = model)
+                        else it
+                    }
+                    config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false))
                 }
-                config.update(snap.copy(gateways = updatedGateways))
             }
         }
     }
@@ -562,7 +608,11 @@ class MainViewModel : ViewModel() {
 
     fun runTask(goal: String) = runTaskInternal(goal)
 
-    private fun runTaskInternal(goal: String, imageOverride: String? = null) {
+    private fun runTaskInternal(
+        goal: String,
+        imageOverride: String? = null,
+        visibleUserText: String = goal,
+    ) {
         val currentSessionId = _uiState.value.currentSessionId
         if (goal.isBlank() || _uiState.value.sessionStates[currentSessionId]?.isRunning == true) return
 
@@ -611,11 +661,14 @@ class MainViewModel : ViewModel() {
         // Build the user message once so we have a stable reference for persisting
         val userMessage = ChatMessage(
             role = MessageRole.USER,
-            text = goal,
+            text = visibleUserText,
             imageBase64 = if (attachedImage != null) attachedImage
                           else if (attachedFile != null && !attachedFile.isText) attachedFile.content
                           else null,
         )
+        val visibleGoalLabel = visibleUserText.ifBlank {
+            if (attachedImage != null) str(R.string.sticker_button) else goal
+        }
 
         _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
         updateSession(sessionIdAtStart) { s -> s.copy(
@@ -635,16 +688,16 @@ class MainViewModel : ViewModel() {
             return
         }
 
-        val llm = OpenAiGateway(config)
+        val llm = createLlmGateway()
         val rt = AgentRuntime(llm, registry, app.semanticMemory)
         runtimes[sessionIdAtStart] = rt
 
-        overlay.show(goal)
+        overlay.show(visibleGoalLabel)
         if (isPhoneControlTask) {
             auroraOverlay.flash()
         }
 
-        consoleServer.broadcast("task_started", goal)
+        consoleServer.broadcast("task_started", visibleGoalLabel)
 
         val newJob = viewModelScope.launch {
             // Ensure a session exists
@@ -693,6 +746,13 @@ class MainViewModel : ViewModel() {
             launch {
                 rt.events.collect { event ->
                     when (event) {
+                        is AgentEvent.Started -> {
+                            if (visibleUserText.isNotBlank()) {
+                                event.toLogLine()?.let { line ->
+                                    updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
+                                }
+                            }
+                        }
                         is AgentEvent.ThinkingToken -> {
                             overlay.onToken(event.text)
                             updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + event.text) }
@@ -821,7 +881,7 @@ class MainViewModel : ViewModel() {
                         add(LogLine(LogType.THINKING, currentRunState.streamingThought))
                     }
                 }
-                buildAgentMessages(summary, finalLogLines, currentRunState.activeAttachments)
+                buildAgentMessages(summary, finalLogLines, currentRunState.activeAttachments, scheduledRole)
             }
             updateSession(resolvedSessionId) { s -> s.copy(
                 isRunning = false,
@@ -859,7 +919,7 @@ class MainViewModel : ViewModel() {
         currentRole: Role,
         priorContext: String,
     ) {
-        val llm = OpenAiGateway(config)
+        val llm = createLlmGateway()
         val newJob = viewModelScope.launch {
             var sessionId = sessionIdAtStart
             if (sessionId.isBlank()) {
@@ -934,7 +994,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 ?: _uiState.value.sessionStates[resolvedSessionId]?.streamingToken?.ifBlank { null }
                 ?: result.exceptionOrNull()?.message ?: "Error."
 
-            val finalAgentMsg = ChatMessage(role = MessageRole.AGENT, text = summary)
+            val finalAgentMsg = ChatMessage(
+                role = MessageRole.AGENT,
+                text = summary,
+                senderRoleId = currentRole.id,
+                senderRoleName = currentRole.name,
+                senderRoleAvatar = currentRole.avatar,
+            )
             updateSession(resolvedSessionId) { s -> s.copy(
                 isRunning = false,
                 streamingToken = "",
@@ -967,6 +1033,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     summary = state.streamingToken.ifBlank { "Task stopped." },
                     logLines = state.activeLogLines,
                     attachments = state.activeAttachments,
+                    senderRole = _uiState.value.currentRole,
                 )
             } else emptyList()
             state.copy(
@@ -985,26 +1052,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     }
 
     fun sendImageMessage(imageBase64: String, prompt: String = "") {
-        if (prompt.isNotBlank()) {
-            runTaskInternal(prompt, imageOverride = imageBase64)
-            return
+        val hiddenPrompt = prompt.ifBlank {
+            "用户发送了一张表情包图片。请根据图片内容、情绪和当前聊天上下文自然回应；不要复述这段系统提示，也不要说“我看到了一个附件”。"
         }
-
-        val currentSessionId = _uiState.value.currentSessionId
-        if (_uiState.value.sessionStates[currentSessionId]?.isRunning == true) return
-        val userMessage = ChatMessage(role = MessageRole.USER, text = "", imageBase64 = imageBase64)
-
-        viewModelScope.launch(Dispatchers.IO) {
-            var sessionId = currentSessionId
-            if (sessionId.isBlank()) {
-                createNewSessionInternal()
-                sessionId = _uiState.value.currentSessionId
-            }
-            updateSession(sessionId) { state ->
-                state.copy(messages = state.messages + userMessage)
-            }
-            persistUserOnlyMessage(sessionId, userMessage, fallbackTitle = str(R.string.sticker_button))
-        }
+        runTaskInternal(hiddenPrompt, imageOverride = imageBase64, visibleUserText = "")
     }
 
     fun setFileAttachment(attachment: FileAttachment?) {
@@ -1217,6 +1268,8 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     @Volatile private var groupChatStopped = false
     private val pendingGroupTurns = ArrayDeque<PendingGroupTurn>()
     private val GROUP_TASK_POOL_LIMIT = 4
+    private val GROUP_CHAT_INITIAL_MAX = 1
+    private val GROUP_CHAT_ORGANIC_MAX = 1
     private val GROUP_MESSAGE_PAGE_SIZE = 20
 
     fun loadGroups() {
@@ -1509,13 +1562,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     launchGroupAgentTurn(group, role, allMembers, delayMs = 0, chainDepth = 5, triggerText = userText, requireResponse = index == 0)
                 }
         } else {
-            // No @mention: shuffle, stagger a random 2-3 agents as initial responders.
-            // They self-filter via [PASS]; their responses invite others via probability decay (depth 5→4→…→0).
+            // No @mention: choose a primary responder. Extra voices should feel intentional,
+            // not like every member is trying to append one more sentence.
             val shuffled = allMembers.shuffled()
             val activeCount = when {
                 shuffled.size <= 1 -> 1
-                shuffled.size == 2 -> 2
-                else -> (2..minOf(3, shuffled.size)).random()
+                shouldInviteMultipleGroupVoices(userText) -> minOf(2, shuffled.size)
+                else -> GROUP_CHAT_INITIAL_MAX
             }
             shuffled.take(activeCount).forEachIndexed { idx, role ->
                 val delayMs = when (idx) {
@@ -1523,7 +1576,7 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     1    -> (1500L..3000L).random()
                     else -> (3000L..5500L).random()
                 }
-                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = 4, triggerText = userText, requireResponse = idx < 2)
+                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = if (idx == 0) 2 else 1, triggerText = userText, requireResponse = idx == 0)
             }
         }
     }
@@ -1537,10 +1590,10 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                 listOfNotNull(allMembers.firstOrNull { it.id == selected.id } ?: allMembers.firstOrNull())
             }
             mentioned.isNotEmpty() -> allMembers.filter { r -> mentioned.any { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) } }
-            else -> allMembers.shuffled().take(if (allMembers.size <= 1) 1 else minOf(3, allMembers.size))
+            else -> allMembers.shuffled().take(if (shouldInviteMultipleGroupVoices(userText)) minOf(2, allMembers.size) else 1)
         }
         targets.forEach { role ->
-            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 4 else 3, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH), requireResponse = true))
+            pendingGroupTurns.addFirst(PendingGroupTurn(role.id, userText, chainDepth = if (mentioned.isNotEmpty()) 3 else 1, priority = 100, longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH), requireResponse = true))
         }
         _uiState.update { it.copy(groupPendingMessages = it.groupPendingMessages + userText) }
     }
@@ -1630,9 +1683,13 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     },
                 )
                 val cleanResponse = response.text.trim()
+                val shouldSkipLowValueReply = !requireResponse && isLowValueGroupReply(cleanResponse, response.attachments)
 
                 // [PASS] means the agent found the message irrelevant to them — skip silently
-                if ((cleanResponse.isNotBlank() || response.attachments.isNotEmpty()) && !cleanResponse.equals("[PASS]", ignoreCase = true)) {
+                if ((cleanResponse.isNotBlank() || response.attachments.isNotEmpty()) &&
+                    !cleanResponse.equals("[PASS]", ignoreCase = true) &&
+                    !shouldSkipLowValueReply
+                ) {
                     val agentMsg = GroupMessage(groupId = group.id, senderId = role.id,
                         senderName = role.name, senderAvatar = role.avatar, text = cleanResponse, attachments = response.attachments)
                     val rowId = database.groupMessageDao().insert(agentMsg.toEntity())
@@ -1663,31 +1720,31 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                             }}
                                 .forEach { launchGroupAgentTurn(group, it, allMembers, chainDepth = chainDepth, triggerText = cleanResponse) }
 
-                        // Organic reactions: let all idle members evaluate whether to join.
-                        // Probability decays with depth so the conversation tapers naturally.
+                        // Organic reactions: allow at most one relevant follow-up. Most
+                        // messages should stop after the primary answer unless the text
+                        // explicitly invites group discussion.
                         if (chainDepth > 0) {
-                            // Keep group chat lively without leaving users stuck in endless typing.
                             val reactionProb = when (chainDepth) {
-                                5 -> 0.72f
-                                4 -> 0.62f
-                                3 -> 0.52f
-                                2 -> 0.40f
-                                else -> 0.24f
+                                5 -> 0.36f
+                                4 -> 0.30f
+                                3 -> 0.24f
+                                2 -> 0.16f
+                                else -> 0.08f
                             }
                             allMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
                                     mentions.none { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) }
                                 }
                                 .shuffled()
-                                .take(4)
+                                .take(GROUP_CHAT_ORGANIC_MAX)
                                 .forEachIndexed { index, reactor ->
                                     // Relevance boost: if the response text mentions this reactor's name, higher chance
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
                                     val shouldContinue = shouldContinueGroupThread(cleanResponse)
                                     val effectiveProb = when {
-                                        shouldContinue && index == 0 -> 1.0f
+                                        shouldContinue && index == 0 -> 0.72f
                                         nameHit -> minOf(reactionProb + 0.28f, 1.0f)
-                                        shouldContinue -> minOf(reactionProb + 0.18f, 1.0f)
+                                        shouldContinue -> minOf(reactionProb + 0.14f, 1.0f)
                                         else -> reactionProb
                                     }
                                     if (kotlin.random.Random.nextFloat() < effectiveProb) {
@@ -1746,29 +1803,59 @@ For pure conversational replies (greetings, simple factual answers) — plain te
     private fun buildGroupTurnInstruction(roleName: String, triggerText: String, requireResponse: Boolean): String {
         val trigger = triggerText.trim().take(500)
         return if (requireResponse) {
-            "[系统]: 用户刚在群里问/说：${trigger.ifBlank { "请你开启一个自然话题" }}\n轮到你了，$roleName。你是本轮指定回应者，必须给出一条自然、有内容的群聊回复，不要输出 [PASS]，不要只发表情。"
+            "[系统]: 用户刚在群里问/说：${trigger.ifBlank { "请你开启一个自然话题" }}\n轮到你了，$roleName。你是本轮主回应者，必须给出一条自然、有内容的群聊回复。不要输出 [PASS]，不要只发表情，也不要用“我补充一句/我也来说两句/接一下”这种尴尬开场。"
         } else {
-            "[系统]: 最新触发内容：${trigger.ifBlank { "群聊冷启动" }}\n轮到你了，$roleName。优先自然接一句，让群聊继续有来有回；只有内容确实和你完全无关、且你没有任何有趣角度时，才输出 [PASS]。"
+            "[系统]: 最新触发内容：${trigger.ifBlank { "群聊冷启动" }}\n轮到你了，$roleName。你不是主回应者。只有在你能提供明显不同的新信息、专业角度、被点名、或这句话明确邀请大家讨论时才回复；否则输出 [PASS]。禁止只说“我补充一句/我也觉得/确实/哈哈/有道理”。"
         }
+    }
+
+    private fun shouldInviteMultipleGroupVoices(text: String): Boolean {
+        val lowered = text.trim().lowercase()
+        if (lowered.isBlank()) return false
+        return listOf(
+            "你们", "大家", "所有人", "都说说", "一起聊", "群里", "各位",
+            "怎么看", "有什么想法", "给点建议", "投票", "brainstorm", "讨论",
+        ).any { lowered.contains(it) }
     }
 
     private fun shouldContinueGroupThread(text: String): Boolean {
         val clean = text.trim()
         if (clean.isBlank()) return false
         val lowered = clean.lowercase()
-        return clean.contains("？") ||
-            clean.contains("?") ||
-            listOf(
-                "怎么看", "你们觉得", "大家觉得", "继续", "往下聊", "接着聊", "补充",
-                "谁来", "有没有", "可以聊", "展开", "还有", "另一个角度", "我觉得",
-                "哈哈", "笑死", "离谱", "无语", "牛", "绝了", "有意思",
-            ).any { lowered.contains(it) }
+        if (isLowValueGroupReply(clean, emptyList())) return false
+        return listOf(
+            "怎么看", "你们觉得", "大家觉得", "谁来", "有没有", "可以聊",
+            "展开讲", "换个角度", "还有谁", "还有没有", "大家说说",
+        ).any { lowered.contains(it) } ||
+            (clean.contains("？") || clean.contains("?")) &&
+                listOf("你们", "大家", "谁", "怎么", "为什么", "要不要", "有没有").any { lowered.contains(it) }
     }
 
     private fun shouldRequireGroupReaction(triggerText: String, chainDepth: Int, reactorIndex: Int): Boolean {
         if (chainDepth <= 1) return false
         if (reactorIndex > 0) return false
         return shouldContinueGroupThread(triggerText)
+    }
+
+    private fun isLowValueGroupReply(text: String, attachments: List<SkillAttachment>): Boolean {
+        val clean = text.trim()
+        if (attachments.isNotEmpty()) return false
+        if (clean.isBlank()) return true
+        val normalized = clean
+            .replace(Regex("[\\s，。,.!！?？~～…]+"), "")
+            .lowercase()
+        val generic = listOf(
+            "我补充一句", "补充一下", "我也补充", "我也来说两句", "我接一下",
+            "我也觉得", "我同意", "确实", "有道理", "说得对", "哈哈", "笑死",
+            "可以", "不错", "挺好", "没错", "俺也一样", "先这样",
+        )
+        if (generic.any { normalized == it || normalized.startsWith(it) && normalized.length <= it.length + 10 }) {
+            return true
+        }
+        val meaningfulChars = normalized.count { it.isLetterOrDigit() || it in '\u4e00'..'\u9fff' }
+        if (meaningfulChars <= 8) return true
+        val fillerHits = listOf("补充", "接一句", "我也", "确实", "有道理").count { normalized.contains(it) }
+        return fillerHits >= 2 && meaningfulChars < 28
     }
 
     /** Triggers a random member to proactively start a conversation — call when group opens or chat is cold. */
@@ -2018,6 +2105,9 @@ For pure conversational replies (greetings, simple factual answers) — plain te
         appendLine(str(R.string.vm_e1d388))
         appendLine(str(R.string.vm_abc7c8))
         appendLine(str(R.string.vm_8f6718))
+        appendLine("• 群聊不是抢答。没有被点名、没有新信息、没有明显不同角度时，直接输出 [PASS]。")
+        appendLine("• 不要为了存在感补一句。禁止只说“我补充一句/我也觉得/确实/有道理/哈哈/不错/接一下”。")
+        appendLine("• 如果前面的人已经回答完整，你应该安静；只有能推进任务、纠错、补关键事实、提出清晰问题时才发言。")
         appendLine("• 如果你使用工具生成了图片、文件、网页或搜索结果，可以把这些结果作为附件发到群里。")
         appendLine("• 表情包是你的群聊表达方式之一，不是只有用户明确要求才用。发言前先判断：你的这句话是否有明确情绪、梗、反应或斗图价值。")
         appendLine("• 当你的回复明显适合表情包强化时，可以调用 sticker_bqb(action=\"search\", query=\"简短情绪词\")，例如 哈哈、笑死、牛、离谱、尴尬、无语、摸鱼、生气、谢谢、安慰、庆祝。")
@@ -2266,21 +2356,58 @@ $relevantFacts
     fun setModel(model: String) {
         viewModelScope.launch {
             val snap = config.snapshot()
+            if (model.startsWith("local:")) {
+                config.update(snap.copy(localModelEnabled = true, localModelId = model.removePrefix("local:")))
+                _uiState.update { it.copy(currentModel = model) }
+                return@launch
+            }
             val updatedGateways = snap.gateways.map {
                 if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
                     it.copy(model = model)
                 else it
             }
-            config.update(snap.copy(gateways = updatedGateways))
+            config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false))
             _uiState.update { it.copy(currentModel = model) }
         }
+    }
+
+    fun setLocalModelEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val snap = config.snapshot()
+            config.update(snap.copy(localModelEnabled = enabled))
+        }
+    }
+
+    fun selectLocalModel(id: String) {
+        viewModelScope.launch {
+            val normalized = id.removePrefix("local:")
+            val snap = config.snapshot()
+            config.update(snap.copy(localModelEnabled = true, localModelId = normalized))
+            _uiState.update { it.copy(currentModel = "local:$normalized") }
+        }
+    }
+
+    fun downloadLocalModel(id: String, token: String = "", sourceUrl: String = "") {
+        viewModelScope.launch { app.localModelManager.download(id, token, sourceUrl) }
+    }
+
+    fun importLocalModel(id: String, uri: android.net.Uri) {
+        viewModelScope.launch { app.localModelManager.importModel(id, uri) }
+    }
+
+    fun deleteLocalModel(id: String) {
+        viewModelScope.launch { app.localModelManager.delete(id) }
     }
 
     fun fetchModels() {
         if (_uiState.value.modelsLoading) return
         _uiState.update { it.copy(modelsLoading = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            val models = runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
+            val remoteModels = runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
+            val localModels = app.localModelManager.models.value
+                .filter { it.supportsChatRuntime }
+                .map { it.modelId }
+            val models = (remoteModels + localModels).distinct()
             _uiState.update { it.copy(
                 availableModels = if (models.isNotEmpty()) models else it.availableModels,
                 modelsLoading = false,
@@ -2365,11 +2492,14 @@ $relevantFacts
         val msgs = _uiState.value.currentRunState.messages
         val artifactContext = activeAiPage?.let { buildAiPageArtifactContext(it) }.orEmpty()
         if (msgs.isEmpty()) return artifactContext
-        val recent = msgs.takeLast(8)
+        val recent = msgs.takeLast(10)
         val lines = recent.map { msg ->
             val raw = when (msg.role) {
                 MessageRole.USER -> "User: ${msg.text}"
-                MessageRole.AGENT -> "Agent: ${msg.text}"
+                MessageRole.AGENT -> {
+                    val roleName = msg.senderRoleName.ifBlank { "Agent" }
+                    "$roleName: ${msg.text}"
+                }
             }
             // Truncate very long individual messages (e.g. code blocks, agent summaries)
             if (raw.length > 400) raw.take(400) + "…" else raw
@@ -2377,7 +2507,10 @@ $relevantFacts
         // Hard cap on total prior context size
         val full = lines.joinToString("\n")
         val capped = if (full.length > 2000) full.takeLast(2000) else full
-        return listOf(artifactContext, capped).filter { it.isNotBlank() }.joinToString("\n\n")
+        val recentContext = if (capped.isNotBlank()) {
+            "## Last 10 Chat Records Before Current User Message\n$capped"
+        } else ""
+        return listOf(artifactContext, recentContext).filter { it.isNotBlank() }.joinToString("\n\n")
     }
 
     private fun buildAiPageArtifactContext(activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null): String {
@@ -2458,6 +2591,7 @@ $relevantFacts
             InputTextSkill(),
             NavigateSkill(app.virtualDisplayManager),
             ListAppsSkill(),
+            PhoneStatusSkill(),
             // Web
             WebSearchSkill(app.webViewManager),
             FetchUrlSkill(),
@@ -2772,6 +2906,9 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
         logLines = logLines,
         imageBase64 = imageBase64,
         attachments = attachments,
+        senderRoleId = senderRoleId,
+        senderRoleName = senderRoleName,
+        senderRoleAvatar = senderRoleAvatar,
     )
 }
 

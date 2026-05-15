@@ -5,6 +5,7 @@ import com.mobileclaw.agent.Role
 import com.mobileclaw.app.MiniApp
 import com.mobileclaw.config.ConfigEntry
 import com.mobileclaw.config.ConfigSnapshot
+import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.memory.db.EpisodeEntity
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.skill.SkillAttachment
@@ -56,6 +57,7 @@ data class MainUiState(
     val currentModel: String = "gpt-4o",
     val availableModels: List<String> = emptyList(),
     val modelsLoading: Boolean = false,
+    val localModels: List<LocalModelInfo> = emptyList(),
     // Sessions
     val currentSessionId: String = "",
     val sessions: List<SessionEntity> = emptyList(),
@@ -147,6 +149,9 @@ data class ChatMessage(
     val logLines: List<LogLine> = emptyList(),
     val imageBase64: String? = null,
     val attachments: List<SkillAttachment> = emptyList(),
+    val senderRoleId: String = "",
+    val senderRoleName: String = "",
+    val senderRoleAvatar: String = "",
 )
 
 enum class MessageRole { USER, AGENT }

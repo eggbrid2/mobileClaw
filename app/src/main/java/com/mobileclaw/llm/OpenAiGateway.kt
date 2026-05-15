@@ -163,7 +163,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
             messages.add(obj)
         }
         return JsonObject().apply {
-            addProperty("model", snapshot.model)
+            addProperty("model", snapshot.cloudModel)
             add("messages", messages)
             addProperty("stream", request.stream)
             if (request.tools.isNotEmpty()) {

@@ -18,7 +18,7 @@ import com.google.gson.JsonObject
 data class AiPageDef(
     val id: String,
     val title: String,
-    val icon: String = "📄",
+    val icon: String = "page",
     val version: Int = 1,
     val description: String = "",
     val createdAt: Long = System.currentTimeMillis(),

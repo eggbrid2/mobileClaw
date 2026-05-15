@@ -65,7 +65,7 @@ import com.mobileclaw.ui.MarkdownText
 @Composable
 fun AiPageRenderer(layout: JsonObject, runtime: AiPageRuntime, modifier: Modifier = Modifier) {
     val c = LocalClawColors.current
-    Column(modifier = modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier = modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         RenderNode(layout, runtime, c)
     }
 }
@@ -98,7 +98,7 @@ private fun ev(raw: String?, runtime: AiPageRuntime): String {
 @Composable
 private fun RenderNode(node: JsonObject, runtime: AiPageRuntime, c: ClawColors) {
     val type = node["type"]?.asString ?: return
-    val gap = node["gap"]?.asInt ?: 8
+            val gap = node["gap"]?.asInt ?: 7
     val nodePad = node["padding"]?.asInt ?: 0
     val padMod = if (nodePad > 0) Modifier.padding(nodePad.dp) else Modifier
 
@@ -133,7 +133,7 @@ private fun RenderNode(node: JsonObject, runtime: AiPageRuntime, c: ClawColors) 
                     .clip(RoundedCornerShape(10.dp))
                     .background(c.cardAlt)
                     .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
-                    .padding(12.dp).then(padMod),
+                    .padding(10.dp).then(padMod),
                 verticalArrangement = Arrangement.spacedBy(gap.dp),
             ) {
                 if (title.isNotBlank()) {
@@ -148,7 +148,7 @@ private fun RenderNode(node: JsonObject, runtime: AiPageRuntime, c: ClawColors) 
 
         "text" -> {
             val content = ev(node["content"]?.asString, runtime)
-            val size = node["size"]?.asInt ?: 14
+            val size = node["size"]?.asInt ?: 13
             val bold = node["bold"]?.asBoolean ?: false
             val italic = node["italic"]?.asBoolean ?: false
             val color = nodeColor(node["color"]?.asString, c)
@@ -172,7 +172,7 @@ private fun RenderNode(node: JsonObject, runtime: AiPageRuntime, c: ClawColors) 
 
         "markdown" -> {
             val content = ev(node["content"]?.asString, runtime)
-            MarkdownText(text = content, color = c.text, fontSize = 14.sp, lineHeight = 21.sp)
+            MarkdownText(text = content, color = c.text, fontSize = 13.sp, lineHeight = 18.sp)
         }
 
         "badge" -> {

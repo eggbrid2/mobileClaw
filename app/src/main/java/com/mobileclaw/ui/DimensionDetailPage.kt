@@ -132,7 +132,7 @@ fun DimensionDetailPage(
                 ) {
                     Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
                 }
-                Text(dimension.emoji, fontSize = 18.sp, modifier = Modifier.padding(start = 4.dp))
+                ClawSymbolIcon(dimension.iconKey, tint = dimension.color, modifier = Modifier.padding(start = 4.dp).size(20.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     dimension.title,

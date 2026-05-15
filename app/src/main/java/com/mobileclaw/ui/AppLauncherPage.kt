@@ -88,18 +88,18 @@ fun AppLauncherPage(
         // Top bar using same pattern as other pages
         if (showHeader) Column(Modifier.fillMaxWidth().background(c.surface).statusBarsPadding()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
+                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Default.Close, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
                 }
                 Text(
                     str(R.string.app_launcher_0ecb7b),
-                    color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
                 if (miniApps.isNotEmpty()) {
@@ -122,20 +122,20 @@ fun AppLauncherPage(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("📱", fontSize = 48.sp)
-                    Text(str(R.string.app_launcher_28c8d6), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    ClawIconTile("apps", size = 56.dp, iconSize = 28.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                    Text(str(R.string.app_launcher_28c8d6), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(
                         str(R.string.app_launcher_d957e7),
-                        color = c.subtext, fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp,
+                        color = c.subtext, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 17.sp,
                     )
                 }
             }
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
                 modifier = Modifier.fillMaxSize(),
@@ -200,20 +200,25 @@ private fun AppLauncherIcon(
                             contentScale = ContentScale.Crop,
                         )
                     } else {
-                        Text("📱", fontSize = 28.sp)
+                        ClawSymbolIcon("apps", tint = c.text, modifier = Modifier.size(28.dp))
                     }
                 } else {
-                    Text(app.icon, fontSize = 28.sp)
+                    ClawSymbolIcon(app.icon, tint = c.text, modifier = Modifier.size(28.dp))
                 }
             }
             // Python badge
             if (app.hasPython) {
-                Text(
-                    "🐍",
-                    fontSize = 9.sp,
+                Icon(
+                    imageVector = clawIconForSymbol("python"),
+                    contentDescription = null,
+                    tint = c.bg,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .offset(x = 2.dp, y = 2.dp),
+                        .offset(x = 2.dp, y = 2.dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(c.text)
+                        .padding(3.dp),
                 )
             }
             // Delete badge in edit mode

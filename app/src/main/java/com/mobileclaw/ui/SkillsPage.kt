@@ -75,17 +75,17 @@ fun SkillsPage(
     // Group by tag, then sort each group by level → name
     val tagGroups = remember(allSkills) {
         val emojiMap = mapOf(
-            str(R.string.skills_34e47d) to "📱", str(R.string.skills_066ae8) to "🖥️", str(R.string.skills_7ddbe1) to "🌐", str(R.string.skills_2a0c47) to "📁",
-            str(R.string.drawer_apps) to "📦", str(R.string.skills_93d695) to "🎨", str(R.string.profile_44e4d7) to "🧠", str(R.string.drawer_roles) to "🎭",
-            str(R.string.skills_9a834e) to "💬", str(R.string.group_chat_1fd02a) to "👤", str(R.string.drawer_skills) to "🛠️", str(R.string.skills_8a8b89) to "⚙️",
+            str(R.string.skills_34e47d) to "phone", str(R.string.skills_066ae8) to "desktop", str(R.string.skills_7ddbe1) to "web", str(R.string.skills_2a0c47) to "folder",
+            str(R.string.drawer_apps) to "package", str(R.string.skills_93d695) to "appearance", str(R.string.profile_44e4d7) to "profile", str(R.string.drawer_roles) to "roles",
+            str(R.string.skills_9a834e) to "chat", str(R.string.group_chat_1fd02a) to "user", str(R.string.drawer_skills) to "tools", str(R.string.skills_8a8b89) to "settings",
         )
         val tagOrder = listOf(str(R.string.skills_34e47d), str(R.string.skills_7ddbe1), str(R.string.skills_2a0c47), str(R.string.drawer_apps), str(R.string.profile_44e4d7), str(R.string.skills_93d695), str(R.string.drawer_roles), str(R.string.skills_9a834e), str(R.string.group_chat_1fd02a), str(R.string.drawer_skills), str(R.string.skills_8a8b89), str(R.string.skills_066ae8))
         val grouped = allSkills
             .flatMap { skill -> (skill.tags.ifEmpty { listOf(str(R.string.skills_0d98c7)) }).map { tag -> tag to skill } }
             .groupBy({ it.first }, { it.second })
-        tagOrder.mapNotNull { tag -> grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "🔧", it) } } +
+        tagOrder.mapNotNull { tag -> grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "tools", it) } } +
             (grouped.keys - tagOrder.toSet()).sorted().mapNotNull { tag ->
-                grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "🔧", it) }
+                grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "tools", it) }
             }
     }
 
@@ -169,22 +169,22 @@ fun SkillsPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.surface)
-                .padding(horizontal = 8.dp, vertical = 12.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
             }
             Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(str(R.string.drawer_skills), color = c.text, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(str(R.string.drawer_skills), color = c.text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(stringResource(R.string.skills_loaded, allSkills.size), color = c.subtext, fontSize = 11.sp)
             }
         }
 
         // ── Horizontal tab row ───────────────────────────────────────────────
         CompactScrollableTabs(
-            items = tagGroups.mapIndexed { index, (tag, emoji, skills) ->
-                CompactTabItem("$emoji $tag", skills.size.toString(), safeTabIndex == index) {
+            items = tagGroups.mapIndexed { index, (tag, _, skills) ->
+                CompactTabItem(tag, skills.size.toString(), safeTabIndex == index) {
                     selectedTabIndex = index
                 }
             } + CompactTabItem(str(R.string.skills_0e0282), SkillMarket.catalog.size.toString(), isMarketTab) {
@@ -196,8 +196,8 @@ fun SkillsPage(
 
         // ── Tab content ──────────────────────────────────────────────────────
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             if (isMarketTab) {
                 item(key = "__market__") {
@@ -327,7 +327,7 @@ private fun SkillMarketSection(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("🏪", fontSize = 16.sp)
+            ClawSymbolIcon("market", tint = c.text, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(str(R.string.skill_market_5917e2), color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -384,7 +384,14 @@ private fun MarketSkillCard(
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(entry.emoji, fontSize = 22.sp)
+        ClawIconTile(
+            symbol = entry.emoji,
+            size = 38.dp,
+            iconSize = 20.dp,
+            tint = c.text,
+            background = c.cardAlt,
+            border = c.border,
+        )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -447,7 +454,7 @@ private fun TagGroupBlock(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(emoji, fontSize = 16.sp)
+            ClawSymbolIcon(emoji, tint = c.text, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(tag, color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -548,7 +555,7 @@ private fun SkillGroupBlock(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(emoji, fontSize = 16.sp)
+            ClawSymbolIcon(emoji, tint = c.text, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)

@@ -38,12 +38,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "21"
     }
 
     buildFeatures {
@@ -107,6 +107,9 @@ dependencies {
     implementation(libs.okhttp.sse)
     implementation(libs.gson)
     implementation(libs.jsoup)
+
+    // Local on-device LLM runtime for .litertlm models.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)

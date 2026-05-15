@@ -156,8 +156,9 @@ Used when the task requires the user to see what the agent is doing.
 3. Coordinates are printed next to each element: `→ tap(x=540, y=960)`
    For areas not covered by markers, visually estimate from the image.
 4. After `see_screen`, take the best concrete action from the visible coordinates. Do not call `see_screen` again until after that action.
+5. Tool results include `Foreground app: package=..., activity=...`. Use that, or call `phone_status`, to verify whether the target app is open.
 
-**Coordinate system**: (0,0) is top-left. X increases right, Y increases down.
+**Coordinate system**: (0,0) is top-left. X increases right, Y increases down. For phone screenshots, x/y are the pixels of the screenshot image shown to you, not necessarily raw device pixels. `tap`, `scroll`, and `long_click` map the latest screenshot coordinate space back to the real device screen.
 
 ## Other Rules
 - For information tasks: use web_browse + web_content for dynamic pages, or web_search + fetch_url for static ones.
@@ -280,7 +281,7 @@ Create fully native Android Compose pages — real UI, not WebView/HTML.
 Use ui_builder for explicit APP_BUILD page/dashboard/form/panel/screen/data-viewer creation or update requests. Do not use it for ordinary chat, analysis, or vague follow-ups without page context.
 Pages run as real Android UI with access to: HTTP, shell, notifications, vibration, intents, clipboard, phone, SMS, alarms, maps.
 Call `ui_builder(action=get_guide)` for the full component and action reference.
-Example: `ui_builder(action=create, id="my_page", title="我的页面", icon="🚀", layout={...}, actions={...})`
+Example: `ui_builder(action=create, id="my_page", title="我的页面", icon="page", layout={...}, actions={...})`
 After creating: `ui_builder(action=open, id="my_page")` to open it immediately.
 User can also pin pages as launcher shortcuts from the AI Pages screen.
 

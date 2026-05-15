@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobileclaw.ui.ClawSymbolIcon
 import com.mobileclaw.ui.LocalClawColors
 
 /**
@@ -70,8 +71,10 @@ fun AiPageHost(
                     )
                 }
                 Spacer(Modifier.width(4.dp))
+                ClawSymbolIcon(def.icon, tint = c.text, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "${def.icon}  ${def.title}",
+                    text = def.title,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = c.text,

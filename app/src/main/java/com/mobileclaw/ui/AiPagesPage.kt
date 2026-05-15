@@ -74,7 +74,7 @@ fun AiPagesPage(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                    .padding(start = 4.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -87,7 +87,7 @@ fun AiPagesPage(
                 }
                 Text(
                     str(R.string.ai_pages_16bc64),
-                    fontSize = 17.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = c.text,
                     modifier = Modifier.weight(1f),
@@ -105,8 +105,8 @@ fun AiPagesPage(
         if (pages.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(str(R.string.ai_pages_7c9430), fontSize = 16.sp, color = c.subtext)
-                    Text(str(R.string.ai_pages_232d05), fontSize = 13.sp, color = c.subtext.copy(alpha = 0.6f))
+                    Text(str(R.string.ai_pages_7c9430), fontSize = 14.sp, color = c.subtext)
+                    Text(str(R.string.ai_pages_232d05), fontSize = 12.sp, color = c.subtext.copy(alpha = 0.6f))
                 }
             }
         } else {
@@ -160,25 +160,25 @@ private fun PageRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(c.surface)
             .clickable(onClick = onOpen)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Icon
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(40.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(c.accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(page.icon, fontSize = 22.sp)
+            ClawSymbolIcon(page.icon, tint = c.accent, modifier = Modifier.size(20.dp))
         }
 
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 page.title,
                 fontSize = 15.sp,

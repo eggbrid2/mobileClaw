@@ -90,7 +90,7 @@ class AppManagerSkill(
                     ?: return SkillResult(false, "html is required for create")
                 val title = params["title"] as? String ?: "Untitled App"
                 val description = params["description"] as? String ?: ""
-                val icon = params["icon"] as? String ?: "📱"
+                val icon = params["icon"] as? String ?: "apps"
                 val python = params["python"] as? String
                 val id = (params["id"] as? String)?.takeIf { it.matches(Regex("[a-z0-9_]+")) }
                     ?: "app_${UUID.randomUUID().toString().take(8)}"

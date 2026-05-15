@@ -111,13 +111,13 @@ fun GroupsPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(c.surface)
-                        .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+                        .padding(start = 4.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
                     }
-                    Text(str(R.string.groups_title), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(str(R.string.groups_title), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     IconButton(onClick = { showCreatePage = true }) {
                         Icon(Icons.Default.Add, contentDescription = str(R.string.group_new_title), tint = c.text)
                     }
@@ -129,11 +129,11 @@ fun GroupsPage(
                 // Empty state
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("👥", fontSize = 48.sp)
-                        Spacer(Modifier.height(12.dp))
-                        Text(str(R.string.groups_empty), color = c.subtext, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.height(6.dp))
-                        Text(str(R.string.groups_empty_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 12.sp)
+                        ClawIconTile("group", size = 56.dp, iconSize = 28.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                        Spacer(Modifier.height(10.dp))
+                        Text(str(R.string.groups_empty), color = c.subtext, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(5.dp))
+                        Text(str(R.string.groups_empty_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 11.sp)
                     }
                 }
             } else {
@@ -160,7 +160,7 @@ fun GroupsPage(
         if (!showHeader && showCreateFab) {
             FloatingActionButton(
                 onClick = { showCreatePage = true },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 containerColor = c.text,
                 contentColor = c.bg,
             ) {
@@ -232,7 +232,7 @@ private fun GroupCard(
                     .border(1.dp, c.border, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(group.emoji, fontSize = 23.sp)
+                ClawSymbolIcon(group.emoji, tint = c.text, modifier = Modifier.size(24.dp))
             }
             if (preview != null) {
                 Box(
@@ -297,10 +297,10 @@ private fun CreateGroupPage(
 ) {
     val c = LocalClawColors.current
     var name by remember { mutableStateOf("") }
-    var emoji by remember { mutableStateOf("👥") }
+    var emoji by remember { mutableStateOf("group") }
     val selectedIds = remember { mutableStateListOf<String>() }
     val canCreate = name.isNotBlank() && selectedIds.isNotEmpty()
-    val groupEmojis = listOf("👥", "🛠️", "🎨", "🔬", "💼", "🚀", "🎯", "⚡", "🌐", "🧠")
+    val groupIcons = listOf("group", "tools", "appearance", "search", "folder", "launch", "check", "battery", "web", "profile")
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
         ClawPageHeader(title = str(R.string.group_new_title), onBack = onBack) {
@@ -354,18 +354,18 @@ private fun CreateGroupPage(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(str(R.string.group_field_icon), fontSize = 12.sp, color = c.subtext, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    groupEmojis.forEach { e ->
-                        val isChosen = e == emoji
+                    groupIcons.forEach { iconKey ->
+                        val isChosen = iconKey == emoji
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
                                 .background(if (isChosen) c.text else c.surface)
                                 .border(1.dp, if (isChosen) c.text else c.border, CircleShape)
-                                .clickable { emoji = e },
+                                .clickable { emoji = iconKey },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(e, fontSize = 20.sp)
+                            ClawSymbolIcon(iconKey, tint = if (isChosen) c.bg else c.text, modifier = Modifier.size(21.dp))
                         }
                     }
                 }

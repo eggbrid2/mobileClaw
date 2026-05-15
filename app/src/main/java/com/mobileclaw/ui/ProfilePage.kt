@@ -53,6 +53,11 @@ private enum class ProfileSection { PORTRAIT, MEMORY, HISTORY }
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
+private val ProfileLineA = Color(0xFF101010)
+private val ProfileLineB = Color(0xFF2A2A2A)
+private val ProfileLineC = Color(0xFF505050)
+private val ProfileAccent = Color(0xFF56D6BA)
+
 data class ProfileAspect(
     val key: String,
     val label: String,
@@ -62,7 +67,7 @@ data class ProfileAspect(
 
 data class ProfileDimension(
     val id: String,
-    val emoji: String,
+    val iconKey: String,
     val title: String,
     val color: Color,
     val aspects: List<ProfileAspect>,
@@ -72,7 +77,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
     fun f(key: String) = facts["profile.$key"]
     return listOf(
         // ── 生理 ── basic physiology
-        ProfileDimension("physio", "🧬", str(R.string.profile_99626b), Color(0xFF4CAF50), listOf(
+        ProfileDimension("physio", "physio", str(R.string.profile_99626b), ProfileLineA, listOf(
             ProfileAspect("profile.physio.health",     str(R.string.profile_fe9069), f("physio.health")),
             ProfileAspect("profile.physio.fitness",    str(R.string.profile_e83951), f("physio.fitness")),
             ProfileAspect("profile.physio.sleep",      str(R.string.profile_492b41), f("physio.sleep")),
@@ -80,7 +85,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.physio.medical",    str(R.string.profile_9a7841), f("physio.medical")),
         )),
         // ── 性格 ── Big Five OCEAN (McCrae & Costa, 1992)
-        ProfileDimension("personality", "🎭", str(R.string.profile_732564), Color(0xFFFF9800), listOf(
+        ProfileDimension("personality", "roles", str(R.string.profile_732564), ProfileLineB, listOf(
             ProfileAspect("profile.personality.openness",          str(R.string.profile_a0dbad),   f("personality.openness")),
             ProfileAspect("profile.personality.conscientiousness",  str(R.string.profile_a4dec8),   f("personality.conscientiousness")),
             ProfileAspect("profile.personality.extraversion",       str(R.string.profile_63aa19),   f("personality.extraversion")),
@@ -89,7 +94,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.personality.style",              str(R.string.profile_169e2e), f("personality.style")),
         )),
         // ── 认知 ── cognitive style + Holland RIASEC (1973)
-        ProfileDimension("cognitive", "💡", str(R.string.profile_db916a), Color(0xFF2196F3), listOf(
+        ProfileDimension("cognitive", "cognitive", str(R.string.profile_db916a), ProfileAccent, listOf(
             ProfileAspect("profile.cognitive.thinking",    str(R.string.profile_d1dbd1), f("cognitive.thinking")),
             ProfileAspect("profile.cognitive.learning",    str(R.string.profile_a8a822), f("cognitive.learning")),
             ProfileAspect("profile.cognitive.decision",    str(R.string.profile_3f6999), f("cognitive.decision")),
@@ -98,7 +103,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.cognitive.riasec",      str(R.string.profile_1a36a3), f("cognitive.riasec")),
         )),
         // ── 情绪 ── Ryff's Well-being (1989): self-acceptance, resilience
-        ProfileDimension("emotional", "💗", str(R.string.profile_6b4aaf), Color(0xFFE91E63), listOf(
+        ProfileDimension("emotional", "emotional", str(R.string.profile_6b4aaf), ProfileLineC, listOf(
             ProfileAspect("profile.emotional.stability",       str(R.string.profile_cfeb01), f("emotional.stability")),
             ProfileAspect("profile.emotional.empathy",         str(R.string.profile_f5cbda),   f("emotional.empathy")),
             ProfileAspect("profile.emotional.stress",          str(R.string.profile_b1cd26),   f("emotional.stress")),
@@ -106,7 +111,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.emotional.self_acceptance", str(R.string.profile_e7e4f0),   f("emotional.self_acceptance")),
         )),
         // ── 社交 ── social patterns + Ryff positive relations
-        ProfileDimension("social", "🌐", str(R.string.profile_f22ca1), Color(0xFF00BCD4), listOf(
+        ProfileDimension("social", "social", str(R.string.profile_f22ca1), ProfileAccent, listOf(
             ProfileAspect("profile.social.style",         str(R.string.profile_6a4008), f("social.style")),
             ProfileAspect("profile.social.communication", str(R.string.profile_7f8c61), f("social.communication")),
             ProfileAspect("profile.social.relationships", str(R.string.profile_099e43), f("social.relationships")),
@@ -114,7 +119,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.social.boundaries",    str(R.string.profile_cdf24f),   f("social.boundaries")),
         )),
         // ── 价值 ── Schwartz Values (1992): universalism, benevolence, autonomy, achievement
-        ProfileDimension("values", "⚖️", str(R.string.profile_54d8f5), Color(0xFF9C27B0), listOf(
+        ProfileDimension("values", "values", str(R.string.profile_54d8f5), ProfileLineB, listOf(
             ProfileAspect("profile.values.core",        str(R.string.profile_b9b65b), f("values.core")),
             ProfileAspect("profile.values.goals",       str(R.string.profile_6dc3f0),   f("values.goals")),
             ProfileAspect("profile.values.principles",  str(R.string.profile_4738bf),   f("values.principles")),
@@ -123,7 +128,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.values.autonomy",    str(R.string.profile_bbaa2b),   f("values.autonomy")),
         )),
         // ── 能力 ── capability + SDT intrinsic motivation (Deci & Ryan)
-        ProfileDimension("capability", "⚡", str(R.string.profile_120419), Color(0xFFFF5722), listOf(
+        ProfileDimension("capability", "capability", str(R.string.profile_120419), ProfileLineA, listOf(
             ProfileAspect("profile.capability.skills",     str(R.string.profile_52a965), f("capability.skills")),
             ProfileAspect("profile.capability.execution",  str(R.string.profile_3d8ec0),   f("capability.execution")),
             ProfileAspect("profile.capability.creativity", str(R.string.profile_18d1d0),   f("capability.creativity")),
@@ -131,7 +136,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
             ProfileAspect("profile.capability.intrinsic",  str(R.string.profile_9dc244), f("capability.intrinsic")),
         )),
         // ── 精神 ── Ryff's purpose in life + personal growth
-        ProfileDimension("spiritual", "🔮", str(R.string.profile_36fe54), Color(0xFF607D8B), listOf(
+        ProfileDimension("spiritual", "spiritual", str(R.string.profile_36fe54), ProfileLineC, listOf(
             ProfileAspect("profile.spiritual.core",       str(R.string.profile_4acb22), f("spiritual.core")),
             ProfileAspect("profile.spiritual.beliefs",    str(R.string.profile_bd0216), f("spiritual.beliefs")),
             ProfileAspect("profile.spiritual.resilience", str(R.string.profile_86b75a),   f("spiritual.resilience")),
@@ -253,7 +258,7 @@ fun ProfilePage(
                         item(key = "history_empty") {
                             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("📚", fontSize = 32.sp)
+                                    ClawIconTile("document", size = 54.dp, iconSize = 28.dp, tint = c.text, background = c.cardAlt, border = c.border)
                                     Spacer(Modifier.height(8.dp))
                                     Text(str(R.string.profile_873b17), color = c.subtext, fontSize = 13.sp)
                                 }
@@ -386,7 +391,7 @@ private fun PersonalitySummaryCard(
             .padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("✨", fontSize = 18.sp)
+            ClawSymbolIcon("settings", tint = c.accent, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(
                 str(R.string.profile_539d49),
@@ -623,7 +628,7 @@ private fun RadarChart(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text(dim.emoji, fontSize = 13.sp, lineHeight = 15.sp)
+                    ClawSymbolIcon(dim.iconKey, tint = if (isSelected) dim.color else c.subtext, modifier = Modifier.size(14.dp))
                     Text(
                         dim.title.take(4),
                         fontSize = 7.sp,
@@ -660,7 +665,7 @@ private fun DimensionDetailCard(dimension: ProfileDimension, episodes: List<Epis
     ) {
         // Header
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(dimension.emoji, fontSize = 18.sp)
+            ClawSymbolIcon(dimension.iconKey, tint = dimension.color, modifier = Modifier.size(20.dp))
             Text(dimension.title, color = dimension.color, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             Text(str(R.string.aspects_known, knownAspects.size, dimension.aspects.size), color = dimension.color.copy(alpha = 0.7f), fontSize = 10.sp)
         }
@@ -793,7 +798,7 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("🎯", fontSize = 28.sp)
+                ClawIconTile("check", size = 50.dp, iconSize = 26.dp, tint = c.text, background = c.cardAlt, border = c.border)
                 Text(stringResource(R.string.profile_done_2), color = c.subtext, fontSize = 13.sp, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
             }
         }
@@ -1046,7 +1051,7 @@ private fun DimensionsListSection(
                         .border(1.dp, dim.color.copy(alpha = 0.35f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(dim.emoji, fontSize = 18.sp)
+                    ClawSymbolIcon(dim.iconKey, tint = dim.color, modifier = Modifier.size(20.dp))
                 }
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1098,7 +1103,7 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("💭", fontSize = 36.sp)
+                ClawIconTile("profile", size = 56.dp, iconSize = 30.dp, tint = c.text, background = c.cardAlt, border = c.border)
                 Spacer(Modifier.height(4.dp))
                 Text(stringResource(R.string.profile_05dcde), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(

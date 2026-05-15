@@ -23,11 +23,11 @@ import androidx.compose.ui.res.stringResource
 import com.mobileclaw.R
 import com.mobileclaw.str
 
-private data class HelpSection(val emoji: String, val title: String, val items: List<HelpItem>)
+private data class HelpSection(val iconKey: String, val title: String, val items: List<HelpItem>)
 private data class HelpItem(val title: String, val body: String, val example: String? = null)
 
 private val HELP_CONTENT = listOf(
-    HelpSection("🚀", str(R.string.help_c182e7), listOf(
+    HelpSection("launch", str(R.string.help_c182e7), listOf(
         HelpItem(
             str(R.string.help_7820e3),
             str(R.string.help_tap),
@@ -43,7 +43,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_3446ad),
         ),
     )),
-    HelpSection("💬", str(R.string.help_70d230), listOf(
+    HelpSection("chat", str(R.string.help_70d230), listOf(
         HelpItem(
             str(R.string.help_2d3f31),
             str(R.string.help_30faf3),
@@ -64,7 +64,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_da967e),
         ),
     )),
-    HelpSection("🧠", str(R.string.help_19122e), listOf(
+    HelpSection("profile", str(R.string.help_19122e), listOf(
         HelpItem(
             str(R.string.help_0178ef),
             str(R.string.help_84c678),
@@ -78,7 +78,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_385c19),
         ),
     )),
-    HelpSection("🎭", str(R.string.help_2a2735), listOf(
+    HelpSection("roles", str(R.string.help_2a2735), listOf(
         HelpItem(
             str(R.string.chat_a6df2e),
             str(R.string.help_ed9064),
@@ -94,7 +94,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_a442fd),
         ),
     )),
-    HelpSection("⚡", str(R.string.help_835192), listOf(
+    HelpSection("battery", str(R.string.help_835192), listOf(
         HelpItem(
             str(R.string.help_ed18e0),
             str(R.string.help_61bc22),
@@ -114,7 +114,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_f3fb9b),
         ),
     )),
-    HelpSection("👤", str(R.string.help_27e2d7), listOf(
+    HelpSection("user", str(R.string.help_27e2d7), listOf(
         HelpItem(
             str(R.string.drawer_profile),
             str(R.string.help_4e2d9f),
@@ -125,7 +125,7 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_settings),
         ),
     )),
-    HelpSection("💡", str(R.string.help_362e39), listOf(
+    HelpSection("settings", str(R.string.help_362e39), listOf(
         HelpItem(
             str(R.string.help_7ba6ff),
             str(R.string.help_826c2c),
@@ -154,11 +154,11 @@ fun HelpPage(onBack: () -> Unit) {
         // TopBar
         Column(Modifier.fillMaxWidth().background(c.surface)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
+                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(20.dp))
@@ -166,7 +166,7 @@ fun HelpPage(onBack: () -> Unit) {
                 Text(
                     stringResource(R.string.help_9a2407),
                     color = c.text,
-                    fontSize = 17.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
@@ -176,8 +176,8 @@ fun HelpPage(onBack: () -> Unit) {
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             item {
                 // Intro banner
@@ -187,11 +187,11 @@ fun HelpPage(onBack: () -> Unit) {
                         .clip(RoundedCornerShape(14.dp))
                         .background(c.accent.copy(alpha = 0.08f))
                         .border(1.dp, c.accent.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                        .padding(14.dp),
+                        .padding(12.dp),
                 ) {
-                    Text(stringResource(R.string.help_560aac), color = c.text, fontSize = 13.sp, lineHeight = 20.sp)
+                    Text(stringResource(R.string.help_560aac), color = c.text, fontSize = 12.sp, lineHeight = 17.sp)
                     Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.help_df421b), color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
+                    Text(stringResource(R.string.help_df421b), color = c.subtext, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             }
 
@@ -214,7 +214,7 @@ fun HelpPage(onBack: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(section.emoji, fontSize = 15.sp)
+                            ClawSymbolIcon(section.iconKey, tint = if (isExpanded) c.accent else c.text, modifier = Modifier.size(17.dp))
                             Text(
                                 section.title,
                                 color = if (isExpanded) c.accent else c.text,

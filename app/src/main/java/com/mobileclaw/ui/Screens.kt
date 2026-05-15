@@ -13,21 +13,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.permission.PermissionItem
 
-private val ClawOrange = Color(0xFFFF6B35)
-private val ClawDark = Color(0xFF080810)
-private val ClawSurface = Color(0xFF0F0F1A)
-private val ClawCard = Color(0xFF161624)
-private val ClawCardAlt = Color(0xFF1C1C2E)
-private val ClawBorder = Color(0xFF252538)
-private val ClawText = Color(0xFFEEEEFF)
-private val ClawSubtext = Color(0xFF7070A0)
+private val ClawOrange = Color(0xFFC7F43A)
+private val ClawDark = Color(0xFF050505)
+private val ClawSurface = Color(0xFF0D0D0D)
+private val ClawCard = Color(0xFF151515)
+private val ClawCardAlt = Color(0xFF202020)
+private val ClawBorder = Color(0xFF292929)
+private val ClawText = Color(0xFFF7F7F4)
+private val ClawSubtext = Color(0xFFA0A0A0)
 
 // ── Permission Guide ──────────────────────────────────────────────────────────
 @Composable
@@ -41,7 +40,7 @@ fun PermissionGuideScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(ClawSurface, ClawDark)))
+            .background(ClawDark)
             .statusBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
@@ -57,7 +56,7 @@ fun PermissionGuideScreen(
                 .border(1.5.dp, ClawOrange.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text("🦀", fontSize = 38.sp)
+            ClawSymbolIcon("profile", tint = ClawOrange, modifier = Modifier.size(42.dp))
         }
 
         Spacer(Modifier.height(20.dp))
@@ -150,7 +149,7 @@ private fun PermissionCard(
                 .border(1.dp, ClawBorder, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(item.icon, fontSize = 18.sp)
+            ClawSymbolIcon(item.icon, tint = ClawText, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -163,12 +162,13 @@ private fun PermissionCard(
             Button(
                 onClick = onAction,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (item.isBlocking) ClawOrange else ClawOrange.copy(alpha = 0.8f),
+                    containerColor = Color.White,
+                    contentColor = Color(0xFF101010),
                 ),
                 shape = RoundedCornerShape(8.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Text("Grant", color = Color.White, fontSize = 12.sp)
+                Text("Grant", fontSize = 12.sp)
             }
         } else {
             OutlinedButton(

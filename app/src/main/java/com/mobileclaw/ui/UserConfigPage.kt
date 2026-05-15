@@ -114,7 +114,7 @@ fun UserConfigPage(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text("⚙️", fontSize = 40.sp)
+                ClawIconTile("settings", size = 62.dp, iconSize = 32.dp, tint = c.text, background = c.cardAlt, border = c.border)
                 Spacer(Modifier.height(12.dp))
                 Text(str(R.string.user_config_empty), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))

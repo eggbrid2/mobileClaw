@@ -121,7 +121,7 @@ fun ConsolePage(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Text(
                     text = str(R.string.console_4ecc72),
@@ -136,10 +136,10 @@ fun ConsolePage(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
-                    lineHeight = 22.sp,
+                    lineHeight = 18.sp,
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // URL card
                 Row(
@@ -156,7 +156,7 @@ fun ConsolePage(
                             copyToClipboard(context, serverUrl)
                             copied = true
                         }
-                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -164,7 +164,7 @@ fun ConsolePage(
                         text = serverUrl,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
+                        fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                     )
@@ -201,7 +201,7 @@ fun ConsolePage(
                                 if (isRunning)
                                     MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha)
                                 else
-                                    Color(0xFF4CAF50)
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
                             ),
                     )
                     Text(

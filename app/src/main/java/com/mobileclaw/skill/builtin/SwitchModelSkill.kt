@@ -32,12 +32,17 @@ class SwitchModelSkill(private val config: AgentConfig) : Skill {
             ?: return SkillResult(false, "model parameter is required")
         val reason = params["reason"] as? String ?: ""
         val snap = config.snapshot()
+        if (model.startsWith("local:")) {
+            config.update(snap.copy(localModelEnabled = true, localModelId = model.removePrefix("local:")))
+            val msg = if (reason.isNotBlank()) "Switched to $model ($reason)" else "Switched to $model"
+            return SkillResult(true, msg)
+        }
         val updatedGateways = snap.gateways.map {
             if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
                 it.copy(model = model)
             else it
         }
-        config.update(snap.copy(gateways = updatedGateways))
+        config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false))
         val msg = if (reason.isNotBlank()) "Switched to $model ($reason)" else "Switched to $model"
         return SkillResult(true, msg)
     }

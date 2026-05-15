@@ -72,7 +72,7 @@ User goal:
 $goal
 
 Recent chat context:
-${priorContext.take(1200)}
+${priorContext.take(2400)}
 
 Output format:
 Summary: ...
@@ -84,6 +84,9 @@ Success criteria: ...
 
 Rules:
 - Keep 3-6 steps.
+- Generate the todo steps from BOTH the current user goal and the recent chat context, especially the last 10 chat records if provided.
+- Treat short follow-ups like "continue", "change it", "optimize", "not this", or "do the previous one" as references to the recent context, not standalone tasks.
+- Align success criteria with what the user has been trying to achieve across the recent context, not only the literal latest sentence.
 - For PHONE_CONTROL, plan in observe -> act -> verify terms.
 - For WEB_RESEARCH, plan source gathering then synthesis.
 - For APP_BUILD/FILE_CREATE, plan artifact creation and verification.
@@ -190,13 +193,14 @@ object TaskToolPolicy {
 
     fun prompt(taskType: TaskType): String = when (taskType) {
         TaskType.PHONE_CONTROL -> """
-## Current Task Mode: PHONE_CONTROL
-- Your context is the current phone task only. Use screen observations and previous actions from this task.
-- Allowed pattern: observe -> act -> verify -> continue/done.
+## Current Task Mode: VLM_PHONE_CONTROL
+- This is a pure phone-operation task mode. Treat the current phone screen as your only operating environment.
+- Work as: observe -> act -> verify -> continue/done. Do not drift into UI building, web research, or generic chat unless the user explicitly changes the task.
 - First inspect with `see_screen` unless the latest step already observed the screen.
-- Use `screenshot` only as a fallback when XML/accessibility content is empty, marker detection is unusable, or a raw visual check is needed.
-- After an observation, you must take a concrete action (`tap`, `scroll`, `input_text`, `long_click`, `navigate`) or finish/block. Do not observe twice in a row.
-- Prefer foreground phone control. Use coordinates from `see_screen` directly.
+- The screenshot coordinates returned by `see_screen`/`screenshot` are image coordinates. Use them directly with `tap`, `scroll`, and `long_click`; those tools map image pixels to real device pixels.
+- Use `screenshot` only as a fallback when marker detection is unusable or a raw visual check is needed.
+- After an observation, take a concrete action (`tap`, `scroll`, `input_text`, `long_click`, `navigate`) or finish/block. Do not observe twice in a row.
+- After launching or navigating, use the foreground package/activity returned by tool results, or call `phone_status`, to verify whether the target app is open.
 """.trimIndent()
         TaskType.WEB_RESEARCH -> """
 ## Current Task Mode: WEB_RESEARCH
@@ -246,7 +250,7 @@ object TaskToolPolicy {
     private fun allowedSkillIds(taskType: TaskType): List<String> = when (taskType) {
         TaskType.PHONE_CONTROL -> listOf(
             "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate", "list_apps",
-            "check_permissions", "vpn_control",
+            "phone_status", "check_permissions", "vpn_control",
         )
         TaskType.WEB_RESEARCH -> listOf("web_search", "fetch_url", "web_browse", "web_content", "web_js", "vpn_control")
         TaskType.FILE_CREATE -> listOf("generate_document", "create_file", "read_file", "list_files", "create_html")
@@ -258,7 +262,7 @@ object TaskToolPolicy {
         TaskType.CHAT -> listOf("sticker_bqb")
         TaskType.GENERAL -> listOf(
             "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate",
-            "web_search", "fetch_url", "create_file", "read_file", "list_files",
+            "phone_status", "web_search", "fetch_url", "create_file", "read_file", "list_files",
             "memory", "user_profile", "vpn_control", "role_manager", "switch_role", "sticker_bqb",
         )
     }

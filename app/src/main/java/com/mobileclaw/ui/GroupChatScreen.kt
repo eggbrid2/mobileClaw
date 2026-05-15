@@ -120,13 +120,13 @@ import com.mobileclaw.str
 // ── Color palette assigned to agents by index in group ───────────────────────
 
 private val AGENT_COLORS = listOf(
-    Color(0xFF6366F1), // indigo
-    Color(0xFFEC4899), // pink
-    Color(0xFFF59E0B), // amber
-    Color(0xFF10B981), // emerald
-    Color(0xFF8B5CF6), // violet
-    Color(0xFF3B82F6), // blue
-    Color(0xFFEF4444), // red
+    Color(0xFF111111),
+    Color(0xFF2A2A2A),
+    Color(0xFF505050),
+    Color(0xFF56D6BA),
+    Color(0xFF8A8A8A),
+    Color(0xFFC7F43A),
+    Color(0xFF202020),
 )
 
 private fun agentColor(index: Int) = AGENT_COLORS[index % AGENT_COLORS.size]
@@ -278,7 +278,7 @@ fun GroupChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -287,14 +287,14 @@ fun GroupChatScreen(
                 Text(
                     group.name,
                     color = c.text,
-                    fontSize = 17.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
 
                 if (isRunning) {
                     IconButton(onClick = onStop) {
-                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color(0xFFEF4444), modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = c.text, modifier = Modifier.size(22.dp))
                     }
                 }
                 GroupMemberIconButton(
@@ -341,7 +341,7 @@ fun GroupChatScreen(
         // ── Message list ─────────────────────────────────────────────────────
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+            modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             item { Spacer(Modifier.height(8.dp)) }
@@ -377,7 +377,7 @@ fun GroupChatScreen(
                     onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                     c = c,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(5.dp))
             }
 
             item { Spacer(Modifier.height(4.dp)) }
@@ -410,8 +410,8 @@ fun GroupChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(c.surface)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 pendingAttachments.forEachIndexed { index, attachment ->
                     GroupAttachmentChip(attachment, c) {
@@ -424,32 +424,32 @@ fun GroupChatScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(c.surface)
-                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .padding(horizontal = 8.dp, vertical = 7.dp)
                 .navigationBarsPadding()
                 .imePadding(),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(c.cardAlt)
                     .border(0.5.dp, c.border, CircleShape)
                     .clickable { showStickerSearch = true },
                 contentAlignment = Alignment.Center,
             ) {
-                GroupStickerIcon(tint = c.text, modifier = Modifier.size(22.dp))
+                GroupStickerIcon(tint = c.text, modifier = Modifier.size(20.dp))
             }
 
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .defaultMinSize(minHeight = 40.dp)
+                    .defaultMinSize(minHeight = 38.dp)
                     .clip(RoundedCornerShape(18.dp))
                     .background(c.cardAlt)
                     .border(1.dp, c.border, RoundedCornerShape(18.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             ) {
                 BasicTextField(
                     value = input,
@@ -458,13 +458,13 @@ fun GroupChatScreen(
                         // Auto-show mention picker when user types @
                         if (newVal.text.endsWith("@")) showMentionPicker = true
                     },
-                    textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 14.sp),
+                    textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 13.sp, lineHeight = 18.sp),
                     cursorBrush = SolidColor(c.accent),
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
                         if (input.text.isEmpty()) {
-                            Text(str(R.string.group_chat_hint), color = c.subtext, fontSize = 14.sp)
+                            Text(str(R.string.group_chat_hint), color = c.subtext, fontSize = 13.sp)
                         }
                         inner()
                     },
@@ -474,7 +474,7 @@ fun GroupChatScreen(
             // Send button
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(if (input.text.isNotBlank() || pendingAttachments.isNotEmpty()) c.text else if (showPlusPanel) c.text else c.cardAlt)
                     .border(0.5.dp, if (input.text.isNotBlank() || pendingAttachments.isNotEmpty() || showPlusPanel) Color.Transparent else c.border, CircleShape)
@@ -498,7 +498,7 @@ fun GroupChatScreen(
                         else -> "+"
                     },
                     color = if (input.text.isNotBlank() || pendingAttachments.isNotEmpty() || showPlusPanel) c.bg else c.text,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Light,
                 )
             }
@@ -509,9 +509,9 @@ fun GroupChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(c.surface)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 GroupInputCapabilityTile("sticker", str(R.string.sticker_button)) { showStickerSearch = true }
                 GroupInputCapabilityTile("DOC", str(R.string.chat_325369)) { filePicker.launch("*/*") }
@@ -551,13 +551,13 @@ fun GroupChatScreen(
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(220.dp)
+                    .width(212.dp)
                     .background(c.surface)
                     .statusBarsPadding()
                     .navigationBarsPadding(),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -643,20 +643,20 @@ private fun MemberDrawerRow(
     c: ClawColors,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        GradientAvatar(emoji = avatar, size = 36.dp, color = color, fontSize = 18.sp)
+        GradientAvatar(emoji = avatar, size = 32.dp, color = color, fontSize = 16.sp)
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(name, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(name, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 if (isWorking) Text(str(R.string.group_status_working), color = color.copy(alpha = 0.72f), fontSize = 10.sp)
                 else if (isTyping) Text(str(R.string.group_status_typing), color = color.copy(alpha = 0.6f), fontSize = 10.sp)
             }
             if (description.isNotBlank()) {
-                Text(description, color = c.subtext, fontSize = 11.sp, maxLines = 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, lineHeight = 15.sp)
+                Text(description, color = c.subtext, fontSize = 10.sp, maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, lineHeight = 14.sp)
             }
         }
     }
@@ -735,13 +735,13 @@ private fun GroupMessageBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         if (!isUser) {
-            GradientAvatar(emoji = message.senderAvatar, size = 32.dp, color = accentColor)
+            GradientAvatar(emoji = message.senderAvatar, size = 30.dp, color = accentColor)
             Spacer(Modifier.size(6.dp))
         }
 
         Column(
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 324.dp),
+            modifier = Modifier.widthIn(max = 318.dp),
         ) {
             // Sender name + time
             Row(
@@ -751,12 +751,12 @@ private fun GroupMessageBubble(
                 Text(
                     message.senderName,
                     color = visual.accentColor,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(time, color = c.subtext.copy(alpha = 0.5f), fontSize = 10.sp)
             }
-            Spacer(Modifier.height(3.dp))
+            Spacer(Modifier.height(2.dp))
 
             if (mediaOnly) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
@@ -975,7 +975,7 @@ private fun GroupMessageBubble(
 
         if (isUser) {
             Spacer(Modifier.size(6.dp))
-            GradientAvatar(emoji = "👤", size = 32.dp, color = c.green)
+            GradientAvatar(emoji = "👤", size = 30.dp, color = c.green)
         }
     }
 }
@@ -1248,10 +1248,10 @@ private fun resolveGroupBubbleVisual(
             fontFamily = null,
             fontWeight = FontWeight.Normal,
             textAnimation = "none",
-            fontSizeSp = 14,
-            lineHeightSp = 20,
-            paddingHorizontalDp = 12,
-            paddingVerticalDp = 8,
+            fontSizeSp = 13,
+            lineHeightSp = 18,
+            paddingHorizontalDp = 11,
+            paddingVerticalDp = 7,
             shadow = "none",
             shadowColor = Color.Transparent,
             shadowAlpha = 0f,
@@ -1292,7 +1292,7 @@ private fun resolveGroupBubbleVisual(
         "happy", "excited" -> Color(0xFFC7F43A)
         "sad" -> Color(0xFF8A8A8A)
         "angry" -> Color(0xFF111111)
-        "shy", "love" -> Color(0xFFE75A7C)
+        "shy", "love" -> Color(0xFF8A8A8A)
         "cool" -> Color(0xFF56D6BA)
         "sleepy" -> Color(0xFF9CA3AF)
         else -> accent
@@ -1379,10 +1379,10 @@ private fun resolveGroupBubbleVisual(
             else -> FontWeight.Normal
         },
         textAnimation = style?.textAnimation?.lowercase().orEmpty().ifBlank { "none" },
-        fontSizeSp = (style?.fontSizeSp ?: 14).coerceIn(12, 20),
-        lineHeightSp = (style?.lineHeightSp ?: 20).coerceIn(16, 28),
-        paddingHorizontalDp = (style?.paddingHorizontalDp ?: 12).coerceIn(8, 22),
-        paddingVerticalDp = (style?.paddingVerticalDp ?: 8).coerceIn(6, 18),
+        fontSizeSp = (style?.fontSizeSp ?: 13).coerceIn(12, 20),
+        lineHeightSp = (style?.lineHeightSp ?: 18).coerceIn(16, 28),
+        paddingHorizontalDp = (style?.paddingHorizontalDp ?: 11).coerceIn(8, 22),
+        paddingVerticalDp = (style?.paddingVerticalDp ?: 7).coerceIn(6, 18),
         shadow = effectiveShadow,
         shadowColor = style?.shadowColor?.toComposeColorOrNull() ?: if (effectiveShadow == "glow") emotionAccent else Color.Black,
         shadowAlpha = style?.shadowAlpha?.takeIf { it >= 0f }?.coerceIn(0f, 0.8f) ?: when (effectiveShadow) {
@@ -1800,7 +1800,7 @@ private fun GroupAttachmentChip(
             .background(c.cardAlt)
             .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .clickable { onRemove() }
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -1818,28 +1818,28 @@ private fun GroupInputCapabilityTile(
     val c = LocalClawColors.current
     Column(
         modifier = Modifier
-            .width(68.dp)
+            .width(62.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+            .padding(vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(c.cardAlt)
-                .border(0.5.dp, c.border, RoundedCornerShape(16.dp)),
+                .border(0.5.dp, c.border, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center,
         ) {
             if (mark == "sticker") {
-                GroupStickerIcon(tint = c.text, modifier = Modifier.size(24.dp))
+                GroupStickerIcon(tint = c.text, modifier = Modifier.size(21.dp))
             } else {
                 Text(mark, color = c.text, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
-        Text(label, color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(label, color = c.subtext, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -1971,7 +1971,7 @@ private fun GroupAttachmentTextCard(
             .background(c.cardAlt)
             .border(1.dp, c.border, RoundedCornerShape(8.dp))
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 9.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2000,11 +2000,11 @@ private fun GroupFileAttachmentCard(
             .background(c.cardAlt)
             .border(1.dp, c.border, RoundedCornerShape(8.dp))
             .clickable { openGroupFileAttachment(context, attachment) }
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        Text(groupMimeEmoji(attachment.mimeType), fontSize = 17.sp)
+        Text(groupMimeEmoji(attachment.mimeType), fontSize = 15.sp)
         Column(modifier = Modifier.weight(1f)) {
             Text(attachment.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text("${groupFormatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}", color = c.subtext, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -2070,8 +2070,8 @@ private fun GroupFileListCard(
         Text(
             str(R.string.group_attachment_file_list, attachment.files.size),
             color = c.subtext,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
         )
         attachment.files.take(8).forEach { entry ->
             val file = SkillAttachment.FileData(entry.path, entry.name, entry.mimeType, entry.sizeBytes)
@@ -2079,7 +2079,7 @@ private fun GroupFileListCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { openGroupFileAttachment(context, file) }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 9.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -2130,9 +2130,9 @@ private fun GroupDialogButton(text: String, onClick: () -> Unit) {
             .background(Color.White.copy(alpha = 0.15f))
             .border(0.5.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Text(text, fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
+        Text(text, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -30,59 +30,63 @@ data class ClawColors(
 )
 
 val DefaultAccent = Color(0xFFC7F43A)
+private val TechBlueAccent = Color(0xFF2563EB)
+
+private fun isMinimalAiAccent(accent: Color): Boolean =
+    accent == DefaultAccent || accent == Color(0xFF56D6BA)
 
 fun darkClawColors(accent: Color = DefaultAccent) = ClawColors(
-    bg = Color(0xFF050505),
-    surface = Color(0xFF0D0D0D),
-    card = Color(0xFF151515),
-    cardAlt = Color(0xFF202020),
-    border = Color(0xFF292929),
-    borderActive = Color(0xFF424242),
+    bg = if (isMinimalAiAccent(accent)) Color(0xFF050505) else Color(0xFF070B1A),
+    surface = if (isMinimalAiAccent(accent)) Color(0xFF0D0D0D) else Color(0xFF0F172A),
+    card = if (isMinimalAiAccent(accent)) Color(0xFF151515) else Color(0xFF111C33),
+    cardAlt = if (isMinimalAiAccent(accent)) Color(0xFF202020) else Color(0xFF16233F),
+    border = if (isMinimalAiAccent(accent)) Color(0xFF292929) else Color(0xFF263654),
+    borderActive = if (isMinimalAiAccent(accent)) Color(0xFF424242) else accent.copy(alpha = 0.62f),
     text = Color(0xFFF7F7F4),
-    subtext = Color(0xFFA0A0A0),
+    subtext = if (isMinimalAiAccent(accent)) Color(0xFFA0A0A0) else Color(0xFFA8B3CF),
     accent = accent,
     green = Color(0xFF56D6BA),
     red = Color(0xFFFF6B6B),
-    blue = Color(0xFFB7B7B7),
-    purple = Color(0xFFD7D7D7),
+    blue = if (isMinimalAiAccent(accent)) Color(0xFFB7B7B7) else Color(0xFF38BDF8),
+    purple = if (isMinimalAiAccent(accent)) Color(0xFFD7D7D7) else Color(0xFFA78BFA),
     isDark = true,
 )
 
 fun lightClawColors(accent: Color = DefaultAccent) = ClawColors(
-    bg = Color(0xFFF6F6F4),
+    bg = if (isMinimalAiAccent(accent)) Color(0xFFF6F6F4) else Color(0xFFF4F7FF),
     surface = Color(0xFFFFFFFF),
     card = Color(0xFFFFFFFF),
-    cardAlt = Color(0xFFF0F0EE),
-    border = Color(0xFFE5E5E1),
-    borderActive = Color(0xFF1A1A1A),
+    cardAlt = if (isMinimalAiAccent(accent)) Color(0xFFF0F0EE) else Color(0xFFEAF1FF),
+    border = if (isMinimalAiAccent(accent)) Color(0xFFE5E5E1) else Color(0xFFD8E3F8),
+    borderActive = if (isMinimalAiAccent(accent)) Color(0xFF1A1A1A) else accent.copy(alpha = 0.62f),
     text = Color(0xFF101010),
-    subtext = Color(0xFF858585),
+    subtext = if (isMinimalAiAccent(accent)) Color(0xFF858585) else Color(0xFF64708A),
     accent = accent,
     green = Color(0xFF1D9B7F),
     red = Color(0xFFCC3A3A),
-    blue = Color(0xFF5F5F5F),
-    purple = Color(0xFF6C6C6C),
+    blue = if (isMinimalAiAccent(accent)) Color(0xFF5F5F5F) else Color(0xFF2563EB),
+    purple = if (isMinimalAiAccent(accent)) Color(0xFF6C6C6C) else Color(0xFF7C3AED),
     isDark = false,
 )
 
 val LocalClawColors = staticCompositionLocalOf { darkClawColors() }
 
 private val ClawTypography = Typography(
-    displayLarge  = TextStyle(fontWeight = FontWeight.Bold,     fontSize = 48.sp, lineHeight = 56.sp),
-    displayMedium = TextStyle(fontWeight = FontWeight.Bold,     fontSize = 36.sp, lineHeight = 44.sp),
-    displaySmall  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 36.sp),
-    headlineLarge  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
-    headlineMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
-    headlineSmall  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 26.sp),
-    titleLarge  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp, letterSpacing = 0.sp),
-    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = 0.sp),
-    titleSmall  = TextStyle(fontWeight = FontWeight.Medium,   fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp),
-    bodyLarge   = TextStyle(fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 25.sp, letterSpacing = 0.sp),
-    bodyMedium  = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 22.sp, letterSpacing = 0.sp),
-    bodySmall   = TextStyle(fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
-    labelLarge  = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
-    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
-    labelSmall  = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.sp),
+    displayLarge  = TextStyle(fontWeight = FontWeight.Bold,     fontSize = 42.sp, lineHeight = 48.sp),
+    displayMedium = TextStyle(fontWeight = FontWeight.Bold,     fontSize = 32.sp, lineHeight = 38.sp),
+    displaySmall  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 30.sp),
+    headlineLarge  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 21.sp, lineHeight = 27.sp),
+    headlineMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 19.sp, lineHeight = 24.sp),
+    headlineSmall  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 22.sp),
+    titleLarge  = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 21.sp, letterSpacing = 0.sp),
+    titleMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 19.sp, letterSpacing = 0.sp),
+    titleSmall  = TextStyle(fontWeight = FontWeight.Medium,   fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.sp),
+    bodyLarge   = TextStyle(fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.sp),
+    bodyMedium  = TextStyle(fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 19.sp, letterSpacing = 0.sp),
+    bodySmall   = TextStyle(fontWeight = FontWeight.Normal, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
+    labelLarge  = TextStyle(fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.sp),
+    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 0.sp),
+    labelSmall  = TextStyle(fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 0.sp),
 )
 
 /** Combined dark/light + accent preset — shown as a single selectable card in settings. */
@@ -97,11 +101,16 @@ data class ThemePreset(
 val ThemePresets = listOf(
     ThemePreset("AI Night", true, 0xFFC7F43AL, 0xFF050505L, 0xFFC7F43AL),
     ThemePreset("AI Day", false, 0xFFC7F43AL, 0xFFF6F6F4L, 0xFF101010L),
+    ThemePreset("Tech Night", true, 0xFF2563EBL, 0xFF070B1AL, 0xFF38BDF8L),
+    ThemePreset("Tech Day", false, 0xFF2563EBL, 0xFFF4F7FFL, 0xFF2563EBL),
 )
 
 val AccentPresets = listOf(
     0xFFC7F43AL to "AI",
     0xFF56D6BAL to "Mint",
+    0xFF2563EBL to "Tech Blue",
+    0xFF7C3AEDL to "Violet",
+    0xFF06B6D4L to "Cyan",
 )
 
 @Composable

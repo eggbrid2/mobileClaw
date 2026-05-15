@@ -297,43 +297,43 @@ private fun MiniAppInfoPanel(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
+                .padding(horizontal = 18.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(miniApp?.icon ?: "📱", fontSize = 52.sp)
-            Spacer(Modifier.height(8.dp))
+            ClawIconTile(miniApp?.icon ?: "apps", size = 58.dp, iconSize = 30.dp, tint = c.text, background = c.cardAlt, border = c.border)
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = miniApp?.title ?: str(R.string.drawer_apps),
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = c.text,
             )
             if (!miniApp?.description.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(5.dp))
                 Text(
                     text = miniApp!!.description,
                     fontSize = 13.sp,
                     color = c.subtext,
-                    lineHeight = 19.sp,
+                    lineHeight = 17.sp,
                     modifier = Modifier.padding(horizontal = 8.dp),
                 )
             }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp), color = c.border, thickness = 0.5.dp)
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = c.border, thickness = 0.5.dp)
 
         // Meta info
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (miniApp?.hasPython == true) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🐍", fontSize = 13.sp)
+                    ClawSymbolIcon("python", tint = c.subtext, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(str(R.string.activity_ae1a83), fontSize = 12.sp, color = c.subtext)
                 }
             }
             if (dateStr.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🕐", fontSize = 13.sp)
+                    ClawSymbolIcon("time", tint = c.subtext, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(str(R.string.created_at, dateStr), fontSize = 12.sp, color = c.subtext)
                 }

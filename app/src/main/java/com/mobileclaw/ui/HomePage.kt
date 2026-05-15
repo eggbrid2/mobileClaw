@@ -90,54 +90,54 @@ import androidx.compose.ui.res.stringResource
 import com.mobileclaw.str
 
 sealed class LauncherItem {
-    data class Feature(val emoji: String, val label: String, val page: AppPage) : LauncherItem()
+    data class Feature(val symbol: String, val label: String, val page: AppPage) : LauncherItem()
     data class App(val id: String, val icon: String, val title: String) : LauncherItem()
 }
 
 private val DEFAULT_FEATURES = listOf(
-    LauncherItem.Feature("💬", str(R.string.home_859362),    AppPage.CHAT),
-    LauncherItem.Feature("🧬", str(R.string.home_c478b1),    AppPage.PROFILE),
-    LauncherItem.Feature("👥", str(R.string.home_df9abd),    AppPage.GROUPS),
-    LauncherItem.Feature("🎭", str(R.string.drawer_roles),    AppPage.ROLES),
-    LauncherItem.Feature("📱", str(R.string.drawer_apps),    AppPage.APPS),
-    LauncherItem.Feature("🛠️", str(R.string.drawer_skills),   AppPage.SKILLS),
-    LauncherItem.Feature("🏪", str(R.string.home_552cac),   AppPage.SKILL_MARKET),
-    LauncherItem.Feature("📄", str(R.string.home_2d20d5), AppPage.AI_PAGES),
-    LauncherItem.Feature("⚙️", str(R.string.drawer_settings),   AppPage.SETTINGS),
-    LauncherItem.Feature("🖥️", str(R.string.drawer_console), AppPage.CONSOLE),
-    LauncherItem.Feature("👤", str(R.string.group_chat_1fd02a),    AppPage.USER_CONFIG),
-    LauncherItem.Feature("🔒", "VPN",    AppPage.VPN),
+    LauncherItem.Feature("chat", str(R.string.home_859362),    AppPage.CHAT),
+    LauncherItem.Feature("profile", str(R.string.home_c478b1),    AppPage.PROFILE),
+    LauncherItem.Feature("group", str(R.string.home_df9abd),    AppPage.GROUPS),
+    LauncherItem.Feature("roles", str(R.string.drawer_roles),    AppPage.ROLES),
+    LauncherItem.Feature("apps", str(R.string.drawer_apps),    AppPage.APPS),
+    LauncherItem.Feature("skills", str(R.string.drawer_skills),   AppPage.SKILLS),
+    LauncherItem.Feature("market", str(R.string.home_552cac),   AppPage.SKILL_MARKET),
+    LauncherItem.Feature("page", str(R.string.home_2d20d5), AppPage.AI_PAGES),
+    LauncherItem.Feature("settings", str(R.string.drawer_settings),   AppPage.SETTINGS),
+    LauncherItem.Feature("console", str(R.string.drawer_console), AppPage.CONSOLE),
+    LauncherItem.Feature("user", str(R.string.group_chat_1fd02a),    AppPage.USER_CONFIG),
+    LauncherItem.Feature("vpn", "VPN",    AppPage.VPN),
 )
 
 private val DOCK_FEATURES = listOf(
-    LauncherItem.Feature("💬", str(R.string.home_859362), AppPage.CHAT),
-    LauncherItem.Feature("👥", str(R.string.home_df9abd), AppPage.GROUPS),
-    LauncherItem.Feature("🎭", str(R.string.drawer_roles), AppPage.ROLES),
-    LauncherItem.Feature("🛠️", str(R.string.drawer_skills), AppPage.SKILLS),
+    LauncherItem.Feature("chat", str(R.string.home_859362), AppPage.CHAT),
+    LauncherItem.Feature("group", str(R.string.home_df9abd), AppPage.GROUPS),
+    LauncherItem.Feature("roles", str(R.string.drawer_roles), AppPage.ROLES),
+    LauncherItem.Feature("skills", str(R.string.drawer_skills), AppPage.SKILLS),
 )
 
 private val ICON_GRADIENTS = mapOf(
-    AppPage.CHAT        to (Color(0xFF34AAFF) to Color(0xFF0055CC)),
-    AppPage.PROFILE     to (Color(0xFFBD5FE8) to Color(0xFF7928CA)),
-    AppPage.GROUPS      to (Color(0xFF4CD964) to Color(0xFF1A8C32)),
-    AppPage.ROLES       to (Color(0xFFFF6B6B) to Color(0xFFCC1010)),
-    AppPage.APPS        to (Color(0xFF5AC8FA) to Color(0xFF0080AA)),
-    AppPage.SKILLS      to (Color(0xFFFFB240) to Color(0xFFD96000)),
-    AppPage.SETTINGS    to (Color(0xFF98989D) to Color(0xFF3A3A3C)),
-    AppPage.CONSOLE     to (Color(0xFF6E6AC8) to Color(0xFF3A3790)),
-    AppPage.USER_CONFIG    to (Color(0xFFFF375F) to Color(0xFFCC0030)),
-    AppPage.SKILL_MARKET   to (Color(0xFF00C896) to Color(0xFF007A5A)),
-    AppPage.AI_PAGES       to (Color(0xFFFF9F40) to Color(0xFFE05C00)),
-    AppPage.VPN            to (Color(0xFF34D399) to Color(0xFF059669)),
+    AppPage.CHAT        to (Color(0xFF2563EB) to Color(0xFF06B6D4)),
+    AppPage.PROFILE     to (Color(0xFF7C3AED) to Color(0xFFEC4899)),
+    AppPage.GROUPS      to (Color(0xFF0EA5E9) to Color(0xFF22C55E)),
+    AppPage.ROLES       to (Color(0xFF8B5CF6) to Color(0xFF3B82F6)),
+    AppPage.APPS        to (Color(0xFFF97316) to Color(0xFFFACC15)),
+    AppPage.SKILLS      to (Color(0xFF14B8A6) to Color(0xFF84CC16)),
+    AppPage.SETTINGS    to (Color(0xFF64748B) to Color(0xFF334155)),
+    AppPage.CONSOLE     to (Color(0xFF10B981) to Color(0xFF0F766E)),
+    AppPage.USER_CONFIG    to (Color(0xFF06B6D4) to Color(0xFF6366F1)),
+    AppPage.SKILL_MARKET   to (Color(0xFFEC4899) to Color(0xFFF97316)),
+    AppPage.AI_PAGES       to (Color(0xFF6366F1) to Color(0xFF22D3EE)),
+    AppPage.VPN            to (Color(0xFF38BDF8) to Color(0xFF2563EB)),
 )
 
 private val APP_ICON_PALETTE = listOf(
-    Color(0xFF34AAFF) to Color(0xFF0055CC),
-    Color(0xFFBD5FE8) to Color(0xFF7928CA),
-    Color(0xFF4CD964) to Color(0xFF1A8C32),
-    Color(0xFFFF6B6B) to Color(0xFFCC1010),
-    Color(0xFF5AC8FA) to Color(0xFF0080AA),
-    Color(0xFFFFB240) to Color(0xFFD96000),
+    Color(0xFF2563EB) to Color(0xFF7C3AED),
+    Color(0xFF06B6D4) to Color(0xFF22C55E),
+    Color(0xFFF97316) to Color(0xFFEC4899),
+    Color(0xFF8B5CF6) to Color(0xFF22D3EE),
+    Color(0xFF10B981) to Color(0xFF84CC16),
+    Color(0xFFF43F5E) to Color(0xFFF59E0B),
 )
 
 private fun launcherId(item: LauncherItem) = when (item) {
@@ -301,7 +301,7 @@ fun HomePage(
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1B2A)))
+            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF050505)))
         }
 
         // Main icon grid + dock
@@ -402,7 +402,7 @@ fun HomePage(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xFF007AFF))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFF2563EB), Color(0xFF06B6D4))))
                     .clickable { isEditMode = false }
                     .padding(horizontal = 20.dp, vertical = 9.dp),
             ) {
@@ -441,8 +441,8 @@ private fun LauncherIconView(
     onTap: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val emoji = when (item) {
-        is LauncherItem.Feature -> item.emoji
+    val symbol = when (item) {
+        is LauncherItem.Feature -> item.symbol
         is LauncherItem.App -> item.icon
     }
     val label = when (item) {
@@ -454,7 +454,7 @@ private fun LauncherIconView(
     val iconBrush = remember(item) {
         when (item) {
             is LauncherItem.Feature -> {
-                val (c1, c2) = ICON_GRADIENTS[item.page] ?: (Color(0xFF607D8B) to Color(0xFF37474F))
+                val (c1, c2) = ICON_GRADIENTS[item.page] ?: (Color(0xFF111111) to Color(0xFF303030))
                 Brush.verticalGradient(listOf(c1, c2))
             }
             is LauncherItem.App -> {
@@ -479,7 +479,15 @@ private fun LauncherIconView(
                     .background(brush = iconBrush),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(emoji, fontSize = 28.sp)
+                Icon(
+                    imageVector = when (item) {
+                        is LauncherItem.Feature -> clawIconForPage(item.page)
+                        is LauncherItem.App -> clawIconForSymbol(symbol)
+                    },
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
             }
             if (isEditMode && isApp) {
                 Box(
@@ -533,7 +541,15 @@ private fun BottomDock(onNavigate: (AppPage) -> Unit) {
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(26.dp))
-                .background(Color.Black.copy(alpha = 0.32f))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF0F172A).copy(alpha = 0.58f),
+                            Color(0xFF1D4ED8).copy(alpha = 0.30f),
+                            Color(0xFF0891B2).copy(alpha = 0.24f),
+                        )
+                    )
+                )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -541,7 +557,7 @@ private fun BottomDock(onNavigate: (AppPage) -> Unit) {
             DOCK_FEATURES.forEach { item ->
                 val dockBrush = ICON_GRADIENTS[item.page]?.let { (c1, c2) ->
                     Brush.verticalGradient(listOf(c1, c2))
-                } ?: Brush.verticalGradient(listOf(Color(0xFF607D8B), Color(0xFF37474F)))
+                } ?: Brush.verticalGradient(listOf(Color(0xFF111111), Color(0xFF303030)))
                 Column(
                     modifier = Modifier
                         .width(70.dp)
@@ -556,7 +572,12 @@ private fun BottomDock(onNavigate: (AppPage) -> Unit) {
                             .background(brush = dockBrush),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(item.emoji, fontSize = 30.sp)
+                        Icon(
+                            imageVector = clawIconForPage(item.page),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(30.dp),
+                        )
                     }
                     Spacer(Modifier.height(3.dp))
                     Text(
@@ -593,7 +614,15 @@ private fun DesktopEditMenu(onWallpaper: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
-                .background(Color.Black.copy(alpha = 0.65f))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF0F172A).copy(alpha = 0.80f),
+                            Color(0xFF1E3A8A).copy(alpha = 0.62f),
+                            Color(0xFF164E63).copy(alpha = 0.58f),
+                        )
+                    )
+                )
                 .padding(vertical = 14.dp, horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
@@ -618,7 +647,14 @@ private fun EditMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) 
             modifier = Modifier
                 .size(52.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.18f)),
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            Color(0xFF38BDF8).copy(alpha = 0.34f),
+                            Color.White.copy(alpha = 0.16f),
+                        )
+                    )
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

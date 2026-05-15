@@ -2,6 +2,8 @@ package com.mobileclaw.ui
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -10,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +43,7 @@ import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.config.GatewayConfig
 import com.mobileclaw.config.CacheCategory
 import com.mobileclaw.config.CacheCleaner
+import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.perception.VirtualDisplayManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -61,7 +65,7 @@ private val LANGUAGES = listOf(
     "en"   to R.string.lang_en,
 )
 
-private enum class SettingsSub { GATEWAY, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CACHE }
+private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CACHE }
 
 @Composable
 fun SettingsPage(
@@ -74,6 +78,12 @@ fun SettingsPage(
     onOpenHelp: () -> Unit,
     onTestVirtualDisplay: () -> Unit,
     onCheckPrivServer: () -> Unit,
+    localModels: List<LocalModelInfo>,
+    onLocalModelEnabled: (Boolean) -> Unit,
+    onSelectLocalModel: (String) -> Unit,
+    onDownloadLocalModel: (String, String, String) -> Unit,
+    onImportLocalModel: (String, android.net.Uri) -> Unit,
+    onDeleteLocalModel: (String) -> Unit,
 ) {
     val c = LocalClawColors.current
     val snapshot by config.collectAsState(initial = ConfigSnapshot())
@@ -81,13 +91,14 @@ fun SettingsPage(
     var activeGatewayId by remember(snapshot.activeGatewayId) { mutableStateOf(snapshot.activeGatewayId) }
     var language  by remember(snapshot.language) { mutableStateOf(snapshot.language) }
     var darkTheme by remember(snapshot.darkTheme) { mutableStateOf(snapshot.darkTheme) }
-    var accent    by remember(snapshot.accentColor) { mutableStateOf<Long>(0xFFC7F43AL) }
+    var accent    by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
     var uiStyle   by remember(snapshot.uiStyle) { mutableStateOf(snapshot.uiStyle) }
+    var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
 
     val currentSnapshot = {
-        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent, uiStyle = uiStyle)
+        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent, uiStyle = uiStyle, localModelEnabled = localEnabled)
     }
 
     BackHandler {
@@ -103,26 +114,40 @@ fun SettingsPage(
 
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 val isConfigured = activeGateway != null && activeGateway.endpoint.isNotBlank() && activeGateway.apiKey.isNotBlank()
                 val vdRunning = virtualDisplayManager.isRunning
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
-                        emoji = "🔌",
+                        iconKey = "gateway",
                         title = str(R.string.settings_849b48),
                         subtitle = if (gateways.isEmpty()) str(R.string.status_not_configured)
                                    else str(R.string.gateways_status, gateways.size, activeGateway?.name ?: "-"),
                         statusOk = isConfigured,
                         c = c,
                     ) { subPage = SettingsSub.GATEWAY }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    val activeLocal = localModels.firstOrNull { it.id == snapshot.localModelId } ?: localModels.firstOrNull()
+                    SettingsCategoryRow(
+                        iconKey = "model",
+                        title = str(R.string.local_model_title),
+                        subtitle = when {
+                            activeLocal == null -> str(R.string.status_not_configured)
+                            localEnabled && activeLocal.installed -> str(R.string.local_model_enabled_status, activeLocal.name)
+                            activeLocal.installed -> str(R.string.local_model_installed_status, activeLocal.name)
+                            else -> str(R.string.local_model_not_downloaded_status, activeLocal.name)
+                        },
+                        statusOk = activeLocal?.installed == true && localEnabled,
+                        c = c,
+                    ) { subPage = SettingsSub.LOCAL_MODEL }
                 }
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
-                        emoji = "🎨",
+                        iconKey = "appearance",
                         title = str(R.string.settings_ce650e),
                         subtitle = if (darkTheme) str(R.string.settings_theme_night_short) else str(R.string.settings_theme_day_short),
                         statusOk = true,
@@ -135,7 +160,7 @@ fun SettingsPage(
                     val storageManager = remember { com.mobileclaw.config.UserStorageManager(ctx) }
                     val hasFileAccess = remember { storageManager.hasAllFilesAccess() }
                     SettingsCategoryRow(
-                        emoji = "🔐",
+                        iconKey = "permissions",
                         title = str(R.string.settings_permissions),
                         subtitle = if (hasFileAccess) str(R.string.settings_done) else str(R.string.settings_not),
                         statusOk = hasFileAccess,
@@ -143,7 +168,7 @@ fun SettingsPage(
                     ) { subPage = SettingsSub.PERMISSIONS }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
-                        emoji = "🖥️",
+                        iconKey = "desktop",
                         title = str(R.string.section_virtual_display),
                         subtitle = when {
                             vdTestResult?.startsWith("ok:") == true -> str(R.string.settings_ad6b70)
@@ -155,7 +180,7 @@ fun SettingsPage(
                     ) { subPage = SettingsSub.VIRTUAL_DISPLAY }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
-                        emoji = "🧹",
+                        iconKey = "cache",
                         title = str(R.string.cache_title),
                         subtitle = str(R.string.cache_subtitle),
                         statusOk = true,
@@ -164,7 +189,7 @@ fun SettingsPage(
                 }
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
-                        emoji = "❔",
+                        iconKey = "help",
                         title = str(R.string.help_9a2407),
                         subtitle = str(R.string.settings_help_entry_subtitle),
                         statusOk = true,
@@ -189,11 +214,27 @@ fun SettingsPage(
             )
             SettingsSub.APPEARANCE -> AppearanceSubPage(
                 darkTheme = darkTheme, onDarkTheme = { darkTheme = it },
-                accent = accent, onAccent = { accent = 0xFFC7F43AL },
+                accent = accent, onAccent = { accent = it },
                 language = language, onLanguage = { language = it },
                 uiStyle = uiStyle, onUiStyle = { uiStyle = it },
                 c = c, onBack = { subPage = null },
                 onSave = { onSave(currentSnapshot()); subPage = null },
+            )
+            SettingsSub.LOCAL_MODEL -> LocalModelSubPage(
+                models = localModels,
+                enabled = localEnabled,
+                selectedModelId = snapshot.localModelId,
+                c = c,
+                onBack = { subPage = null },
+                onEnabled = {
+                    localEnabled = it
+                    onLocalModelEnabled(it)
+                    onSave(currentSnapshot())
+                },
+                onSelect = onSelectLocalModel,
+                onDownload = onDownloadLocalModel,
+                onImport = onImportLocalModel,
+                onDelete = onDeleteLocalModel,
             )
             SettingsSub.PERMISSIONS -> PermissionsSubPage(c = c, onBack = { subPage = null })
             SettingsSub.VIRTUAL_DISPLAY -> VirtualDisplaySubPage(
@@ -226,7 +267,7 @@ private fun SettingsHubCard(c: ClawColors, content: @Composable ColumnScope.() -
 
 @Composable
 private fun SettingsCategoryRow(
-    emoji: String,
+    iconKey: String,
     title: String,
     subtitle: String,
     statusOk: Boolean,
@@ -234,14 +275,16 @@ private fun SettingsCategoryRow(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(c.cardAlt),
+            Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(c.cardAlt),
             contentAlignment = Alignment.Center,
-        ) { Text(emoji, fontSize = 18.sp) }
-        Spacer(Modifier.width(12.dp))
+        ) {
+            ClawSymbolIcon(iconKey, tint = c.text, modifier = Modifier.size(17.dp))
+        }
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text)
             Text(
@@ -301,8 +344,8 @@ private fun GatewayListSubPage(
             }) { Text(str(R.string.settings_ed7823), color = c.accent, fontSize = 13.sp) }
         }
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             if (list.isEmpty()) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
@@ -348,7 +391,7 @@ private fun GatewayListSubPage(
                                     supportsMultimodal = preset.supportsMultimodal,
                                 )
                             }
-                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -412,7 +455,7 @@ private fun GatewayListItem(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                 if (gateway.supportsMultimodal) {
-                    Text("👁", fontSize = 10.sp)
+                    ClawSymbolIcon("eye", tint = c.subtext, modifier = Modifier.size(12.dp))
                 }
             }
             Text(gateway.endpoint.removePrefix("https://").removePrefix("http://").take(32).ifBlank { str(R.string.status_not_configured) },
@@ -539,6 +582,263 @@ private fun GatewayEditorSubPage(
 }
 
 @Composable
+private fun LocalModelSubPage(
+    models: List<LocalModelInfo>,
+    enabled: Boolean,
+    selectedModelId: String,
+    c: ClawColors,
+    onBack: () -> Unit,
+    onEnabled: (Boolean) -> Unit,
+    onSelect: (String) -> Unit,
+    onDownload: (String, String, String) -> Unit,
+    onImport: (String, android.net.Uri) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    var hfToken by remember { mutableStateOf("") }
+    var customUrl by remember { mutableStateOf("") }
+    var selectedSourceByModel by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var importTarget by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = importTarget
+        if (uri != null && target != null) onImport(target, uri)
+        importTarget = null
+    }
+
+    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+        ClawPageHeader(title = str(R.string.local_model_title), onBack = onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(c.surface)
+                    .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(str(R.string.local_model_enable), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(str(R.string.local_model_enable_desc), color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = c.text,
+                        uncheckedThumbColor = c.subtext,
+                        uncheckedTrackColor = c.border,
+                    ),
+                )
+            }
+
+            ClawPageTextField(
+                value = hfToken,
+                onValueChange = { hfToken = it },
+                label = str(R.string.local_model_hf_token),
+                placeholder = "hf_...",
+                c = c,
+                isSecret = true,
+            )
+            ClawPageTextField(
+                value = customUrl,
+                onValueChange = { customUrl = it },
+                label = str(R.string.local_model_custom_url),
+                placeholder = "https://...",
+                c = c,
+            )
+
+            models.forEach { model ->
+                LocalModelItem(
+                    model = model,
+                    selected = model.id == selectedModelId,
+                    selectedSourceId = selectedSourceByModel[model.id] ?: model.downloadSources.firstOrNull()?.id.orEmpty(),
+                    c = c,
+                    onSelect = { onSelect(model.id) },
+                    onSourceSelect = { sourceId ->
+                        selectedSourceByModel = selectedSourceByModel + (model.id to sourceId)
+                    },
+                    onDownload = { url ->
+                        onDownload(model.id, hfToken.trim(), url.ifBlank { customUrl.trim() })
+                    },
+                    onImport = {
+                        importTarget = model.id
+                        picker.launch(arrayOf("*/*"))
+                    },
+                    onDelete = { onDelete(model.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalModelItem(
+    model: LocalModelInfo,
+    selected: Boolean,
+    selectedSourceId: String,
+    c: ClawColors,
+    onSelect: () -> Unit,
+    onSourceSelect: (String) -> Unit,
+    onDownload: (String) -> Unit,
+    onImport: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.surface)
+            .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ClawIconTile(
+                symbol = "model",
+                size = 38.dp,
+                iconSize = 20.dp,
+                tint = c.text,
+                background = c.cardAlt,
+                border = c.border,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(model.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    LocalModelChip(text = model.family, c = c)
+                    LocalModelChip(text = localModelCapabilities(model), c = c)
+                    LocalModelChip(
+                        text = if (model.supportsChatRuntime) str(R.string.local_model_runtime_chat) else str(R.string.local_model_runtime_package),
+                        c = c,
+                    )
+                }
+                Text(
+                    str(
+                        R.string.local_model_requirements,
+                        formatCacheSize(model.sizeBytes),
+                        model.minRamGb,
+                        model.recommendedRamGb,
+                    ),
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                )
+                Text(
+                    when {
+                        selected -> str(R.string.local_model_selected)
+                        model.installed -> str(R.string.local_model_installed)
+                        else -> str(R.string.local_model_not_installed)
+                    },
+                    color = if (selected || model.installed) c.green else c.subtext,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+        if (model.downloading) {
+            LinearProgressIndicator(
+                progress = { model.downloadProgress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)),
+                color = c.text,
+                trackColor = c.border,
+            )
+        }
+        if (model.error.isNotBlank()) {
+            Text(model.error, color = c.red, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            model.downloadSources.forEach { source ->
+                val active = source.id == selectedSourceId
+                Surface(
+                    onClick = { onSourceSelect(source.id) },
+                    color = if (active) c.text else c.cardAlt,
+                    contentColor = if (active) c.bg else c.text,
+                    shape = RoundedCornerShape(999.dp),
+                    border = if (active) null else androidx.compose.foundation.BorderStroke(0.5.dp, c.border),
+                ) {
+                    Text(source.name, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                }
+            }
+            Surface(
+                onClick = { onSourceSelect("custom") },
+                color = if (selectedSourceId == "custom") c.text else c.cardAlt,
+                contentColor = if (selectedSourceId == "custom") c.bg else c.text,
+                shape = RoundedCornerShape(999.dp),
+                border = if (selectedSourceId == "custom") null else androidx.compose.foundation.BorderStroke(0.5.dp, c.border),
+            ) {
+                Text(str(R.string.local_model_source_custom), fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+            }
+        }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (model.supportsChatRuntime && model.installed) {
+                OutlinedButton(
+                    onClick = onSelect,
+                    enabled = !model.downloading && !selected,
+                    shape = RoundedCornerShape(18.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text(if (selected) str(R.string.local_model_using) else str(R.string.local_model_use), fontSize = 12.sp, maxLines = 1, color = c.text) }
+            }
+            Button(
+                onClick = {
+                    val url = when (selectedSourceId) {
+                        "custom" -> ""
+                        else -> model.downloadSources.firstOrNull { it.id == selectedSourceId }?.url.orEmpty()
+                    }
+                    onDownload(url)
+                },
+                enabled = !model.downloading,
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) { Text(if (model.installed) str(R.string.local_model_redownload) else str(R.string.local_model_download), fontSize = 12.sp, maxLines = 1) }
+            OutlinedButton(
+                onClick = onImport,
+                enabled = !model.downloading,
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) { Text(str(R.string.local_model_import), fontSize = 12.sp, maxLines = 1, color = c.text) }
+            if (model.installed) {
+                TextButton(onClick = onDelete, enabled = !model.downloading) {
+                    Text(str(R.string.local_model_delete), color = c.red, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalModelChip(text: String, c: ClawColors) {
+    Text(
+        text = text,
+        color = c.subtext,
+        fontSize = 10.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(c.cardAlt)
+            .border(0.5.dp, c.border, RoundedCornerShape(999.dp))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
+private fun localModelCapabilities(model: LocalModelInfo): String {
+    val caps = buildList {
+        if (model.supportsText) add(str(R.string.local_model_cap_text))
+        if (model.supportsVision) add(str(R.string.local_model_cap_vision))
+        if (model.supportsAudio) add(str(R.string.local_model_cap_audio))
+    }
+    return caps.joinToString(" / ")
+}
+
+@Composable
 private fun AppearanceSubPage(
     darkTheme: Boolean, onDarkTheme: (Boolean) -> Unit,
     accent: Long, onAccent: (Long) -> Unit,
@@ -563,23 +863,27 @@ private fun AppearanceSubPage(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             SettingsSection(str(R.string.section_theme), c) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ThemeModeCard(
-                        modifier = Modifier.weight(1f),
-                        title = str(R.string.settings_day_mode),
-                        subtitle = str(R.string.settings_day_mode_desc),
-                        active = !darkTheme,
-                        dark = false,
-                        c = c,
-                    ) { onDarkTheme(false); onAccent(0xFFC7F43AL) }
-                    ThemeModeCard(
-                        modifier = Modifier.weight(1f),
-                        title = str(R.string.settings_night_mode),
-                        subtitle = str(R.string.settings_night_mode_desc),
-                        active = darkTheme,
-                        dark = true,
-                        c = c,
-                    ) { onDarkTheme(true); onAccent(0xFFC7F43AL) }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemePresets.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            row.forEach { preset ->
+                                ThemeModeCard(
+                                    modifier = Modifier.weight(1f),
+                                    title = themePresetTitle(preset.name),
+                                    subtitle = themePresetSubtitle(preset.name),
+                                    active = darkTheme == preset.darkTheme && accent == preset.accentColor,
+                                    dark = preset.darkTheme,
+                                    previewBg = Color(preset.previewBg),
+                                    previewAccent = Color(preset.previewAccent),
+                                    c = c,
+                                ) {
+                                    onDarkTheme(preset.darkTheme)
+                                    onAccent(preset.accentColor)
+                                }
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
             SettingsSection(str(R.string.settings_ui_style), c) {
@@ -631,6 +935,8 @@ private fun ThemeModeCard(
     subtitle: String,
     active: Boolean,
     dark: Boolean,
+    previewBg: Color = if (dark) Color(0xFF050505) else Color(0xFFF6F6F4),
+    previewAccent: Color = if (dark) Color.White else Color(0xFF101010),
     c: ClawColors,
     onClick: () -> Unit,
 ) {
@@ -645,14 +951,30 @@ private fun ThemeModeCard(
     ) {
         Box(
             Modifier.fillMaxWidth().height(74.dp).clip(RoundedCornerShape(12.dp))
-                .background(if (dark) Color(0xFF050505) else Color(0xFFF6F6F4)),
+                .background(previewBg),
         ) {
-            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(22.dp).clip(CircleShape).background(if (dark) Color.White else Color(0xFF101010)))
-            Box(Modifier.align(Alignment.BottomStart).padding(12.dp).size(width = 78.dp, height = 10.dp).clip(RoundedCornerShape(8.dp)).background(if (dark) Color(0xFF2A2A2A) else Color(0xFFE0E0DC)))
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).size(22.dp).clip(CircleShape).background(previewAccent))
+            Box(Modifier.align(Alignment.BottomStart).padding(12.dp).size(width = 78.dp, height = 10.dp).clip(RoundedCornerShape(8.dp)).background(previewAccent.copy(alpha = if (dark) 0.34f else 0.22f)))
         }
         Text(title, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Text(subtitle, color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
     }
+}
+
+@Composable
+private fun themePresetTitle(name: String): String = when (name) {
+    "AI Night" -> stringResource(R.string.theme_ai_night)
+    "AI Day" -> stringResource(R.string.theme_ai_day)
+    "Tech Night" -> stringResource(R.string.theme_tech_night)
+    "Tech Day" -> stringResource(R.string.theme_tech_day)
+    else -> name
+}
+
+@Composable
+private fun themePresetSubtitle(name: String): String = when (name) {
+    "AI Night", "AI Day" -> stringResource(R.string.theme_ai_desc)
+    "Tech Night", "Tech Day" -> stringResource(R.string.theme_tech_desc)
+    else -> ""
 }
 
 @Composable
@@ -674,19 +996,19 @@ private fun PermissionsSubPage(c: ClawColors, onBack: () -> Unit) {
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PermissionStatusRow("♿", stringResource(R.string.perm_accessibility_title), stringResource(R.string.perm_accessibility_desc), permissionManager.isAccessibilityEnabled(), true, c) {
+            PermissionStatusRow("accessibility", stringResource(R.string.perm_accessibility_title), stringResource(R.string.perm_accessibility_desc), permissionManager.isAccessibilityEnabled(), true, c) {
                 activityLauncher.launch(permissionManager.openAccessibilitySettings())
             }
-            PermissionStatusRow("🪟", stringResource(R.string.perm_overlay_title), stringResource(R.string.perm_overlay_desc), permissionManager.isOverlayEnabled(), true, c) {
+            PermissionStatusRow("overlay", stringResource(R.string.perm_overlay_title), stringResource(R.string.perm_overlay_desc), permissionManager.isOverlayEnabled(), true, c) {
                 activityLauncher.launch(permissionManager.openOverlaySettings())
             }
-            PermissionStatusRow("📁", stringResource(R.string.settings_bc417e), stringResource(R.string.settings_tap_2), hasFileAccess, false, c) {
+            PermissionStatusRow("folder", stringResource(R.string.settings_bc417e), stringResource(R.string.settings_tap_2), hasFileAccess, false, c) {
                 fileAccessLauncher.launch(storageManager.allFilesAccessSettingsIntent())
             }
-            PermissionStatusRow("🔔", stringResource(R.string.perm_notification_title), stringResource(R.string.perm_notification_desc), permissionManager.isNotificationGranted(), false, c) {
+            PermissionStatusRow("notification", stringResource(R.string.perm_notification_title), stringResource(R.string.perm_notification_desc), permissionManager.isNotificationGranted(), false, c) {
                 activityLauncher.launch(permissionManager.openAppDetails())
             }
-            PermissionStatusRow("⚡", stringResource(R.string.perm_background_title), stringResource(R.string.perm_background_desc), permissionManager.isBatteryOptimizationExempt(), false, c) {
+            PermissionStatusRow("battery", stringResource(R.string.perm_background_title), stringResource(R.string.perm_background_desc), permissionManager.isBatteryOptimizationExempt(), false, c) {
                 activityLauncher.launch(permissionManager.openBatteryOptimizationRequest())
             }
             permissionManager.pendingPermissions()
@@ -702,7 +1024,7 @@ private fun PermissionsSubPage(c: ClawColors, onBack: () -> Unit) {
 
 @Composable
 private fun PermissionStatusRow(
-    icon: String,
+    iconKey: String,
     title: String,
     description: String,
     granted: Boolean,
@@ -719,7 +1041,14 @@ private fun PermissionStatusRow(
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(icon, fontSize = 22.sp)
+        ClawIconTile(
+            symbol = iconKey,
+            size = 38.dp,
+            iconSize = 20.dp,
+            tint = if (granted) c.green else c.text,
+            background = if (granted) c.green.copy(alpha = 0.10f) else c.cardAlt,
+            border = if (granted) c.green.copy(alpha = 0.22f) else c.border,
+        )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -769,21 +1098,21 @@ private fun CacheSubPage(c: ClawColors, onBack: () -> Unit) {
         }
 
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val total = categories.sumOf { it.sizeBytes }
             Column(
                 Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(c.surface)
-                    .border(0.5.dp, c.border, RoundedCornerShape(20.dp))
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(str(R.string.cache_total), color = c.subtext, fontSize = 12.sp)
-                Text(formatCacheSize(total), color = c.text, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text(str(R.string.cache_notice), color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+                Text(formatCacheSize(total), color = c.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(str(R.string.cache_notice), color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
             }
 
             if (loading) {
@@ -820,19 +1149,19 @@ private fun CacheCategoryRow(
 ) {
     Row(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(c.surface)
-            .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .border(0.5.dp, c.border, RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(category.titleRes), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(formatCacheSize(category.sizeBytes), color = c.subtext, fontSize = 12.sp)
+                Text(stringResource(category.titleRes), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(formatCacheSize(category.sizeBytes), color = c.subtext, fontSize = 11.sp)
             }
-            Text(stringResource(category.subtitleRes), color = c.subtext, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(stringResource(category.subtitleRes), color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
             Text(str(R.string.cache_paths_count, category.pathCount), color = c.subtext.copy(alpha = 0.7f), fontSize = 10.sp)
         }
         Box(
@@ -1103,7 +1432,7 @@ private fun VdSetupGuide(c: ClawColors, testPassed: Boolean) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("📱", fontSize = 13.sp)
+                    ClawSymbolIcon("phone", tint = c.subtext, modifier = Modifier.size(14.dp))
                     Text(romInfo.name, color = c.text, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {

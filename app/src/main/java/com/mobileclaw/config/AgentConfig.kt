@@ -37,6 +37,8 @@ class AgentConfig(private val context: Context) {
         val DARK_THEME = stringPreferencesKey("dark_theme")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
         val UI_STYLE = stringPreferencesKey("ui_style")
+        val LOCAL_MODEL_ENABLED = stringPreferencesKey("local_model_enabled")
+        val LOCAL_MODEL_ID = stringPreferencesKey("local_model_id")
         // Legacy single-gateway keys (read-only for migration)
         val ENDPOINT = stringPreferencesKey("llm_endpoint")
         val API_KEY = stringPreferencesKey("llm_api_key")
@@ -53,8 +55,10 @@ class AgentConfig(private val context: Context) {
             activeGatewayId = activeId ?: gateways.firstOrNull()?.id,
             language = prefs[Keys.LANGUAGE]?.takeIf { it == "zh" || it == "en" } ?: "zh",
             darkTheme = (prefs[Keys.DARK_THEME] ?: "true") == "true",
-            accentColor = 0xFF2563EBL,
+            accentColor = parseAccentColor(prefs[Keys.ACCENT_COLOR]) ?: 0xFFC7F43AL,
             uiStyle = prefs[Keys.UI_STYLE]?.takeIf { it == "desk" || it == "classic" } ?: "desk",
+            localModelEnabled = (prefs[Keys.LOCAL_MODEL_ENABLED] ?: "false") == "true",
+            localModelId = prefs[Keys.LOCAL_MODEL_ID]?.takeIf { it.isNotBlank() } ?: "gemma4-e2b-litert",
         )
     }
 
@@ -74,8 +78,10 @@ class AgentConfig(private val context: Context) {
             }
             prefs[Keys.LANGUAGE] = snapshot.language.takeIf { it == "zh" || it == "en" } ?: "zh"
             prefs[Keys.DARK_THEME] = snapshot.darkTheme.toString()
-            prefs[Keys.ACCENT_COLOR] = 0xFF2563EBL.toString()
+            prefs[Keys.ACCENT_COLOR] = snapshot.accentColor.toString()
             prefs[Keys.UI_STYLE] = snapshot.uiStyle.takeIf { it == "desk" || it == "classic" } ?: "desk"
+            prefs[Keys.LOCAL_MODEL_ENABLED] = snapshot.localModelEnabled.toString()
+            prefs[Keys.LOCAL_MODEL_ID] = snapshot.localModelId
         }
     }
 
@@ -113,6 +119,9 @@ class AgentConfig(private val context: Context) {
         endpoint.contains("localhost") || endpoint.contains("127.0.0.1") -> "Ollama"
         else -> context.getString(com.mobileclaw.R.string.gateway_custom)
     }
+
+    private fun parseAccentColor(raw: String?): Long? =
+        raw?.toLongOrNull()?.takeIf { it != 0L }
 }
 
 data class ConfigSnapshot(
@@ -122,6 +131,8 @@ data class ConfigSnapshot(
     val darkTheme: Boolean = true,
     val accentColor: Long = 0xFF2563EBL,
     val uiStyle: String = "desk",
+    val localModelEnabled: Boolean = false,
+    val localModelId: String = "gemma4-e2b-litert",
 ) {
     val activeGateway: GatewayConfig?
         get() = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()
@@ -129,7 +140,8 @@ data class ConfigSnapshot(
     // Backward-compat computed properties
     val endpoint: String get() = activeGateway?.endpoint ?: ""
     val apiKey: String get() = activeGateway?.apiKey ?: ""
-    val model: String get() = activeGateway?.model ?: "gpt-4o"
+    val model: String get() = if (localModelEnabled) "local:$localModelId" else activeGateway?.model ?: "gpt-4o"
+    val cloudModel: String get() = activeGateway?.model ?: "gpt-4o"
     val embeddingModel: String get() = activeGateway?.embeddingModel ?: "text-embedding-3-small"
     val backend: String get() = "openai"
     val supportsMultimodal: Boolean get() = activeGateway?.supportsMultimodal ?: true

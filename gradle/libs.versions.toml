@@ -1,6 +1,6 @@
 [versions]
 agp = "8.10.1"
-kotlin = "2.0.21"
+kotlin = "2.2.21"
 coreKtx = "1.16.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -49,5 +49,5 @@ jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version = "2.0.21" }
+kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version = "2.2.21" }
 chaquopy = { id = "com.chaquo.python", version.ref = "chaquopy" }

@@ -9,6 +9,7 @@ import com.mobileclaw.config.SkillLevelStore
 import com.mobileclaw.config.SkillNotesStore
 import com.mobileclaw.config.UserConfig
 import com.mobileclaw.llm.OpenAiGateway
+import com.mobileclaw.llm.LocalModelManager
 import com.mobileclaw.memory.ConversationMemory
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.memory.UserProfileExtractor
@@ -89,11 +90,15 @@ class ClawApplication : Application() {
     lateinit var aiPageStore: AiPageStore
         private set
 
+    lateinit var localModelManager: LocalModelManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         database = ClawDatabase.getInstance(this)
         agentConfig = AgentConfig(this)
+        localModelManager = LocalModelManager(this)
         applyLanguage(agentConfig.language)
         skillRegistry = SkillRegistry()
         overlayManager = AgentOverlayManager(this)

@@ -8,7 +8,7 @@ data class MiniApp(
     val id: String,
     val title: String,
     val description: String,
-    val icon: String = "📱",
+    val icon: String = "apps",
     val htmlPath: String,
     val hasPython: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),

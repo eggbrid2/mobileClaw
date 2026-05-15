@@ -74,10 +74,11 @@ class AgentRuntime(
         )
 
         var completedSegments = 0
+        var lastReviewActionCount = 0
         while (completedSegments < MAX_SEGMENTS) {
-            val segmentStart = ctx.steps.size
+            val segmentActionStart = actionStepCount(ctx.steps)
 
-            while (ctx.steps.size - segmentStart < ctx.maxSteps) {
+            while (actionStepCount(ctx.steps) - segmentActionStart < ctx.maxSteps) {
                 if (loopGuard.check(ctx.steps)) {
                     val reflectionStep = AgentStep(
                         index = ctx.steps.size,
@@ -94,7 +95,7 @@ class AgentRuntime(
                     ctx.steps.add(reflectionStep)
                     workingMemory.push(reflectionStep)
                     emit(AgentEvent.ThinkingComplete("检测到重复操作，正在反思并切换策略。"))
-                    if (ctx.steps.size - segmentStart >= ctx.maxSteps) break
+                    if (actionStepCount(ctx.steps) - segmentActionStart >= ctx.maxSteps) break
                 }
 
                 val messages = ctx.toMessages(systemPrompt, workingMemory.steps())
@@ -159,6 +160,33 @@ class AgentRuntime(
                 )
                 ctx.steps.add(step)
                 workingMemory.push(step)
+
+                val actionCount = actionStepCount(ctx.steps)
+                val segmentActionCount = actionCount - segmentActionStart
+                if (
+                    actionCount > 0 &&
+                    actionCount % REVIEW_INTERVAL_STEPS == 0 &&
+                    actionCount != lastReviewActionCount &&
+                    segmentActionCount < ctx.maxSteps
+                ) {
+                    lastReviewActionCount = actionCount
+                    val review = createFiveStepReview(
+                        systemPrompt = systemPrompt,
+                        ctx = ctx,
+                        workingMemory = workingMemory,
+                    )
+                    val reviewStep = AgentStep(
+                        index = ctx.steps.size,
+                        thought = "5-step execution review",
+                        toolCallId = null,
+                        skillId = null,
+                        skillParams = null,
+                        observation = review,
+                    )
+                    ctx.steps.add(reviewStep)
+                    workingMemory.push(reviewStep)
+                    emit(AgentEvent.ThinkingComplete("已完成 5 步复盘，检查目标满足度并调整下一步。"))
+                }
             }
 
             completedSegments += 1
@@ -199,6 +227,37 @@ class AgentRuntime(
 
     private suspend fun emit(event: AgentEvent) = _events.emit(event)
 
+    private suspend fun createFiveStepReview(
+        systemPrompt: String,
+        ctx: AgentContext,
+        workingMemory: WorkingMemory,
+    ): String {
+        val review = runCatching {
+            llm.chat(ChatRequest(
+                messages = ctx.toMessages(
+                    systemPrompt + """
+
+You are at an internal 5-action execution review. Do not call tools and do not answer the user.
+Review the actual executed tool steps against the original task plan and user goal.
+Output a concise internal note with:
+1. Done: which todo items or success criteria are already satisfied.
+2. Errors: failed calls, wrong assumptions, repeated actions, missing context, or signs of being off-track.
+3. Correction: what to change to avoid repeating mistakes.
+4. Next: the next 2-4 concrete tool actions or final-answer condition.
+This note is for your own next step, so be direct and operational.
+                    """.trimIndent(),
+                    workingMemory.steps(),
+                ),
+                tools = emptyList(),
+                stream = false,
+            )).content.orEmpty()
+        }.getOrDefault("")
+
+        return review.ifBlank {
+            "5-step review: compare the latest tool results with the user goal, avoid repeating failed actions, and choose the next concrete action that closes the remaining gap."
+        }
+    }
+
     private suspend fun createContinuationCheckpoint(
         systemPrompt: String,
         ctx: AgentContext,
@@ -220,6 +279,8 @@ class AgentRuntime(
         }
     }
 
+    private fun actionStepCount(steps: List<AgentStep>): Int = steps.count { it.skillId != null }
+
     private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
         if (skillId !in perceptionSkillIds) return null
         val last = steps.lastOrNull() ?: return null
@@ -237,6 +298,7 @@ class AgentRuntime(
         val perceptionSkillIds = setOf("see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen")
         val screenshotFallbackSourceIds = setOf("see_screen", "read_screen", "bg_read_screen")
         const val MAX_SEGMENTS = 5
+        const val REVIEW_INTERVAL_STEPS = 5
     }
 }
 

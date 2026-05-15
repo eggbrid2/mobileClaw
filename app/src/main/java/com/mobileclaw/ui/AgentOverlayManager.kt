@@ -49,14 +49,14 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
-private val CapsuleBg       = Color(0xE6101020)   // near-black, 90% opaque
-private val CapsuleBorder   = Color(0x40FFFFFF)   // subtle white border
-private val CapsuleText     = Color(0xFFEEEEFF)
-private val CapsuleMono     = Color(0xFFB0B0D0)
-private val DotOrange       = Color(0xFFFF6B35)
-private val DotBlue         = Color(0xFF64B5F6)
-private val DotGreen        = Color(0xFF56CF86)
-private val DotRed          = Color(0xFFFF5577)
+private val CapsuleBg       = Color(0xF0050505)
+private val CapsuleBorder   = Color(0x33FFFFFF)
+private val CapsuleText     = Color(0xFFF7F7F4)
+private val CapsuleMono     = Color(0xFFA0A0A0)
+private val DotOrange       = Color(0xFFC7F43A)
+private val DotBlue         = Color(0xFFB7B7B7)
+private val DotGreen        = Color(0xFF56D6BA)
+private val DotRed          = Color(0xFF8A8A8A)
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -262,7 +262,7 @@ private fun CapsuleOverlay(
                 .clip(CircleShape)
                 .background(
                     brush = Brush.radialGradient(
-                        listOf(Color(0xF0121228), Color(0xF0060614))
+                        listOf(Color(0xF00A0A0A), Color(0xF0050505))
                     )
                 )
                 .border(1.dp, dotColor.copy(alpha = 0.75f), CircleShape),
@@ -276,7 +276,7 @@ private fun CapsuleOverlay(
                     .clip(CircleShape)
                     .background(dotColor),
             )
-            Text("🦀", fontSize = 22.sp)
+            ClawSymbolIcon("profile", tint = CapsuleText, modifier = Modifier.size(23.dp))
         }
         return
     }
@@ -305,7 +305,7 @@ private fun CapsuleOverlay(
             .widthIn(min = 180.dp, max = 280.dp)
             .background(
                 brush = Brush.horizontalGradient(
-                    listOf(Color(0xF0060614), Color(0xF0101022))
+                    listOf(Color(0xF0050505), Color(0xF0101010))
                 ),
                 shape = RoundedCornerShape(50),
             )
@@ -333,7 +333,7 @@ private fun CapsuleOverlay(
                     .background(dotColor),
             )
             // Logo
-            Text("🦀", fontSize = 13.sp)
+            ClawSymbolIcon("profile", tint = CapsuleText, modifier = Modifier.size(14.dp))
             // Task name
             Text(
                 text       = primaryText,

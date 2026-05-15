@@ -29,6 +29,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Handles screen perception: screenshot capture, UI tree parsing, SoM (Set-of-Mark) annotation.
@@ -37,6 +38,8 @@ import kotlin.math.min
 class ScreenshotController(private val service: ClawAccessibilityService) {
 
     var currentActivity: String = "unknown"
+        private set
+    var currentPackage: String = ""
         private set
 
     private val screenshotMutex = Mutex()
@@ -49,14 +52,17 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString() ?: return
             val cls = event.className?.toString() ?: return
-            if (!shouldIgnore(pkg, cls)) currentActivity = cls
+            if (!shouldIgnore(pkg, cls)) {
+                currentPackage = pkg
+                currentActivity = cls
+            }
         }
     }
 
     suspend fun captureScreenshot(): ScreenshotData {
         screenshotMutex.lock()
         return try {
-            val base64 = suspendCancellableCoroutine { cont ->
+            val data = suspendCancellableCoroutine { cont ->
                 service.takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
@@ -64,7 +70,7 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
                                 try {
                                     val bmp = Bitmap.wrapHardwareBuffer(buf, result.colorSpace)
                                         ?: throw RuntimeException("Failed to wrap hardware buffer")
-                                    cont.resume(bitmapToBase64(bmp))
+                                    cont.resume(encodeForVision(bmp))
                                 } catch (e: Exception) { cont.resumeWithException(e) }
                             }
                         }
@@ -73,14 +79,15 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
                     })
             }
             CoroutineScope(Dispatchers.Default).launch { delay(300); screenshotMutex.unlock() }
-            ScreenshotData(imageBase64 = "data:image/jpeg;base64,$base64")
+            PhoneScreenState.update(data.coordinateSpace)
+            data
         } catch (e: Exception) { screenshotMutex.unlock(); throw e }
     }
 
     suspend fun captureSom(): ScreenshotData {
         screenshotMutex.lock()
         return try {
-            val base64 = suspendCancellableCoroutine { cont ->
+            val data = suspendCancellableCoroutine { cont ->
                 service.takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(result: ScreenshotResult) {
@@ -89,8 +96,9 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
                                     val bmp = Bitmap.wrapHardwareBuffer(buf, result.colorSpace)
                                         ?: throw RuntimeException("Failed to wrap hardware buffer")
                                     val nodeMap = getNodeMap() ?: emptyMap()
-                                    val marked = drawSomMarkings(bmp, nodeMap)
-                                    cont.resume(bitmapToBase64(marked))
+                                    val vision = scaleForVision(bmp)
+                                    val marked = drawSomMarkings(vision.bitmap, nodeMap, vision.scale)
+                                    cont.resume(encodeBitmap(marked, bmp.width, bmp.height))
                                 } catch (e: Exception) { cont.resumeWithException(e) }
                             }
                         }
@@ -99,7 +107,8 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
                     })
             }
             CoroutineScope(Dispatchers.Default).launch { delay(300); screenshotMutex.unlock() }
-            ScreenshotData(imageBase64 = "data:image/jpeg;base64,$base64")
+            PhoneScreenState.update(data.coordinateSpace)
+            data
         } catch (e: Exception) { screenshotMutex.unlock(); throw e }
     }
 
@@ -129,10 +138,38 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         return ignoredPkgs.any { pkg.startsWith(it) } || ignoredPatterns.any { cls.matches(it) }
     }
 
-    private fun bitmapToBase64(bmp: Bitmap): String {
+    private fun encodeForVision(bmp: Bitmap): ScreenshotData {
+        val vision = scaleForVision(bmp)
+        return encodeBitmap(vision.bitmap, bmp.width, bmp.height)
+    }
+
+    private fun scaleForVision(bmp: Bitmap): VisionBitmap {
+        val maxPx = 1920
+        val scale = minOf(1f, maxPx.toFloat() / max(bmp.width, bmp.height).toFloat())
+        val out = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                bmp,
+                max(1, (bmp.width * scale).roundToInt()),
+                max(1, (bmp.height * scale).roundToInt()),
+                true,
+            )
+        } else {
+            bmp.copy(Bitmap.Config.ARGB_8888, false)
+        }
+        return VisionBitmap(out, scale)
+    }
+
+    private fun encodeBitmap(bmp: Bitmap, screenWidth: Int, screenHeight: Int): ScreenshotData {
         val out = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, 50, out)
-        return Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
+        val b64 = Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
+        val space = ScreenCoordinateSpace(
+            imageWidth = bmp.width,
+            imageHeight = bmp.height,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+        )
+        return ScreenshotData(imageBase64 = "data:image/jpeg;base64,$b64", coordinateSpace = space)
     }
 
     private fun buildNodeMap(root: AccessibilityNodeInfo): Map<String, UiNode> {
@@ -214,7 +251,7 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         return writer.toString()
     }
 
-    private fun drawSomMarkings(bmp: Bitmap, nodes: Map<String, UiNode>): Bitmap {
+    private fun drawSomMarkings(bmp: Bitmap, nodes: Map<String, UiNode>, scale: Float): Bitmap {
         val out = bmp.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
         val rectPaint = Paint().apply { color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 4f }
@@ -224,13 +261,22 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         val interactive = nodes.filter { it.value.isClickable || it.value.isEditable || it.value.isScrollable }
         for ((id, node) in interactive) {
             val b = node.bounds
-            canvas.drawRect(b, rectPaint)
+            val left = b.left * scale
+            val top = b.top * scale
+            val right = b.right * scale
+            val bottom = b.bottom * scale
+            canvas.drawRect(left, top, right, bottom, rectPaint)
             val tw = textPaint.measureText(id)
-            canvas.drawRoundRect(RectF(b.left.toFloat(), b.top.toFloat(), b.left + tw + 10, b.top + 44f), 4f, 4f, bgPaint)
-            canvas.drawText(id, b.left + 5f, b.top + 36f, textPaint)
+            canvas.drawRoundRect(RectF(left, top, left + tw + 10, top + 44f), 4f, 4f, bgPaint)
+            canvas.drawText(id, left + 5f, top + 36f, textPaint)
         }
         return out
     }
 }
 
-data class ScreenshotData(val imageBase64: String)
+private data class VisionBitmap(val bitmap: Bitmap, val scale: Float)
+
+data class ScreenshotData(
+    val imageBase64: String,
+    val coordinateSpace: ScreenCoordinateSpace,
+)

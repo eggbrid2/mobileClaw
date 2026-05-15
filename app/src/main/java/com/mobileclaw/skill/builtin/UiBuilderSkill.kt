@@ -42,7 +42,7 @@ class UiBuilderSkill(
             SkillParam("id", "string", required = false,
                 description = "Page ID in snake_case (required for all except list/get_guide)"),
             SkillParam("title", "string", required = false, description = "Display title shown in the top bar"),
-            SkillParam("icon", "string", required = false, description = "Emoji icon for the page"),
+            SkillParam("icon", "string", required = false, description = "Semantic icon key for the page, e.g. page, chat, settings, weather, profile"),
             SkillParam("description", "string", required = false, description = "Short description of the page"),
             SkillParam("state", "object", required = false,
                 description = "Initial state object: {\"key\": \"initial_value\"}. String JSON is also accepted."),
@@ -88,7 +88,7 @@ class UiBuilderSkill(
                 }
 
                 val title = params["title"] as? String ?: existing?.title ?: id
-                val icon = params["icon"] as? String ?: existing?.icon ?: "📄"
+                val icon = params["icon"] as? String ?: existing?.icon ?: "page"
                 val description = params["description"] as? String ?: existing?.description ?: ""
 
                 val state: Map<String, String> = params["state"]?.let { raw ->
@@ -178,7 +178,7 @@ Native pages run as real Compose UI (not WebView). They support full Android cap
 ui_builder(action=create,
   id="my_page",
   title="My Page",
-  icon="🚀",
+  icon="page",
   state={"count":"0","result":""},
   layout={"type":"column","gap":12,"padding":16,"children":[...]},
   actions={"increment":[{"type":"set_state","key":"count","value":"${'$'}{state.count + 1}"}]}
@@ -297,7 +297,7 @@ ${'$'}{state.x == "done"}   — equality
 
 ## Full Example — Weather Dashboard
 
-ui_builder(action=create, id="weather", title="天气查询", icon="🌤️",
+ui_builder(action=create, id="weather", title="天气查询", icon="weather",
   state={"city":"北京","weather":"点击查询"},
   layout={"type":"column","gap":12,"padding":16,"children":[
     {"type":"text","content":"天气查询","bold":true,"size":18},

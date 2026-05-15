@@ -1,6 +1,7 @@
 package com.mobileclaw.skill.builtin
 
 import com.mobileclaw.perception.ClawAccessibilityService
+import com.mobileclaw.perception.PhoneScreenState
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
@@ -14,6 +15,20 @@ private fun accessibilityNotAvailable(skillName: String) = SkillResult(
     output = "Accessibility service is not enabled. Please grant MobileClaw accessibility access.",
     data = SkillAttachment.AccessibilityRequest(skillName),
 )
+
+private fun foregroundStatus(): String =
+    "Foreground app: package=${ClawAccessibilityService.getCurrentPackage().ifBlank { "unknown" }}, " +
+        "activity=${ClawAccessibilityService.getCurrentActivity().ifBlank { "unknown" }}."
+
+private fun phoneCoordinateStatus(): String = PhoneScreenState.describe()
+
+private fun mapPhonePoint(params: Map<String, Any>, x: Float, y: Float) =
+    PhoneScreenState.mapPoint(
+        x = x,
+        y = y,
+        inputWidth = (params["coord_width"] as? Number)?.toFloat(),
+        inputHeight = (params["coord_height"] as? Number)?.toFloat(),
+    )
 
 class ScreenshotSkill : Skill {
     override val meta = SkillMeta(
@@ -32,7 +47,11 @@ class ScreenshotSkill : Skill {
         if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         val data = runCatching { ClawAccessibilityService.captureScreenshot() }
             .getOrElse { return SkillResult(success = false, output = "Screenshot failed: ${it.message}") }
-        return SkillResult(success = true, output = "Screenshot captured.", imageBase64 = data.imageBase64)
+        return SkillResult(
+            success = true,
+            output = "Screenshot captured.\n${phoneCoordinateStatus()}\n${foregroundStatus()}",
+            imageBase64 = data.imageBase64,
+        )
     }
 }
 
@@ -71,7 +90,7 @@ class SeeScreenSkill : Skill {
         name = "See Screen (Vision)",
         description = "PRIMARY screen perception tool. Takes a screenshot with numbered red markers on interactive elements (Set-of-Mark). " +
             "Works on ALL app types: standard Android, Flutter, React Native, games, WebViews. " +
-            "Returns the annotated image plus a coordinate list. Use the listed coordinates directly with tap(x=..., y=...), " +
+            "Returns the annotated image plus a coordinate list in the exact image coordinate space seen by the model. Use those coordinates with tap(x=..., y=...), " +
             "scroll(x=..., y=..., direction=...), or long_click(x=..., y=...). Call once to inspect the current UI; " +
             "after this tool, take an action instead of calling see_screen again unless the UI has changed.",
         type = SkillType.NATIVE,
@@ -91,10 +110,12 @@ class SeeScreenSkill : Skill {
             "No interactive elements detected in accessibility tree.\n" +
                 "Use the image to visually identify elements and tap(x=..., y=...) with estimated coordinates."
         } else {
-            "Interactive elements (coordinates are screen pixels, use directly with tap/scroll/long_click):\n" +
+            val scaleX = som.coordinateSpace.imageWidth.toFloat() / som.coordinateSpace.screenWidth.toFloat()
+            val scaleY = som.coordinateSpace.imageHeight.toFloat() / som.coordinateSpace.screenHeight.toFloat()
+            "Interactive elements (coordinates are image pixels from the attached screenshot; use directly with tap/scroll/long_click):\n" +
                 interactive.entries.take(40).joinToString("\n") { (id, node) ->
-                    val cx = (node.bounds.left + node.bounds.right) / 2
-                    val cy = (node.bounds.top + node.bounds.bottom) / 2
+                    val cx = (((node.bounds.left + node.bounds.right) / 2f) * scaleX).toInt()
+                    val cy = (((node.bounds.top + node.bounds.bottom) / 2f) * scaleY).toInt()
                     val cls = node.className?.substringAfterLast('.') ?: "View"
                     val label = buildString {
                         node.text?.let { append(" \"${it.take(60)}\"") }
@@ -112,7 +133,7 @@ class SeeScreenSkill : Skill {
 
         return SkillResult(
             success = true,
-            output = "${interactive.size} interactive elements marked on screenshot.\n$elementList",
+            output = "${interactive.size} interactive elements marked on screenshot.\n${phoneCoordinateStatus()}\n${foregroundStatus()}\n$elementList",
             imageBase64 = som.imageBase64,
         )
     }
@@ -127,6 +148,8 @@ class TapSkill : Skill {
         parameters = listOf(
             SkillParam("x", "number", "X pixel coordinate to tap (from see_screen output)", required = false),
             SkillParam("y", "number", "Y pixel coordinate to tap (from see_screen output)", required = false),
+            SkillParam("coord_width", "number", "Optional width of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
+            SkillParam("coord_height", "number", "Optional height of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
             SkillParam("node_id", "string", "Marker ID from see_screen (secondary, only if marker is visible)", required = false),
         ),
         type = SkillType.NATIVE,
@@ -143,8 +166,9 @@ class TapSkill : Skill {
 
         return when {
             x != null && y != null -> {
-                ClawAccessibilityService.clickCoordinate(x, y)
-                SkillResult(true, "Tapped (${x.toInt()}, ${y.toInt()}).")
+                val p = mapPhonePoint(params, x, y)
+                ClawAccessibilityService.clickCoordinate(p.x, p.y)
+                SkillResult(true, "Tapped image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()}) [${p.note}].\n${foregroundStatus()}")
             }
             nodeId != null -> {
                 // Resolve node to center coordinates and gesture-tap (works for all apps).
@@ -156,15 +180,15 @@ class TapSkill : Skill {
                     val cy = ((node.bounds.top + node.bounds.bottom) / 2).toFloat()
                     try {
                         ClawAccessibilityService.clickCoordinate(cx, cy)
-                        SkillResult(true, "Tapped node $nodeId at (${cx.toInt()}, ${cy.toInt()}).")
+                        SkillResult(true, "Tapped node $nodeId at device (${cx.toInt()}, ${cy.toInt()}).\n${foregroundStatus()}")
                     } catch (_: Exception) {
                         ClawAccessibilityService.clickNode(nodeId)
-                        SkillResult(true, "Tapped node $nodeId (accessibility action).")
+                        SkillResult(true, "Tapped node $nodeId (accessibility action).\n${foregroundStatus()}")
                     }
                 } else {
                     try {
                         ClawAccessibilityService.clickNode(nodeId)
-                        SkillResult(true, "Tapped node $nodeId.")
+                        SkillResult(true, "Tapped node $nodeId.\n${foregroundStatus()}")
                     } catch (e: Exception) {
                         SkillResult(false, "Node $nodeId not found. Provide x/y coordinates from see_screen instead.")
                     }
@@ -199,7 +223,7 @@ class InputTextSkill : Skill {
         } else {
             ClawAccessibilityService.inputTextFocused(text)
         }
-        return SkillResult(success = true, output = "Typed: $text")
+        return SkillResult(success = true, output = "Typed: $text\n${foregroundStatus()}")
     }
 }
 
@@ -229,8 +253,8 @@ class NavigateSkill(
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
         return when (val action = params["action"] as? String) {
-            "home" -> { ClawAccessibilityService.goHome(); SkillResult(true, "Went home.") }
-            "back" -> { ClawAccessibilityService.goBack(); SkillResult(true, "Went back.") }
+            "home" -> { ClawAccessibilityService.goHome(); SkillResult(true, "Went home.\n${foregroundStatus()}") }
+            "back" -> { ClawAccessibilityService.goBack(); SkillResult(true, "Went back.\n${foregroundStatus()}") }
             "launch" -> {
                 val pkg = params["package_name"] as? String
                     ?: return SkillResult(false, "package_name required for launch")
@@ -248,11 +272,11 @@ class NavigateSkill(
                     }.getOrElse {
                         // Virtual display failed — fall back to foreground
                         ClawAccessibilityService.launchApp(pkg)
-                        SkillResult(true, "Launched $pkg on main display (virtual display failed: ${it.message}). Use see_screen + tap(x,y).")
+                        SkillResult(true, "Launched $pkg on main display (virtual display failed: ${it.message}). Use see_screen + tap(x,y).\n${foregroundStatus()}")
                     }
                 }
                 ClawAccessibilityService.launchApp(pkg)
-                SkillResult(true, "Launched $pkg on main display. Use see_screen then tap(x=..., y=...) to interact.")
+                SkillResult(true, "Launched $pkg on main display. Use see_screen then tap(x=..., y=...) to interact.\n${foregroundStatus()}")
             }
             else -> SkillResult(false, "Unknown action: $action. Use home, back, or launch.")
         }
@@ -270,6 +294,8 @@ class ScrollSkill : Skill {
             SkillParam("direction", "string", "'up' | 'down' | 'left' | 'right'"),
             SkillParam("x", "number", "X pixel coordinate to start the swipe (center of scroll area)", required = false),
             SkillParam("y", "number", "Y pixel coordinate to start the swipe (center of scroll area)", required = false),
+            SkillParam("coord_width", "number", "Optional width of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
+            SkillParam("coord_height", "number", "Optional height of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
             SkillParam("distance", "number", "Swipe distance in pixels (default 500)", required = false),
             SkillParam("node_id", "string", "Scrollable marker ID from see_screen (secondary)", required = false),
         ),
@@ -291,8 +317,13 @@ class ScrollSkill : Skill {
 
         return when {
             x != null && y != null -> {
-                ClawAccessibilityService.scrollCoordinate(x, y, direction, distance)
-                SkillResult(true, "Swiped $direction from (${x.toInt()}, ${y.toInt()}) by ${distance.toInt()}px.")
+                val p = mapPhonePoint(params, x, y)
+                val scaledDistance = PhoneScreenState.latest()?.let { space ->
+                    if (direction in listOf("up", "down")) distance * space.screenHeight / space.imageHeight
+                    else distance * space.screenWidth / space.imageWidth
+                } ?: distance
+                ClawAccessibilityService.scrollCoordinate(p.x, p.y, direction, scaledDistance)
+                SkillResult(true, "Swiped $direction from image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()}) by ${scaledDistance.toInt()}px [${p.note}].\n${foregroundStatus()}")
             }
             nodeId != null -> {
                 val node = ClawAccessibilityService.getNodeMap()?.get(nodeId)
@@ -301,17 +332,17 @@ class ScrollSkill : Skill {
                     val cy = ((node.bounds.top + node.bounds.bottom) / 2).toFloat()
                     try {
                         ClawAccessibilityService.scrollCoordinate(cx, cy, direction, distance)
-                        SkillResult(true, "Swiped $direction from center of node $nodeId at (${cx.toInt()}, ${cy.toInt()}).")
+                        SkillResult(true, "Swiped $direction from center of node $nodeId at device (${cx.toInt()}, ${cy.toInt()}).\n${foregroundStatus()}")
                     } catch (_: Exception) {
                         val scrollDir = if (direction in listOf("up", "left")) "backward" else "forward"
                         ClawAccessibilityService.scrollNode(nodeId, scrollDir)
-                        SkillResult(true, "Scrolled node $nodeId $direction (accessibility action).")
+                        SkillResult(true, "Scrolled node $nodeId $direction (accessibility action).\n${foregroundStatus()}")
                     }
                 } else {
                     val scrollDir = if (direction in listOf("up", "left")) "backward" else "forward"
                     try {
                         ClawAccessibilityService.scrollNode(nodeId, scrollDir)
-                        SkillResult(true, "Scrolled node $nodeId $direction.")
+                        SkillResult(true, "Scrolled node $nodeId $direction.\n${foregroundStatus()}")
                     } catch (e: Exception) {
                         SkillResult(false, "Node $nodeId not found. Provide x/y coordinates from see_screen.")
                     }
@@ -331,6 +362,8 @@ class LongClickSkill : Skill {
         parameters = listOf(
             SkillParam("x", "number", "X pixel coordinate to long-press", required = false),
             SkillParam("y", "number", "Y pixel coordinate to long-press", required = false),
+            SkillParam("coord_width", "number", "Optional width of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
+            SkillParam("coord_height", "number", "Optional height of the screenshot coordinate space used for x/y. Omit when using latest see_screen/screenshot.", required = false),
             SkillParam("node_id", "string", "Marker ID from see_screen (secondary)", required = false),
         ),
         type = SkillType.NATIVE,
@@ -348,8 +381,9 @@ class LongClickSkill : Skill {
 
         return when {
             x != null && y != null -> {
-                ClawAccessibilityService.longClickCoordinate(x, y)
-                SkillResult(true, "Long-pressed (${x.toInt()}, ${y.toInt()}).")
+                val p = mapPhonePoint(params, x, y)
+                ClawAccessibilityService.longClickCoordinate(p.x, p.y)
+                SkillResult(true, "Long-pressed image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()}) [${p.note}].\n${foregroundStatus()}")
             }
             nodeId != null -> {
                 val node = ClawAccessibilityService.getNodeMap()?.get(nodeId)
@@ -358,15 +392,15 @@ class LongClickSkill : Skill {
                     val cy = ((node.bounds.top + node.bounds.bottom) / 2).toFloat()
                     try {
                         ClawAccessibilityService.longClickCoordinate(cx, cy)
-                        SkillResult(true, "Long-pressed node $nodeId at (${cx.toInt()}, ${cy.toInt()}).")
+                        SkillResult(true, "Long-pressed node $nodeId at device (${cx.toInt()}, ${cy.toInt()}).\n${foregroundStatus()}")
                     } catch (_: Exception) {
                         ClawAccessibilityService.longClickNode(nodeId)
-                        SkillResult(true, "Long-pressed node $nodeId (accessibility action).")
+                        SkillResult(true, "Long-pressed node $nodeId (accessibility action).\n${foregroundStatus()}")
                     }
                 } else {
                     try {
                         ClawAccessibilityService.longClickNode(nodeId)
-                        SkillResult(true, "Long-pressed node $nodeId.")
+                        SkillResult(true, "Long-pressed node $nodeId.\n${foregroundStatus()}")
                     } catch (e: Exception) {
                         SkillResult(false, "Node $nodeId not found. Provide x/y coordinates from see_screen.")
                     }
@@ -374,6 +408,24 @@ class LongClickSkill : Skill {
             }
             else -> SkillResult(false, "Provide x and y coordinates (from see_screen output) or a node_id.")
         }
+    }
+}
+
+class PhoneStatusSkill : Skill {
+    override val meta = SkillMeta(
+        id = "phone_status",
+        name = "Phone Status",
+        description = "Returns the current foreground app package/activity and the latest screenshot coordinate mapping. Use after phone actions to verify whether the target app is open.",
+        type = SkillType.NATIVE,
+        injectionLevel = 0,
+        nameZh = "手机状态",
+        descriptionZh = "返回当前前台 App 包名/Activity，以及最近一次截图坐标映射。",
+        tags = listOf("控制"),
+    )
+
+    override suspend fun execute(params: Map<String, Any>): SkillResult {
+        if (!ClawAccessibilityService.isEnabled()) return accessibilityNotAvailable(meta.name)
+        return SkillResult(true, "${foregroundStatus()}\n${phoneCoordinateStatus()}")
     }
 }
 

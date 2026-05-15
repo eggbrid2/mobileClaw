@@ -11,7 +11,7 @@ MobileClaw is an experimental Android app for running LLM agents on a real phone
 The idea is simple: a mobile agent should not just chat about your device. It should be able to observe the screen, choose the right tools, act through Android capabilities, create new workflows, and keep enough memory to improve across tasks.
 
 [![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![Python](https://img.shields.io/badge/Chaquopy-Python%203.11-3776AB?logo=python&logoColor=white)](https://chaquo.com/chaquopy/)
 [![LLM](https://img.shields.io/badge/OpenAI--compatible-111827?logo=openai&logoColor=white)](https://platform.openai.com)
@@ -47,6 +47,7 @@ The project is still moving fast. Some pieces are stable enough to use daily; so
 - Mobile agent runtime with task planning, role routing, and scoped tool injection.
 - Multi-agent group chat with long-running tasks and interruptible work.
 - AI-generated mini apps and native Android pages.
+- Optional on-device local model runtime with downloadable Gemma LiteRT models.
 - Clash/Mihomo subscription import and Android VPN control.
 - Embedded Python execution and dynamic skill creation on Android.
 
@@ -153,6 +154,17 @@ This stack does not use Xray. mihomo handles the proxy protocols; hev is kept be
 - User profile extraction writes structured profile facts into semantic memory.
 - Working memory trims task steps to keep the active prompt bounded.
 
+### Local Models
+
+MobileClaw can run selected on-device models through LiteRT-LM:
+
+- Local model management lives in Settings, with download, import, delete, enable, and model selection controls.
+- Built-in download choices include Gemma 4 E2B and Gemma 4 E4B LiteRT-LM packages.
+- Multimodal `.task` resource packages can be downloaded or imported separately while the current Android LiteRT-LM chat path uses `.litertlm` text runtime files.
+- Model downloads support multiple sources: Hugging Face, ModelScope, and a user-provided custom direct URL.
+- Hugging Face tokens are supported for official Hugging Face downloads, but are not sent to domestic mirrors or custom URLs.
+- Local chat is used for text-only requests when enabled. Tool calls, image input, web access, or unavailable local models automatically fall back to the configured cloud endpoint when possible.
+
 ### Local And LAN APIs
 
 - A loopback API server exposes skills, dynamic skill install/delete, memory, and config to local HTTP skills.
@@ -192,6 +204,10 @@ app/src/main/java/com/mobileclaw
 │  ├─ MihomoConfigBuilder.kt
 │  ├─ MihomoProcess.kt
 │  └─ ClawVpnService.kt
+├─ llm
+│  ├─ OpenAiGateway.kt     OpenAI-compatible cloud gateway
+│  ├─ LocalGemmaGateway.kt LiteRT-LM local gateway
+│  └─ LocalModelManager.kt local model download/import/delete
 ├─ memory
 │  ├─ SemanticMemory.kt
 │  ├─ EpisodicMemory.kt
@@ -209,7 +225,7 @@ app/src/main/java/com/mobileclaw
 Requirements:
 
 - Android Studio Ladybug or newer
-- JDK 17
+- JDK 21
 - Android 11+ device or emulator
 - An OpenAI-compatible chat endpoint and API key
 
@@ -225,7 +241,7 @@ Debug APK:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The app uses Kotlin, Jetpack Compose, Room, DataStore, WebView, OkHttp, Gson, Jsoup, SnakeYAML, Chaquopy Python 3.11, mihomo, and hev-socks5-tunnel.
+The app uses Kotlin 2.2, Jetpack Compose, Room, DataStore, WebView, OkHttp, Gson, Jsoup, SnakeYAML, Chaquopy Python 3.11, LiteRT-LM, mihomo, and hev-socks5-tunnel.
 
 ## Permissions And Device Notes
 

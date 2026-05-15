@@ -178,8 +178,8 @@ fun ClawPageHeader(
                 .padding(
                     start = if (onBack != null) 4.dp else 16.dp,
                     end = 8.dp,
-                    top = 6.dp,
-                    bottom = 6.dp,
+                    top = 4.dp,
+                    bottom = 4.dp,
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -196,7 +196,7 @@ fun ClawPageHeader(
             Text(
                 text = title,
                 color = c.text,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
                     .weight(1f)
@@ -219,8 +219,8 @@ fun ClawPrimaryButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.height(50.dp),
-        shape = RoundedCornerShape(24.dp),
+        modifier = modifier.height(44.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (c.isDark) Color.White else Color(0xFF101010),
             contentColor = if (c.isDark) Color(0xFF101010) else Color.White,
@@ -243,8 +243,8 @@ fun ClawSecondaryButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.height(46.dp),
-        shape = RoundedCornerShape(23.dp),
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = c.surface,
             contentColor = c.text,
@@ -270,11 +270,11 @@ fun ClawListRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clip(RoundedCornerShape(16.dp)) else Modifier)
+            .then(if (onClick != null) Modifier.clip(RoundedCornerShape(12.dp)) else Modifier)
             .then(if (onClick != null) Modifier.background(c.surface) else Modifier)
-            .then(if (onClick != null) Modifier.border(0.5.dp, c.border, RoundedCornerShape(16.dp)) else Modifier)
+            .then(if (onClick != null) Modifier.border(0.5.dp, c.border, RoundedCornerShape(12.dp)) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leading != null) {
@@ -285,7 +285,7 @@ fun ClawListRow(
             Text(
                 title,
                 color = c.text,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -295,7 +295,7 @@ fun ClawListRow(
                 Text(
                     subtitle,
                     color = c.subtext,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

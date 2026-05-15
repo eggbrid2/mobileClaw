@@ -484,6 +484,12 @@ class MainActivity : ComponentActivity() {
                                     onOpenHelp = { vm.navigate(AppPage.HELP) },
                                     onTestVirtualDisplay = { vm.testVirtualDisplay() },
                                     onCheckPrivServer = { vm.checkPrivServer() },
+                                    localModels = uiState.localModels,
+                                    onLocalModelEnabled = { vm.setLocalModelEnabled(it) },
+                                    onSelectLocalModel = { vm.selectLocalModel(it) },
+                                    onDownloadLocalModel = { id, token, sourceUrl -> vm.downloadLocalModel(id, token, sourceUrl) },
+                                    onImportLocalModel = { id, uri -> vm.importLocalModel(id, uri) },
+                                    onDeleteLocalModel = { vm.deleteLocalModel(it) },
                                 )
                             }
                             AnimatedVisibility(

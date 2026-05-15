@@ -59,21 +59,21 @@ sealed class PermissionItem(
     object Accessibility : PermissionItem(
         id = "accessibility",
         title = "Accessibility Service",
-        icon = "♿",
+        icon = "accessibility",
         description = "Required to read screen content, detect UI elements, and perform touch actions.",
         isBlocking = true,
     )
     object Overlay : PermissionItem(
         id = "overlay",
         title = "Display Over Other Apps",
-        icon = "🪟",
+        icon = "overlay",
         description = "Required to show the agent status overlay while running tasks on other apps.",
         isBlocking = true,
     )
     object BatteryOptimization : PermissionItem(
         id = "battery",
         title = "Battery Optimization Exemption",
-        icon = "⚡",
+        icon = "battery",
         description = "Prevents Android from killing the agent during long-running tasks. Tap 'Grant' to allow immediately.",
         isBlocking = false,
         canDirectRequest = true,
@@ -81,7 +81,7 @@ sealed class PermissionItem(
     object Notification : PermissionItem(
         id = "notification",
         title = "Post Notifications",
-        icon = "🔔",
+        icon = "notification",
         description = "Required to show task progress notifications (Android 13+).",
         isBlocking = false,
         canDirectRequest = true,
@@ -89,14 +89,14 @@ sealed class PermissionItem(
     data class RomAutoStart(val romName: String) : PermissionItem(
         id = "rom_autostart",
         title = "Auto-start ($romName)",
-        icon = "🚀",
+        icon = "launch",
         description = "Your ROM ($romName) requires explicit auto-start permission for apps to start in the background. Enable it to prevent the agent from being killed.",
         isBlocking = false,
     )
     data class RomBackgroundPop(val romName: String) : PermissionItem(
         id = "rom_bg_pop",
         title = "Background Pop-up ($romName)",
-        icon = "📲",
+        icon = "phone",
         description = "Required by $romName for apps to launch UI or show overlay windows from the background.",
         isBlocking = false,
     )
