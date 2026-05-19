@@ -80,6 +80,7 @@ fun SettingsPage(
     onCheckPrivServer: () -> Unit,
     localModels: List<LocalModelInfo>,
     onLocalModelEnabled: (Boolean) -> Unit,
+    onLocalNativeOnly: (Boolean) -> Unit,
     onSelectLocalModel: (String) -> Unit,
     onDownloadLocalModel: (String, String, String) -> Unit,
     onImportLocalModel: (String, android.net.Uri) -> Unit,
@@ -94,11 +95,21 @@ fun SettingsPage(
     var accent    by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
     var uiStyle   by remember(snapshot.uiStyle) { mutableStateOf(snapshot.uiStyle) }
     var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
+    var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
 
     val currentSnapshot = {
-        snapshot.copy(gateways = gateways, activeGatewayId = activeGatewayId, language = language, darkTheme = darkTheme, accentColor = accent, uiStyle = uiStyle, localModelEnabled = localEnabled)
+        snapshot.copy(
+            gateways = gateways,
+            activeGatewayId = activeGatewayId,
+            language = language,
+            darkTheme = darkTheme,
+            accentColor = accent,
+            uiStyle = uiStyle,
+            localModelEnabled = localEnabled,
+            localNativeOnly = localNativeOnly,
+        )
     }
 
     BackHandler {
@@ -223,12 +234,20 @@ fun SettingsPage(
             SettingsSub.LOCAL_MODEL -> LocalModelSubPage(
                 models = localModels,
                 enabled = localEnabled,
+                nativeOnly = localNativeOnly,
                 selectedModelId = snapshot.localModelId,
                 c = c,
                 onBack = { subPage = null },
                 onEnabled = {
                     localEnabled = it
+                    if (!it) localNativeOnly = false
                     onLocalModelEnabled(it)
+                    onSave(currentSnapshot())
+                },
+                onNativeOnly = {
+                    localNativeOnly = it
+                    if (it) localEnabled = true
+                    onLocalNativeOnly(it)
                     onSave(currentSnapshot())
                 },
                 onSelect = onSelectLocalModel,
@@ -585,10 +604,12 @@ private fun GatewayEditorSubPage(
 private fun LocalModelSubPage(
     models: List<LocalModelInfo>,
     enabled: Boolean,
+    nativeOnly: Boolean,
     selectedModelId: String,
     c: ClawColors,
     onBack: () -> Unit,
     onEnabled: (Boolean) -> Unit,
+    onNativeOnly: (Boolean) -> Unit,
     onSelect: (String) -> Unit,
     onDownload: (String, String, String) -> Unit,
     onImport: (String, android.net.Uri) -> Unit,
@@ -603,6 +624,7 @@ private fun LocalModelSubPage(
         if (uri != null && target != null) onImport(target, uri)
         importTarget = null
     }
+    val hasRunnableLocalModel = models.any { it.installed && it.supportsChatRuntime }
 
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.local_model_title), onBack = onBack)
@@ -634,6 +656,32 @@ private fun LocalModelSubPage(
                 )
             }
 
+            if (hasRunnableLocalModel) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(str(R.string.local_model_native_only), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(str(R.string.local_model_native_only_desc), color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    Switch(
+                        checked = nativeOnly,
+                        onCheckedChange = onNativeOnly,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = c.text,
+                            uncheckedThumbColor = c.subtext,
+                            uncheckedTrackColor = c.border,
+                        ),
+                    )
+                }
+            }
+
             ClawPageTextField(
                 value = hfToken,
                 onValueChange = { hfToken = it },
@@ -650,15 +698,28 @@ private fun LocalModelSubPage(
                 c = c,
             )
 
-            models.forEach { model ->
+            models
+                .filter { it.supportsChatRuntime }
+                .sortedWith(compareBy<LocalModelInfo> { it.family }.thenBy { it.sizeBytes })
+                .forEach { model ->
+                val visionResource = models
+                    .filter { it.family == model.family && it.isVisionResource }
+                    .minByOrNull { it.sizeBytes }
+                val pairedVisionInstalled = visionResource?.installed == true
                 LocalModelItem(
                     model = model,
+                    visionResource = visionResource,
                     selected = model.id == selectedModelId,
+                    pairedVisionInstalled = pairedVisionInstalled,
                     selectedSourceId = selectedSourceByModel[model.id] ?: model.downloadSources.firstOrNull()?.id.orEmpty(),
+                    selectedVisionSourceId = visionResource?.let { selectedSourceByModel[it.id] ?: it.downloadSources.firstOrNull()?.id.orEmpty() }.orEmpty(),
                     c = c,
                     onSelect = { onSelect(model.id) },
                     onSourceSelect = { sourceId ->
                         selectedSourceByModel = selectedSourceByModel + (model.id to sourceId)
+                    },
+                    onVisionSourceSelect = { resource, sourceId ->
+                        selectedSourceByModel = selectedSourceByModel + (resource.id to sourceId)
                     },
                     onDownload = { url ->
                         onDownload(model.id, hfToken.trim(), url.ifBlank { customUrl.trim() })
@@ -668,6 +729,14 @@ private fun LocalModelSubPage(
                         picker.launch(arrayOf("*/*"))
                     },
                     onDelete = { onDelete(model.id) },
+                    onVisionDownload = { resource, url ->
+                        onDownload(resource.id, hfToken.trim(), url.ifBlank { customUrl.trim() })
+                    },
+                    onVisionImport = { resource ->
+                        importTarget = resource.id
+                        picker.launch(arrayOf("*/*"))
+                    },
+                    onVisionDelete = { resource -> onDelete(resource.id) },
                 )
             }
         }
@@ -677,14 +746,21 @@ private fun LocalModelSubPage(
 @Composable
 private fun LocalModelItem(
     model: LocalModelInfo,
+    visionResource: LocalModelInfo?,
     selected: Boolean,
+    pairedVisionInstalled: Boolean,
     selectedSourceId: String,
+    selectedVisionSourceId: String,
     c: ClawColors,
     onSelect: () -> Unit,
     onSourceSelect: (String) -> Unit,
+    onVisionSourceSelect: (LocalModelInfo, String) -> Unit,
     onDownload: (String) -> Unit,
     onImport: () -> Unit,
     onDelete: () -> Unit,
+    onVisionDownload: (LocalModelInfo, String) -> Unit,
+    onVisionImport: (LocalModelInfo) -> Unit,
+    onVisionDelete: (LocalModelInfo) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth()
@@ -704,17 +780,37 @@ private fun LocalModelItem(
                 border = c.border,
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(model.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        model.name,
+                        color = c.text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        when {
+                            selected -> str(R.string.local_model_selected)
+                            model.installed -> str(R.string.local_model_installed)
+                            else -> str(R.string.local_model_not_installed)
+                        },
+                        color = if (selected || model.installed) c.green else c.subtext,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (selected || model.installed) c.green.copy(alpha = 0.10f) else c.cardAlt)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     LocalModelChip(text = model.family, c = c)
                     LocalModelChip(text = localModelCapabilities(model), c = c)
-                    LocalModelChip(
-                        text = if (model.supportsChatRuntime) str(R.string.local_model_runtime_chat) else str(R.string.local_model_runtime_package),
-                        c = c,
-                    )
+                    LocalModelChip(text = str(R.string.local_model_runtime_chat), c = c)
                 }
                 Text(
                     str(
@@ -726,15 +822,13 @@ private fun LocalModelItem(
                     color = c.subtext,
                     fontSize = 11.sp,
                 )
-                Text(
-                    when {
-                        selected -> str(R.string.local_model_selected)
-                        model.installed -> str(R.string.local_model_installed)
-                        else -> str(R.string.local_model_not_installed)
-                    },
-                    color = if (selected || model.installed) c.green else c.subtext,
-                    fontSize = 11.sp,
-                )
+                if (model.supportsChatRuntime && model.supportsVision) {
+                    Text(
+                        if (pairedVisionInstalled) str(R.string.local_model_vision_ready) else str(R.string.local_model_vision_missing),
+                        color = if (pairedVisionInstalled) c.green else c.subtext,
+                        fontSize = 11.sp,
+                    )
+                }
             }
         }
         if (model.downloading) {
@@ -747,6 +841,17 @@ private fun LocalModelItem(
         }
         if (model.error.isNotBlank()) {
             Text(model.error, color = c.red, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        if (visionResource != null) {
+            LocalVisionResourceItem(
+                resource = visionResource,
+                c = c,
+                selectedSourceId = selectedVisionSourceId,
+                onSourceSelect = { sourceId -> onVisionSourceSelect(visionResource, sourceId) },
+                onDownload = { url -> onVisionDownload(visionResource, url) },
+                onImport = { onVisionImport(visionResource) },
+                onDelete = { onVisionDelete(visionResource) },
+            )
         }
         Row(
             Modifier.horizontalScroll(rememberScrollState()),
@@ -807,6 +912,124 @@ private fun LocalModelItem(
             ) { Text(str(R.string.local_model_import), fontSize = 12.sp, maxLines = 1, color = c.text) }
             if (model.installed) {
                 TextButton(onClick = onDelete, enabled = !model.downloading) {
+                    Text(str(R.string.local_model_delete), color = c.red, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalVisionResourceItem(
+    resource: LocalModelInfo,
+    c: ClawColors,
+    selectedSourceId: String,
+    onSourceSelect: (String) -> Unit,
+    onDownload: (String) -> Unit,
+    onImport: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 48.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(c.cardAlt.copy(alpha = 0.65f))
+            .border(0.5.dp, c.border.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ClawIconTile(
+                symbol = "image",
+                size = 30.dp,
+                iconSize = 16.dp,
+                tint = c.text,
+                background = c.surface,
+                border = c.border,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        str(R.string.local_model_vision_pack),
+                        color = c.text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (resource.installed) str(R.string.local_model_installed) else str(R.string.local_model_not_installed),
+                        color = if (resource.installed) c.green else c.subtext,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                }
+                Text(resource.name, color = c.subtext, fontSize = 11.sp, maxLines = 1)
+            }
+        }
+        if (resource.downloading) {
+            LinearProgressIndicator(
+                progress = { resource.downloadProgress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(4.dp)),
+                color = c.text,
+                trackColor = c.border,
+            )
+        }
+        if (resource.error.isNotBlank()) {
+            Text(resource.error, color = c.red, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            resource.downloadSources.forEach { source ->
+                val active = source.id == selectedSourceId
+                Surface(
+                    onClick = { onSourceSelect(source.id) },
+                    color = if (active) c.text else c.cardAlt,
+                    contentColor = if (active) c.bg else c.text,
+                    shape = RoundedCornerShape(999.dp),
+                    border = if (active) null else androidx.compose.foundation.BorderStroke(0.5.dp, c.border),
+                ) {
+                    Text(source.name, fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                }
+            }
+            Surface(
+                onClick = { onSourceSelect("custom") },
+                color = if (selectedSourceId == "custom") c.text else c.cardAlt,
+                contentColor = if (selectedSourceId == "custom") c.bg else c.text,
+                shape = RoundedCornerShape(999.dp),
+                border = if (selectedSourceId == "custom") null else androidx.compose.foundation.BorderStroke(0.5.dp, c.border),
+            ) {
+                Text(str(R.string.local_model_source_custom), fontSize = 11.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+            }
+        }
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = {
+                    val url = when (selectedSourceId) {
+                        "custom" -> ""
+                        else -> resource.downloadSources.firstOrNull { it.id == selectedSourceId }?.url.orEmpty()
+                    }
+                    onDownload(url)
+                },
+                enabled = !resource.downloading,
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) { Text(if (resource.installed) str(R.string.local_model_redownload) else str(R.string.local_model_download), fontSize = 12.sp, maxLines = 1) }
+            OutlinedButton(
+                onClick = onImport,
+                enabled = !resource.downloading,
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) { Text(str(R.string.local_model_import), fontSize = 12.sp, maxLines = 1, color = c.text) }
+            if (resource.installed) {
+                TextButton(onClick = onDelete, enabled = !resource.downloading) {
                     Text(str(R.string.local_model_delete), color = c.red, fontSize = 12.sp)
                 }
             }

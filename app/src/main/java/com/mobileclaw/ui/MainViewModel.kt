@@ -17,12 +17,11 @@ import com.mobileclaw.agent.TaskType
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.Message
-import com.mobileclaw.llm.HybridLlmGateway
-import com.mobileclaw.llm.LocalGemmaGateway
 import com.mobileclaw.llm.OpenAiGateway
 import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
 import com.mobileclaw.llm.ToolProperty
+import com.mobileclaw.llm.cleanLocalGeneratedText
 import com.mobileclaw.memory.EpisodicMemory
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.memory.db.SessionMessageEntity
@@ -106,20 +105,13 @@ class MainViewModel : ViewModel() {
     private val loader = SkillLoader(app, registry)
     private val overlay = app.overlayManager
     private val auroraOverlay = app.auroraOverlayManager
-    private val episodicMemory = EpisodicMemory(app.database.episodeDao(), OpenAiGateway(config))
+    private val episodicMemory = EpisodicMemory(app.database.episodeDao(), app.createLlmGateway())
     private val conversationMemory = app.conversationMemory
     private val profileExtractor = app.userProfileExtractor
     private val roleManager = app.roleManager
     private val userConfig = app.userConfig
     private val database = app.database
-    private val llm get() = createLlmGateway()
-
-    private fun createLlmGateway() = HybridLlmGateway(
-        local = LocalGemmaGateway(app, app.localModelManager) { config.snapshot().localModelId },
-        cloud = OpenAiGateway(config),
-        useLocal = { config.snapshot().localModelEnabled },
-        canUseCloud = { config.snapshot().let { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() } },
-    )
+    private val llm get() = app.createLlmGateway()
 
     // Role switch requests emitted by SwitchRoleSkill / RoleManagerSkill, consumed in init
     private val roleRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -182,7 +174,7 @@ class MainViewModel : ViewModel() {
             config.configFlow.collect { snap ->
                 _uiState.update { it.copy(
                     isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
-                        (snap.localModelEnabled && app.localModelManager.modelPath(snap.localModelId) != null),
+                        ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
                     currentModel = snap.model,
                     supportsMultimodal = snap.supportsMultimodal,
                 ) }
@@ -195,7 +187,7 @@ class MainViewModel : ViewModel() {
                 _uiState.update { it.copy(
                     localModels = models,
                     isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
-                        (snap.localModelEnabled && app.localModelManager.modelPath(snap.localModelId) != null),
+                        ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
                 ) }
             }
         }
@@ -542,7 +534,7 @@ class MainViewModel : ViewModel() {
                             it.copy(model = model)
                         else it
                     }
-                    config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false))
+                    config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false, localNativeOnly = false))
                 }
             }
         }
@@ -688,7 +680,7 @@ class MainViewModel : ViewModel() {
             return
         }
 
-        val llm = createLlmGateway()
+        val llm = app.createLlmGateway()
         val rt = AgentRuntime(llm, registry, app.semanticMemory)
         runtimes[sessionIdAtStart] = rt
 
@@ -848,9 +840,12 @@ class MainViewModel : ViewModel() {
                     role             = scheduledRole,
                     userProfileContext = userProfileContext,
                     onToken       = { token ->
-                        overlay.onToken(token)
-                        updateSession(resolvedSessionId) { it.copy(streamingToken = it.streamingToken + token) }
-                        consoleServer.broadcast("token", token)
+                        val clean = token.cleanLocalTurnTokens()
+                        if (clean.isNotEmpty()) {
+                            overlay.onToken(clean)
+                            updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                            consoleServer.broadcast("token", clean)
+                        }
                     },
                     onThinkToken  = { token ->
                         overlay.onToken(token)
@@ -919,7 +914,7 @@ class MainViewModel : ViewModel() {
         currentRole: Role,
         priorContext: String,
     ) {
-        val llm = createLlmGateway()
+        val llm = app.createLlmGateway()
         val newJob = viewModelScope.launch {
             var sessionId = sessionIdAtStart
             if (sessionId.isBlank()) {
@@ -951,7 +946,22 @@ class MainViewModel : ViewModel() {
                 "\n## Your Persona\n${currentRole.systemPromptAddendum.trim()}\n"
             } else ""
             val contextSection = if (priorContext.isNotBlank()) "\n## Recent Conversation\n$priorContext\n" else ""
-            val systemPrompt = """You are ${currentRole.avatar} ${currentRole.name}, a helpful AI assistant.$langSection$roleSection$contextSection
+            val localChatMode = config.snapshot().localNativeOnly || config.snapshot().localModelEnabled
+            val systemPrompt = if (localChatMode) {
+                buildString {
+                    appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
+                    append(langSection)
+                    if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
+                        appendLine("Persona: ${currentRole.systemPromptAddendum.trim().take(180)}")
+                    }
+                    if (priorContext.isNotBlank()) {
+                        appendLine("Recent context:")
+                        appendLine(priorContext.take(500))
+                    }
+                    appendLine("Answer directly. Do not create UI blocks unless the user explicitly asks.")
+                }.trim()
+            } else {
+                """You are ${currentRole.avatar} ${currentRole.name}, a helpful AI assistant.$langSection$roleSection$contextSection
 ## Interactive UI — MANDATORY RULES
 You MUST render interactive components instead of plain text in these situations:
 1. Offering choices/options → use buttons (never write "A. xxx  B. xxx" as text)
@@ -975,6 +985,7 @@ ${"```"}ui
 ${"```"}
 
 For pure conversational replies (greetings, simple factual answers) — plain text is fine.""".trimIndent()
+            }
 
             val result = runCatching {
                 llm.chat(ChatRequest(
@@ -985,14 +996,17 @@ For pure conversational replies (greetings, simple factual answers) — plain te
                     tools = emptyList(),
                     stream = true,
                     onToken = { token ->
-                        updateSession(resolvedSessionId) { it.copy(streamingToken = it.streamingToken + token) }
+                        val clean = token.cleanLocalTurnTokens()
+                        if (clean.isNotEmpty()) {
+                            updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                        }
                     },
                 ))
             }
 
-            val summary = result.getOrNull()?.content
+            val summary = (result.getOrNull()?.content
                 ?: _uiState.value.sessionStates[resolvedSessionId]?.streamingToken?.ifBlank { null }
-                ?: result.exceptionOrNull()?.message ?: "Error."
+                ?: result.exceptionOrNull()?.message ?: "Error.").cleanLocalTurnTokens()
 
             val finalAgentMsg = ChatMessage(
                 role = MessageRole.AGENT,
@@ -2366,7 +2380,7 @@ $relevantFacts
                     it.copy(model = model)
                 else it
             }
-            config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false))
+            config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false, localNativeOnly = false))
             _uiState.update { it.copy(currentModel = model) }
         }
     }
@@ -2374,7 +2388,14 @@ $relevantFacts
     fun setLocalModelEnabled(enabled: Boolean) {
         viewModelScope.launch {
             val snap = config.snapshot()
-            config.update(snap.copy(localModelEnabled = enabled))
+            config.update(snap.copy(localModelEnabled = enabled, localNativeOnly = if (enabled) snap.localNativeOnly else false))
+        }
+    }
+
+    fun setLocalNativeOnly(enabled: Boolean) {
+        viewModelScope.launch {
+            val snap = config.snapshot()
+            config.update(snap.copy(localNativeOnly = enabled, localModelEnabled = if (enabled) true else snap.localModelEnabled))
         }
     }
 
@@ -2403,7 +2424,12 @@ $relevantFacts
         if (_uiState.value.modelsLoading) return
         _uiState.update { it.copy(modelsLoading = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            val remoteModels = runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
+            val snap = config.snapshot()
+            val remoteModels = if (snap.localNativeOnly) {
+                emptyList()
+            } else {
+                runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
+            }
             val localModels = app.localModelManager.models.value
                 .filter { it.supportsChatRuntime }
                 .map { it.modelId }
@@ -3233,3 +3259,5 @@ private fun addTaskEmoji(text: String): String {
     }
     return "$emoji $text"
 }
+
+private fun String.cleanLocalTurnTokens(): String = cleanLocalGeneratedText()

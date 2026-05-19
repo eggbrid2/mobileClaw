@@ -692,6 +692,8 @@
     <string name="local_model_not_downloaded_status">未下载 · %s</string>
     <string name="local_model_enable">启用本地模型</string>
     <string name="local_model_enable_desc">纯文本聊天优先走端侧模型；工具、图片、联网和未安装时会自动回退云端。</string>
+    <string name="local_model_native_only">Only native 本地模式</string>
+    <string name="local_model_native_only_desc">只使用已安装的本地模型，不回退云端。纯文本和本地工具任务可离线执行；不支持的多模态请求会给出本地提示。</string>
     <string name="local_model_hf_token">Hugging Face Token（可选）</string>
     <string name="local_model_custom_url">自定义下载直链（可选）</string>
     <string name="local_model_source_custom">自定义直链</string>
@@ -701,6 +703,9 @@
     <string name="local_model_cap_audio">音频</string>
     <string name="local_model_runtime_chat">本地聊天</string>
     <string name="local_model_runtime_package">资源包</string>
+    <string name="local_model_vision_pack">视觉资源包</string>
+    <string name="local_model_vision_ready">视觉包已安装</string>
+    <string name="local_model_vision_missing">本地图片输入需要安装视觉包</string>
     <string name="local_model_selected">当前使用</string>
     <string name="local_model_use">使用</string>
     <string name="local_model_using">使用中</string>

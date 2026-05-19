@@ -692,6 +692,8 @@ Example: "Create an expense tracker app with a database"</string>
     <string name="local_model_not_downloaded_status">Not downloaded · %s</string>
     <string name="local_model_enable">Enable local models</string>
     <string name="local_model_enable_desc">Text-only chat uses the on-device model first. Tools, images, web access, and missing models fall back to cloud when available.</string>
+    <string name="local_model_native_only">Only native mode</string>
+    <string name="local_model_native_only_desc">Use installed local models without cloud fallback. Works offline for text and local tool tasks; unsupported multimodal requests will show a local notice.</string>
     <string name="local_model_hf_token">Hugging Face token (optional)</string>
     <string name="local_model_custom_url">Custom download URL (optional)</string>
     <string name="local_model_source_custom">Custom URL</string>
@@ -701,6 +703,9 @@ Example: "Create an expense tracker app with a database"</string>
     <string name="local_model_cap_audio">Audio</string>
     <string name="local_model_runtime_chat">Local chat</string>
     <string name="local_model_runtime_package">Resource pack</string>
+    <string name="local_model_vision_pack">Vision resource pack</string>
+    <string name="local_model_vision_ready">Vision pack installed</string>
+    <string name="local_model_vision_missing">Vision pack required for local image input</string>
     <string name="local_model_selected">Selected</string>
     <string name="local_model_use">Use</string>
     <string name="local_model_using">Using</string>

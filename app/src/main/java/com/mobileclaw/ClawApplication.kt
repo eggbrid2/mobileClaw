@@ -8,6 +8,8 @@ import com.mobileclaw.config.AgentConfig
 import com.mobileclaw.config.SkillLevelStore
 import com.mobileclaw.config.SkillNotesStore
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.llm.HybridLlmGateway
+import com.mobileclaw.llm.LocalGemmaGateway
 import com.mobileclaw.llm.OpenAiGateway
 import com.mobileclaw.llm.LocalModelManager
 import com.mobileclaw.memory.ConversationMemory
@@ -106,7 +108,7 @@ class ClawApplication : Application() {
         permissionManager = PermissionManager(this)
         semanticMemory = SemanticMemory(database.semanticDao())
         conversationMemory = ConversationMemory(database.conversationDao())
-        userProfileExtractor = UserProfileExtractor(OpenAiGateway(agentConfig), semanticMemory, conversationMemory)
+        userProfileExtractor = UserProfileExtractor(createLlmGateway(), semanticMemory, conversationMemory)
         webViewManager = InAppWebViewManager(this)
         virtualDisplayManager = VirtualDisplayManager(this)
         userConfig = UserConfig(this)
@@ -135,6 +137,14 @@ class ClawApplication : Application() {
         consoleServer.start()
         aiPageStore = AiPageStore(filesDir)
     }
+
+    fun createLlmGateway() = HybridLlmGateway(
+        local = LocalGemmaGateway(this, localModelManager) { agentConfig.snapshot().localModelId },
+        cloud = OpenAiGateway(agentConfig),
+        useLocal = { agentConfig.snapshot().localModelEnabled },
+        canUseCloud = { agentConfig.snapshot().let { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() } },
+        nativeOnly = { agentConfig.snapshot().localNativeOnly },
+    )
 
     override fun onTerminate() {
         super.onTerminate()

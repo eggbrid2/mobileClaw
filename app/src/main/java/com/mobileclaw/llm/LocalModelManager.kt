@@ -42,6 +42,7 @@ data class LocalModelInfo(
     val error: String = "",
 ) {
     val modelId: String get() = "local:$id"
+    val isVisionResource: Boolean get() = !supportsChatRuntime && supportsVision && fileName.endsWith(".task")
     val downloadSources: List<LocalModelSource>
         get() = sources.ifEmpty { listOf(LocalModelSource("huggingface", "Hugging Face", url)) }
 }
@@ -141,6 +142,23 @@ class LocalModelManager(private val context: Context) {
     fun modelPath(id: String): String? {
         val normalized = id.removePrefix("local:")
         return models.value.firstOrNull { it.id == normalized && it.installed && it.supportsChatRuntime }?.path
+    }
+
+    fun visionModelPathFor(id: String): String? {
+        val base = modelInfo(id.removePrefix("local:")) ?: return null
+        return models.value.firstOrNull {
+            it.family == base.family && it.installed && it.isVisionResource
+        }?.path
+    }
+
+    fun visionResourceFor(id: String): LocalModelInfo? {
+        val base = modelInfo(id.removePrefix("local:")) ?: return null
+        return models.value.firstOrNull { it.family == base.family && it.isVisionResource }
+    }
+
+    fun modelInfo(id: String): LocalModelInfo? {
+        val normalized = id.removePrefix("local:")
+        return models.value.firstOrNull { it.id == normalized }
     }
 
     fun refresh() {

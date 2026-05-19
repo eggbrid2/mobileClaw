@@ -39,6 +39,7 @@ class AgentConfig(private val context: Context) {
         val UI_STYLE = stringPreferencesKey("ui_style")
         val LOCAL_MODEL_ENABLED = stringPreferencesKey("local_model_enabled")
         val LOCAL_MODEL_ID = stringPreferencesKey("local_model_id")
+        val LOCAL_NATIVE_ONLY = stringPreferencesKey("local_native_only")
         // Legacy single-gateway keys (read-only for migration)
         val ENDPOINT = stringPreferencesKey("llm_endpoint")
         val API_KEY = stringPreferencesKey("llm_api_key")
@@ -59,6 +60,7 @@ class AgentConfig(private val context: Context) {
             uiStyle = prefs[Keys.UI_STYLE]?.takeIf { it == "desk" || it == "classic" } ?: "desk",
             localModelEnabled = (prefs[Keys.LOCAL_MODEL_ENABLED] ?: "false") == "true",
             localModelId = prefs[Keys.LOCAL_MODEL_ID]?.takeIf { it.isNotBlank() } ?: "gemma4-e2b-litert",
+            localNativeOnly = (prefs[Keys.LOCAL_NATIVE_ONLY] ?: "false") == "true",
         )
     }
 
@@ -82,6 +84,7 @@ class AgentConfig(private val context: Context) {
             prefs[Keys.UI_STYLE] = snapshot.uiStyle.takeIf { it == "desk" || it == "classic" } ?: "desk"
             prefs[Keys.LOCAL_MODEL_ENABLED] = snapshot.localModelEnabled.toString()
             prefs[Keys.LOCAL_MODEL_ID] = snapshot.localModelId
+            prefs[Keys.LOCAL_NATIVE_ONLY] = snapshot.localNativeOnly.toString()
         }
     }
 
@@ -133,6 +136,7 @@ data class ConfigSnapshot(
     val uiStyle: String = "desk",
     val localModelEnabled: Boolean = false,
     val localModelId: String = "gemma4-e2b-litert",
+    val localNativeOnly: Boolean = false,
 ) {
     val activeGateway: GatewayConfig?
         get() = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()
@@ -140,7 +144,7 @@ data class ConfigSnapshot(
     // Backward-compat computed properties
     val endpoint: String get() = activeGateway?.endpoint ?: ""
     val apiKey: String get() = activeGateway?.apiKey ?: ""
-    val model: String get() = if (localModelEnabled) "local:$localModelId" else activeGateway?.model ?: "gpt-4o"
+    val model: String get() = if (localModelEnabled || localNativeOnly) "local:$localModelId" else activeGateway?.model ?: "gpt-4o"
     val cloudModel: String get() = activeGateway?.model ?: "gpt-4o"
     val embeddingModel: String get() = activeGateway?.embeddingModel ?: "text-embedding-3-small"
     val backend: String get() = "openai"
