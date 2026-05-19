@@ -1,11 +1,14 @@
 package com.mobileclaw.ui
 
 import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -14,9 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts.GetContent
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -32,7 +33,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -40,18 +40,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,15 +80,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.skill.SkillAttachment
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.sin
 import com.mobileclaw.str
 
@@ -104,6 +102,21 @@ private val ExampleTasks = listOf(
     str(R.string.chat_e8ab7f),
     str(R.string.chat_07f7c7),
 )
+
+private data class HistoryScrollAnchor(
+    val index: Int,
+    val offset: Int,
+    val messageCount: Int,
+)
+
+private const val MAX_IMAGE_EDGE_PX = 1280
+private const val MAX_TEXT_ATTACHMENT_BYTES = 1_000_000L
+private const val MAX_BINARY_ATTACHMENT_BYTES = 8_000_000L
+
+private sealed class PickedInput {
+    data class Image(val base64: String) : PickedInput()
+    data class File(val attachment: FileAttachment) : PickedInput()
+}
 
 // ── Main Screen ──────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,72 +156,31 @@ fun ChatScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember(sessionTitle) { mutableStateOf(sessionTitle) }
     var showModelPicker by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
-            val base64 = runCatching {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val bm = BitmapFactory.decodeStream(stream)
-                    val out = ByteArrayOutputStream()
-                    val scale = minOf(1024f / bm.width, 1024f / bm.height, 1f)
-                    val scaled = if (scale < 1f) {
-                        Bitmap.createScaledBitmap(bm, (bm.width * scale).toInt(), (bm.height * scale).toInt(), true)
-                            .also { bm.recycle() }
-                    } else bm
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
-                    scaled.recycle()
-                    "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                }
-            }.getOrNull()
-            onAttachImage(base64)
+            scope.launch {
+                val base64 = withContext(Dispatchers.IO) { imageUriToDataUri(context, uri) }
+                onAttachImage(base64)
+            }
         }
     }
     val filePicker = rememberLauncherForActivityResult(GetContent()) { uri ->
         if (uri != null) {
-            runCatching {
-                val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
-                val fileName = run {
-                    val cursor = context.contentResolver.query(uri, null, null, null, null)
-                    cursor?.use { c ->
-                        if (c.moveToFirst()) {
-                            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                            if (idx >= 0) c.getString(idx) else null
-                        } else null
-                    } ?: uri.lastPathSegment ?: "attachment"
-                }
-                val isText = mimeType.startsWith("text/") ||
-                    mimeType == "application/json" || mimeType == "application/xml" ||
-                    mimeType == "application/javascript" || mimeType == "application/x-sh"
-                if (isText) {
-                    val content = context.contentResolver.openInputStream(uri)
-                        ?.use { it.bufferedReader().readText() } ?: return@runCatching
-                    onAttachFile(FileAttachment(fileName, content, isText = true, mimeType = mimeType))
-                } else if (mimeType.startsWith("image/")) {
-                    val base64 = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        val bm = BitmapFactory.decodeStream(stream)
-                        val out = ByteArrayOutputStream()
-                        val scale = minOf(1024f / bm.width, 1024f / bm.height, 1f)
-                        val scaled = if (scale < 1f) {
-                            Bitmap.createScaledBitmap(bm, (bm.width * scale).toInt(), (bm.height * scale).toInt(), true)
-                                .also { bm.recycle() }
-                        } else bm
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
-                        scaled.recycle()
-                        "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                    }
-                    if (base64 != null) onAttachImage(base64)
-                } else {
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: return@runCatching
-                    val base64Content = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    onAttachFile(FileAttachment(fileName, base64Content, isText = false, mimeType = mimeType))
+            scope.launch {
+                val picked = withContext(Dispatchers.IO) { buildPickedAttachment(context, uri) }
+                when (picked) {
+                    is PickedInput.Image -> onAttachImage(picked.base64)
+                    is PickedInput.File -> onAttachFile(picked.attachment)
+                    null -> Toast.makeText(context, str(R.string.chat_file_too_large), Toast.LENGTH_SHORT).show()
                 }
             }
         }
     }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showStickerSearch by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var historyScrollAnchor by remember(uiState.currentSessionId) { mutableStateOf<HistoryScrollAnchor?>(null) }
 
     // Scroll to bottom. Split into two effects:
     // 1) item count changes → animated scroll (new message completed)
@@ -216,6 +188,14 @@ fun ChatScreen(
     // scrollOffset = 3000 ensures the BOTTOM of the last item is visible (clamped to max extent).
     var lastScrolledCount by remember { mutableIntStateOf(-1) }
     LaunchedEffect(itemCount) {
+        val anchor = historyScrollAnchor
+        if (anchor != null && runState.messages.size > anchor.messageCount) {
+            val inserted = runState.messages.size - anchor.messageCount
+            listState.scrollToItem(anchor.index + inserted, anchor.offset)
+            historyScrollAnchor = null
+            lastScrolledCount = itemCount
+            return@LaunchedEffect
+        }
         if (itemCount > 0) {
             if (lastScrolledCount < 0 || itemCount - lastScrolledCount > 1) {
                 listState.scrollToItem(itemCount - 1, scrollOffset = 3000)
@@ -241,7 +221,21 @@ fun ChatScreen(
     val firstVisibleIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
     LaunchedEffect(firstVisibleIndex) {
         if (firstVisibleIndex == 0 && uiState.historyHasMore && !uiState.historyLoading && !runState.isRunning) {
+            historyScrollAnchor = HistoryScrollAnchor(
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset,
+                messageCount = runState.messages.size,
+            )
             onLoadMoreHistory()
+        }
+    }
+    val showJumpToLatest by remember(itemCount) {
+        derivedStateOf {
+            if (itemCount <= 2) false
+            else {
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible < itemCount - 2
+            }
         }
     }
 
@@ -273,7 +267,7 @@ fun ChatScreen(
                     item {
                         EmptyState(
                             recommendations = uiState.recommendations,
-                            onTaskSelected = { task -> onSendGoal(task.substringAfter(" ")) },
+                            onTaskSelected = { task -> onSendGoal(task) },
                             onOpenHelp = onOpenHelp,
                         )
                     }
@@ -292,24 +286,28 @@ fun ChatScreen(
                         }
                     }
                 }
-                itemsIndexed(runState.messages, key = { idx, _ -> "msg_$idx" }) { _, msg ->
+                itemsIndexed(runState.messages, key = { idx, msg -> msg.stableUiKey(idx) }) { idx, msg ->
                     when (msg.role) {
                         MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
                         MessageRole.AGENT -> {
                             val messageRole = remember(msg.senderRoleId, msg.senderRoleName, msg.senderRoleAvatar, uiState.availableRoles, uiState.currentRole) {
                                 msg.senderDisplayRole(uiState.availableRoles, uiState.currentRole)
                             }
+                            val previous = runState.messages.getOrNull(idx - 1)
+                            val showHeader = previous?.role != MessageRole.AGENT || !previous.sameSenderAs(msg)
                             if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(0.93f),
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
-                                    AgentMessageHeader(
-                                        role = messageRole,
-                                        model = uiState.currentModel,
-                                        onPickModel = { showModelPicker = true },
-                                        onSwitchRole = onSwitchRole,
-                                    )
+                                    if (showHeader) {
+                                        AgentMessageHeader(
+                                            role = messageRole,
+                                            model = uiState.currentModel,
+                                            onPickModel = { showModelPicker = true },
+                                            onSwitchRole = onSwitchRole,
+                                        )
+                                    }
                                     AttachmentBubble(
                                         attachments = msg.attachments,
                                         onOpenHtmlViewer = onOpenHtmlViewer,
@@ -324,6 +322,7 @@ fun ChatScreen(
                                         logLines = msg.logLines,
                                         currentRole = messageRole,
                                         currentModel = uiState.currentModel,
+                                        showHeader = showHeader,
                                         onSwitchRole = onSwitchRole,
                                         onPickModel = { showModelPicker = true },
                                         onOpenHtmlViewer = onOpenHtmlViewer,
@@ -378,7 +377,38 @@ fun ChatScreen(
                     .align(Alignment.TopCenter)
                     .background(Brush.verticalGradient(listOf(c.surface.copy(alpha = 0.85f), Color.Transparent))),
             )
-        }
+            if (showJumpToLatest) {
+                Box(modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 14.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (c.isDark) Color(0xFF151515) else Color.White)
+                            .border(0.6.dp, c.border.copy(alpha = 0.9f), CircleShape)
+                            .clickable {
+                                scope.launch {
+                                    if (itemCount > 0) listState.animateScrollToItem(itemCount - 1, scrollOffset = 3000)
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = c.text,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                str(R.string.chat_latest),
+                                color = c.text,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            }
+                        }
+                    }
+                }
+            }
 
         InputBar(
             input = input,
@@ -430,6 +460,7 @@ fun ChatScreen(
         ModelPickerDialog(
             currentModel = uiState.currentModel,
             availableModels = uiState.availableModels,
+            localModels = uiState.localModels,
             loading = uiState.modelsLoading,
             onSelect = { onModelChange(it); showModelPicker = false },
             onFetch = onFetchModels,
@@ -438,28 +469,64 @@ fun ChatScreen(
     }
 
     if (showRenameDialog) {
-        AlertDialog(
+        BasicAlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text(str(R.string.chat_3e654d)) },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .background(if (c.isDark) Color(0xFF101010) else Color.White, RoundedCornerShape(22.dp))
+                    .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(22.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(str(R.string.chat_3e654d), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(
                     value = renameText,
                     onValueChange = { renameText = it },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = c.text.copy(alpha = 0.5f),
+                        unfocusedBorderColor = c.border,
+                        focusedTextColor = c.text,
+                        unfocusedTextColor = c.text,
+                        cursorColor = c.text,
+                        focusedContainerColor = if (c.isDark) Color(0xFF151515) else Color(0xFFF8F8F6),
+                        unfocusedContainerColor = if (c.isDark) Color(0xFF151515) else Color(0xFFF8F8F6),
+                    ),
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (renameText.isNotBlank()) {
-                        onRenameSession(uiState.currentSessionId, renameText.trim())
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .clickable { showRenameDialog = false }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                    ) {
+                        Text(str(R.string.btn_cancel), color = c.subtext, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
-                    showRenameDialog = false
-                }) { Text(str(R.string.role_save)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRenameDialog = false }) { Text(str(R.string.btn_cancel)) }
-            },
-        )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(c.text)
+                            .clickable {
+                                if (renameText.isNotBlank()) {
+                                    onRenameSession(uiState.currentSessionId, renameText.trim())
+                                }
+                                showRenameDialog = false
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                    ) {
+                        Text(str(R.string.role_save), color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     }
 
     selectedStepLog?.let { step ->
@@ -557,12 +624,15 @@ private fun TopBar(
 private fun ModelPickerDialog(
     currentModel: String,
     availableModels: List<String>,
+    localModels: List<LocalModelInfo>,
     loading: Boolean,
     onSelect: (String) -> Unit,
     onFetch: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val localByModelId = remember(localModels) { localModels.associateBy { it.modelId } }
+    val localById = remember(localModels) { localModels.associateBy { it.id } }
 
     BasicAlertDialog(
         onDismissRequest = onDismiss,
@@ -570,13 +640,13 @@ private fun ModelPickerDialog(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .background(c.surface, RoundedCornerShape(16.dp))
-                .border(1.dp, c.border, RoundedCornerShape(16.dp))
-                .padding(top = 16.dp, bottom = 6.dp),
+                .fillMaxWidth(0.9f)
+                .background(if (c.isDark) Color(0xFF101010) else Color.White, RoundedCornerShape(22.dp))
+                .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(22.dp))
+                .padding(top = 16.dp, bottom = 8.dp),
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp),
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -588,14 +658,15 @@ private fun ModelPickerDialog(
                 )
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(c.text.copy(alpha = 0.05f))
                         .clickable { onFetch() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Fetch models",
+                        contentDescription = str(R.string.chat_fetch_models),
                         tint = c.subtext,
                         modifier = Modifier.size(18.dp),
                     )
@@ -607,7 +678,7 @@ private fun ModelPickerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (loading) {
@@ -625,29 +696,72 @@ private fun ModelPickerDialog(
                 }
                 availableModels.forEach { model ->
                     val isSelected = model == currentModel
+                    val local = localByModelId[model] ?: localById[model.removePrefix("local:")]
+                    val isLocalModel = local != null || model.startsWith("local:")
+                    val source = if (isLocalModel) str(R.string.chat_model_source_local) else str(R.string.chat_model_source_cloud)
+                    val ability = when {
+                        local?.supportsVision == true -> str(R.string.local_model_cap_vision)
+                        local?.supportsText == true -> str(R.string.local_model_cap_text)
+                        else -> str(R.string.local_model_cap_text)
+                    }
+                    val title = local?.name ?: model.substringAfterLast("/").substringAfter("local:")
+                    val subtitle = "$source · $ability"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .clickable { onSelect(model) }
-                            .background(if (isSelected) c.accent.copy(alpha = 0.08f) else Color.Transparent)
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .background(
+                                if (isSelected) c.text.copy(alpha = if (c.isDark) 0.14f else 0.07f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                0.5.dp,
+                                if (isSelected) c.text.copy(alpha = 0.16f) else Color.Transparent,
+                                RoundedCornerShape(16.dp),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        if (isSelected) {
-                            Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(c.accent))
-                        } else {
-                            Spacer(Modifier.size(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isLocalModel) c.accent.copy(alpha = 0.13f)
+                                    else c.blue.copy(alpha = 0.11f)
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ClawSymbolIcon(
+                                symbol = if (isLocalModel) "model" else "web",
+                                tint = if (isLocalModel) c.accent else c.blue,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
-                        Text(
-                            model,
-                            color = if (isSelected) c.accent else c.text,
-                            fontSize = 14.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                title,
+                                color = c.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                subtitle,
+                                color = c.subtext,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (isSelected) {
+                            ClawSymbolIcon("check", tint = c.accent, modifier = Modifier.size(18.dp))
+                        }
                     }
-                    HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
                 }
             }
 
@@ -659,18 +773,6 @@ private fun ModelPickerDialog(
             }
         }
     }
-}
-
-@Composable
-private fun TopBarButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    val c = LocalClawColors.current
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) { content() }
 }
 
 // ── Setup Banner ─────────────────────────────────────────────────────────────
@@ -709,59 +811,76 @@ private fun EmptyState(
     val tasks = if (recommendations.isNotEmpty()) recommendations else ExampleTasks
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 36.dp, bottom = 18.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 42.dp, bottom = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
-                .size(60.dp)
+                .size(68.dp)
                 .clip(CircleShape)
                 .background(Brush.radialGradient(listOf(c.accent.copy(alpha = 0.15f), Color.Transparent)))
                 .border(1.dp, c.accent.copy(alpha = 0.3f), CircleShape),
             contentAlignment = Alignment.Center,
-        ) { ClawSymbolIcon("profile", tint = c.accent, modifier = Modifier.size(28.dp)) }
+        ) { ClawSymbolIcon("profile", tint = c.accent, modifier = Modifier.size(30.dp)) }
 
-        Spacer(Modifier.height(14.dp))
-        Text("MobileClaw", color = c.text, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp)
-        Spacer(Modifier.height(4.dp))
-        Text(str(R.string.app_tagline), color = c.subtext, fontSize = 12.sp)
         Spacer(Modifier.height(16.dp))
+        Text("MobileClaw", color = c.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp)
+        Spacer(Modifier.height(5.dp))
+        Text(str(R.string.app_tagline), color = c.subtext, fontSize = 12.sp)
+        Spacer(Modifier.height(20.dp))
 
-        // Smart recommendations or example tasks
         Text(
             if (recommendations.isNotEmpty()) str(R.string.chat_b8181c) else str(R.string.chat_72e47b),
-            color = c.subtext, fontSize = 10.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.SemiBold,
+            color = c.subtext,
+            fontSize = 10.sp,
+            letterSpacing = 1.2.sp,
+            fontWeight = FontWeight.SemiBold,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
-        tasks.forEach { task ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .padding(vertical = 3.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(c.card)
-                    .border(1.dp, c.borderActive, RoundedCornerShape(10.dp))
-                    .clickable { onTaskSelected(task) }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(task, color = c.text.copy(alpha = 0.85f), fontSize = 12.sp, lineHeight = 17.sp)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(0.9f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            tasks.take(3).forEach { task ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (c.isDark) Color(0xFF141414) else Color.White)
+                        .border(0.6.dp, c.border.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
+                        .clickable { onTaskSelected(cleanTaskLabel(task)) }
+                        .padding(horizontal = 13.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        cleanTaskLabel(task),
+                        color = c.text.copy(alpha = 0.88f),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
         Spacer(Modifier.height(14.dp))
-        // Help link
-        Text(
-            str(R.string.chat_c5fab5),
-            color = c.accent.copy(alpha = 0.7f),
-            fontSize = 12.sp,
+        Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(18.dp))
                 .clickable { onOpenHelp() }
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-        )
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            ClawSymbolIcon("help", tint = c.subtext, modifier = Modifier.size(15.dp))
+            Text(str(R.string.chat_c5fab5), color = c.subtext, fontSize = 12.sp)
+        }
     }
 }
+
+private fun cleanTaskLabel(task: String): String =
+    task.replace(Regex("""^[^\p{L}\p{N}]+"""), "").trim()
 
 // ── User Bubble ───────────────────────────────────────────────────────────────
 @Composable
@@ -828,6 +947,9 @@ private fun ChatMessage.senderDisplayRole(
         avatar = senderRoleAvatar.ifBlank { fallback.avatar },
     )
 }
+
+private fun ChatMessage.sameSenderAs(other: ChatMessage): Boolean =
+    senderRoleId.ifBlank { senderRoleName } == other.senderRoleId.ifBlank { other.senderRoleName }
 
 @Composable
 private fun AgentMessageHeader(
@@ -896,6 +1018,7 @@ private fun AgentBubble(
     attachments: List<SkillAttachment> = emptyList(),
     currentRole: Role = Role.DEFAULT,
     currentModel: String = "",
+    showHeader: Boolean = true,
     onSwitchRole: () -> Unit = {},
     onPickModel: () -> Unit = {},
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
@@ -911,33 +1034,59 @@ private fun AgentBubble(
     val isSuccess = logLines.none { it.type == LogType.ERROR }
     val steps = logLines.filter { it.type != LogType.SUCCESS && (it.text.isNotBlank() || it.imageBase64 != null) }
     val (cleanSummary, quickReplies) = remember(summary) { parseQuickReplies(summary) }
-    val shouldCollapseSummary = cleanSummary.length > 900 || uiFencePattern.containsMatchIn(cleanSummary)
+    val shouldCollapseSummary = cleanSummary.length > 420 || uiFencePattern.containsMatchIn(cleanSummary)
     val visibleSummary = if (shouldCollapseSummary && !summaryExpanded) textPreview(cleanSummary) else cleanSummary
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
         // Role header: avatar + name + model chip
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AgentMessageHeader(
-                role = currentRole,
-                model = currentModel,
-                onSwitchRole = onSwitchRole,
-                onPickModel = onPickModel,
-            )
-            if (!isSuccess) {
-                Spacer(Modifier.width(6.dp))
-                Text("✗", color = c.red, fontSize = 11.sp, modifier = Modifier.padding(bottom = 8.dp))
+        if (showHeader || !isSuccess) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showHeader) {
+                    AgentMessageHeader(
+                        role = currentRole,
+                        model = currentModel,
+                        onSwitchRole = onSwitchRole,
+                        onPickModel = onPickModel,
+                    )
+                }
+                if (!isSuccess) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .padding(bottom = 6.dp)
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(c.red.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("!", color = c.red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 
         if (visibleSummary.isNotBlank()) {
-            MarkdownText(visibleSummary, color = c.text, fontSize = 13.sp, lineHeight = 18.sp, onAction = onSendGoal)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (c.isDark) Color(0xFF141414) else Color(0xFFF8F8F6))
+                    .border(
+                        0.6.dp,
+                        if (c.isDark) c.border.copy(alpha = 0.75f) else Color(0xFFE9E9E4),
+                        RoundedCornerShape(16.dp),
+                    )
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+            ) {
+                MarkdownText(visibleSummary, color = c.text, fontSize = 13.sp, lineHeight = 18.sp, onAction = onSendGoal)
+            }
         }
 
         if (shouldCollapseSummary) {
             Spacer(Modifier.height(6.dp))
             Text(
-                if (summaryExpanded) "收起" else "更多",
-                color = c.accent,
+                if (summaryExpanded) str(R.string.chat_collapse_simple) else str(R.string.chat_more_simple),
+                color = c.subtext,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
@@ -1007,7 +1156,29 @@ private fun AgentBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(when { hasError -> "⚠"; hasThinking -> "🧠"; else -> "⚙" }, fontSize = 11.sp)
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                hasError -> c.red.copy(alpha = 0.12f)
+                                hasThinking -> c.accent.copy(alpha = 0.12f)
+                                else -> c.text.copy(alpha = 0.06f)
+                            }
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (hasError) {
+                        Text("!", color = c.red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        ClawSymbolIcon(
+                            symbol = if (hasThinking) "profile" else "tool",
+                            tint = if (hasThinking) c.accent else c.subtext,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
                 Text(
                     buildString {
                         append(stringResource(R.string.steps_label, steps.size))
@@ -1017,7 +1188,12 @@ private fun AgentBubble(
                     fontSize = 11.sp,
                     modifier = Modifier.weight(1f),
                 )
-                Text(if (stepsExpanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.6f), fontSize = 9.sp)
+                Icon(
+                    imageVector = if (stepsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = c.subtext.copy(alpha = 0.6f),
+                    modifier = Modifier.size(16.dp),
+                )
             }
 
             AnimatedVisibility(
@@ -1095,13 +1271,6 @@ private fun ActiveTaskBubble(
     var stepsExpanded by remember { mutableStateOf(false) }
     var thoughtExpanded by remember { mutableStateOf(false) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "border")
-    val angle by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing)),
-        label = "border",
-    )
-
     val lastAction = logLines.lastOrNull { it.type == LogType.ACTION || it.type == LogType.THINKING }
     val currentLabel = when (lastAction?.type) {
         LogType.ACTION   -> chineseSkillLabel(lastAction.skillId)
@@ -1132,23 +1301,9 @@ private fun ActiveTaskBubble(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehind {
-                    val stroke = 1.5.dp.toPx()
-                    val rad = angle * PI.toFloat() / 180f
-                    val cx = size.width / 2
-                    val cy = size.height / 2
-                    val r = maxOf(size.width, size.height)
-                    drawRoundRect(
-                        brush = Brush.sweepGradient(
-                            listOf(Color.Transparent, c.accent.copy(alpha = 0.7f), Color.Transparent),
-                            center = Offset(cx + cos(rad) * r, cy + sin(rad) * r),
-                        ),
-                        size = size,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(18.dp.toPx()),
-                        style = Stroke(width = stroke),
-                    )
-                }
-                .background(c.card, RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp))
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (c.isDark) Color(0xFF141414) else Color(0xFFF8F8F6))
+                .border(0.8.dp, c.accent.copy(alpha = 0.16f), RoundedCornerShape(16.dp))
                 .padding(top = 10.dp, bottom = 10.dp, start = 12.dp, end = 12.dp),
         ) {
             // Header: label + spinner + step status
@@ -1156,39 +1311,51 @@ private fun ActiveTaskBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                ClawSymbolIcon("profile", tint = c.accent, modifier = Modifier.size(13.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "MobileClaw",
-                    color = c.accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp,
-                )
-                Spacer(Modifier.width(8.dp))
-                CircularProgressIndicator(modifier = Modifier.size(11.dp), color = c.accent, strokeWidth = 1.5.dp)
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(c.accent.copy(alpha = 0.13f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), color = c.accent, strokeWidth = 1.6.dp)
+                }
                 Spacer(Modifier.width(8.dp))
                 if (logLines.isNotEmpty()) {
                     Text(
-                        str(R.string.step_label, logLines.size, currentLabel),
-                        color = c.subtext,
-                        fontSize = 10.sp,
+                        currentLabel,
+                        color = c.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         if (stepsExpanded) str(R.string.chat_c4b206) else str(R.string.chat_900d90),
-                        color = c.accent.copy(alpha = 0.7f),
+                        color = c.subtext,
                         fontSize = 10.sp,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.text.copy(alpha = 0.05f))
                             .clickable { stepsExpanded = !stepsExpanded }
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 } else {
-                    Text(str(R.string.chat_dcfb68), color = c.subtext, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                    Text(str(R.string.chat_dcfb68), color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 }
+            }
+
+            if (logLines.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    str(R.string.step_label, logLines.size, currentLabel),
+                    color = c.subtext,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 28.dp),
+                )
             }
 
             // Steps list — collapsed by default
@@ -1205,7 +1372,7 @@ private fun ActiveTaskBubble(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(bodyShape)
-                            .background(c.surface)
+                            .background(if (c.isDark) Color(0xFF0F0F0F) else Color.White)
                             .padding(vertical = 4.dp),
                     ) {
                         logLines.forEachIndexed { index, line ->
@@ -1225,15 +1392,15 @@ private fun ActiveTaskBubble(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(c.purple.copy(alpha = 0.06f))
+                        .background(c.text.copy(alpha = 0.045f))
                         .clickable { thoughtExpanded = !thoughtExpanded }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Box(modifier = Modifier.width(2.dp).height(12.dp).background(c.purple.copy(alpha = 0.6f), RoundedCornerShape(1.dp)))
-                        Text(str(R.string.chat_1aa9e9), color = c.purple.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp, modifier = Modifier.weight(1f))
-                        Text(str(R.string.chars_count, streamingThought.length), color = c.purple.copy(alpha = 0.4f), fontSize = 9.sp)
-                        Text(if (thoughtExpanded) "▲" else "▼", color = c.purple.copy(alpha = 0.4f), fontSize = 9.sp)
+                        Box(modifier = Modifier.width(2.dp).height(12.dp).background(c.accent.copy(alpha = 0.6f), RoundedCornerShape(1.dp)))
+                        Text(str(R.string.chat_1aa9e9), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp, modifier = Modifier.weight(1f))
+                        Text(str(R.string.chars_count, streamingThought.length), color = c.subtext.copy(alpha = 0.65f), fontSize = 9.sp)
+                        Text(if (thoughtExpanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.65f), fontSize = 9.sp)
                     }
                     AnimatedVisibility(
                         visible = thoughtExpanded,
@@ -1242,7 +1409,7 @@ private fun ActiveTaskBubble(
                     ) {
                         Text(
                             streamingThought.takeLast(400),
-                            color = c.purple.copy(alpha = 0.75f),
+                            color = c.subtext,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                             fontStyle = FontStyle.Italic,
@@ -1301,6 +1468,26 @@ private fun chineseSkillLabel(skillId: String?): String = when (skillId) {
     else                                    -> skillId ?: str(R.string.chat_850b4e)
 }
 
+private fun skillIconSymbol(skillId: String?): String = when (skillId) {
+    "screenshot", "bg_screenshot" -> "screenshot"
+    "read_screen", "bg_read_screen", "see_screen" -> "eye"
+    "tap", "long_click", "scroll", "input_text", "navigate" -> "phone"
+    "list_apps", "app_manager" -> "apps"
+    "web_search", "fetch_url", "web_browse", "web_content", "web_js" -> "web"
+    "bg_launch", "bg_stop", "vd_setup" -> "desktop"
+    "shell" -> "code"
+    "memory" -> "memory"
+    "permission" -> "permission"
+    "skill_check", "skill_market", "quick_skill", "meta" -> "skill"
+    "generate_image" -> "image"
+    "ui_builder" -> "page"
+    "create_file", "create_html" -> "file"
+    "switch_model" -> "model"
+    "switch_role" -> "role"
+    "user_config" -> "settings"
+    else -> "tool"
+}
+
 private val SkillColors = mapOf(
     "screenshot"      to 0xFF6B8EFF,   // blue-purple
     "bg_screenshot"   to 0xFF6B8EFF,
@@ -1342,6 +1529,7 @@ private fun CollapsibleStepRow(
     expanded: Boolean,
     onToggle: () -> Unit,
     labelColor: Color,
+    iconSymbol: String,
     onDetail: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -1360,6 +1548,15 @@ private fun CollapsibleStepRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(labelColor.copy(alpha = 0.10f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ClawSymbolIcon(iconSymbol, tint = labelColor, modifier = Modifier.size(12.dp))
+                }
                 Text(
                     label,
                     color = labelColor,
@@ -1416,12 +1613,13 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 summary = str(R.string.chars_count, line.text.length),
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
-                labelColor = c.purple.copy(alpha = 0.7f),
+                labelColor = c.accent.copy(alpha = 0.78f),
+                iconSymbol = "profile",
                 onDetail = { onSelectStep(line) },
             ) {
                 Text(
                     line.text,
-                    color = c.purple.copy(alpha = 0.7f),
+                    color = c.subtext,
                     fontSize = 10.sp,
                     lineHeight = 15.sp,
                     fontStyle = FontStyle.Italic,
@@ -1437,11 +1635,12 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
             val labelColor = (if (accentLong != null) Color(accentLong) else c.blue).copy(alpha = 0.85f)
             val summary = line.text.take(36).let { if (line.text.length > 36) "$it…" else it }
             CollapsibleStepRow(
-                label = "⚙ $skillLabel",
+                label = skillLabel,
                 summary = summary,
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = labelColor,
+                iconSymbol = skillIconSymbol(line.skillId),
                 onDetail = { onSelectStep(line) },
             ) {
                 Box(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
@@ -1466,6 +1665,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 expanded = expanded,
                 onToggle = { expanded = !expanded },
                 labelColor = c.subtext.copy(alpha = 0.65f),
+                iconSymbol = if (hasImage) "screenshot" else "eye",
                 onDetail = { onSelectStep(line) },
             ) {
                 Column(
@@ -1511,7 +1711,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Text("✓", color = c.green, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(14.dp).padding(top = 1.dp))
+                ClawSymbolIcon("check", tint = c.green, modifier = Modifier.width(14.dp).padding(top = 1.dp).size(12.dp))
                 Text(line.text, color = c.green.copy(alpha = 0.85f), fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f))
             }
         }
@@ -1522,7 +1722,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Text("✗", color = c.red, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(14.dp).padding(top = 1.dp))
+                Text("!", color = c.red, fontSize = 11.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.width(14.dp).padding(top = 1.dp))
                 Text(line.text, color = c.red.copy(alpha = 0.85f), fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f))
             }
         }
@@ -1533,7 +1733,9 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Text("·", color = c.subtext, fontSize = 11.sp, modifier = Modifier.width(14.dp).padding(top = 1.dp))
+                Box(modifier = Modifier.width(14.dp).padding(top = 6.dp)) {
+                    Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(c.subtext.copy(alpha = 0.45f)))
+                }
                 Text(line.text, color = c.subtext.copy(alpha = 0.85f), fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f))
             }
         }
@@ -1759,30 +1961,38 @@ private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: an
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, c.border, RoundedCornerShape(10.dp))
-                .background(c.card)
+                .clip(RoundedCornerShape(16.dp))
+                .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                .background(if (c.isDark) Color(0xFF141414) else Color.White)
                 .clickable { openFileAttachment(context, attachment) }
-                .padding(10.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(c.blue.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
-            ) { Text(mimeTypeEmoji(attachment.mimeType), fontSize = 16.sp) }
+            ) {
+                ClawSymbolIcon(
+                    symbol = mimeTypeSymbol(attachment.mimeType),
+                    tint = c.blue,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
-                Text(attachment.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(attachment.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${formatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}",
                     color = c.subtext,
                     fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            ClawSymbolIcon("link", tint = c.subtext, modifier = Modifier.size(17.dp))
         }
     }
 }
@@ -1794,9 +2004,9 @@ private fun FileListCard(attachment: SkillAttachment.FileList, context: android.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(0.5.dp, c.border, RoundedCornerShape(12.dp))
-            .background(c.card),
+            .clip(RoundedCornerShape(16.dp))
+            .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(if (c.isDark) Color(0xFF141414) else Color.White),
     ) {
         Row(
             modifier = Modifier
@@ -1812,7 +2022,7 @@ private fun FileListCard(attachment: SkillAttachment.FileList, context: android.
                     .clip(RoundedCornerShape(10.dp))
                     .background(c.text.copy(alpha = 0.06f)),
                 contentAlignment = Alignment.Center,
-            ) { Text("≡", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+            ) { ClawSymbolIcon("folder", tint = c.text, modifier = Modifier.size(18.dp)) }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     attachment.directory.ifBlank { str(R.string.group_label_file_list) },
@@ -1860,12 +2070,18 @@ private fun FileListCard(attachment: SkillAttachment.FileList, context: android.
                         Box(
                             modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(c.text.copy(alpha = 0.06f)),
                             contentAlignment = Alignment.Center,
-                        ) { Text(mimeTypeEmoji(entry.mimeType), fontSize = 15.sp) }
+                        ) {
+                            ClawSymbolIcon(
+                                symbol = mimeTypeSymbol(entry.mimeType),
+                                tint = c.text,
+                                modifier = Modifier.size(17.dp),
+                            )
+                        }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(entry.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(formatFileSize(entry.sizeBytes), color = c.subtext, fontSize = 10.sp)
                         }
-                        Text(stringResource(R.string.perm_open), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        ClawSymbolIcon("link", tint = c.subtext, modifier = Modifier.size(15.dp))
                     }
                 }
             }
@@ -1909,7 +2125,18 @@ private fun ImageAttachmentCard(
                 contentScale = ContentScale.Fit,
             )
         } else {
-            Text("图", color = c.subtext, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(28.dp))
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (c.isDark) Color(0xFF141414) else Color.White)
+                    .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ClawSymbolIcon("image", tint = c.subtext, modifier = Modifier.size(18.dp))
+                Text(str(R.string.chat_image_unavailable), color = c.subtext, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
         }
     }
     if (bitmap != null && showFullscreen) {
@@ -1917,17 +2144,17 @@ private fun ImageAttachmentCard(
     }
 }
 
-private fun mimeTypeEmoji(mimeType: String): String = when {
-    mimeType.startsWith("image/") -> "🖼️"
-    mimeType.startsWith("video/") -> "🎬"
-    mimeType.startsWith("audio/") -> "🎵"
-    mimeType == "application/pdf" -> "📕"
-    mimeType.contains("json") -> "🗂️"
-    mimeType.contains("csv") || mimeType.contains("excel") || mimeType.contains("spreadsheet") -> "📊"
-    mimeType.contains("python") || mimeType.contains("javascript") || mimeType.contains("x-") -> "💻"
-    mimeType.contains("html") -> "🌐"
-    mimeType.contains("zip") || mimeType.contains("archive") -> "📦"
-    else -> "📄"
+private fun mimeTypeSymbol(mimeType: String): String = when {
+    mimeType.startsWith("image/") -> "image"
+    mimeType.startsWith("video/") -> "video"
+    mimeType.startsWith("audio/") -> "audio"
+    mimeType == "application/pdf" -> "file"
+    mimeType.contains("json") -> "file"
+    mimeType.contains("csv") || mimeType.contains("excel") || mimeType.contains("spreadsheet") -> "file"
+    mimeType.contains("python") || mimeType.contains("javascript") || mimeType.contains("x-") -> "code"
+    mimeType.contains("html") -> "web"
+    mimeType.contains("zip") || mimeType.contains("archive") -> "package"
+    else -> "file"
 }
 
 private fun openFileAttachment(context: android.content.Context, attachment: SkillAttachment.FileData) {
@@ -2028,18 +2255,18 @@ private fun HtmlAttachmentCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .background(c.card)
+            .clip(RoundedCornerShape(16.dp))
+            .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(if (c.isDark) Color(0xFF141414) else Color.White)
             .clickable { onOpenHtmlViewer(attachment) }
-            .padding(10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier = Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(c.accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) { ClawSymbolIcon("web", tint = c.accent, modifier = Modifier.size(18.dp)) }
@@ -2047,7 +2274,7 @@ private fun HtmlAttachmentCard(
             Text(attachment.title, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             Text(str(R.string.chat_411604), color = c.subtext, fontSize = 11.sp)
         }
-        Text(str(R.string.chat_607e7a), color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        ClawSymbolIcon("link", tint = c.subtext, modifier = Modifier.size(17.dp))
     }
 }
 
@@ -2057,12 +2284,14 @@ private fun SearchResultsCard(
     onOpenBrowser: (String) -> Unit = {},
 ) {
     val c = LocalClawColors.current
+    var expanded by remember(attachment.query, attachment.pages.size) { mutableStateOf(false) }
+    val visiblePages = if (expanded) attachment.pages else attachment.pages.take(3)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .background(c.card),
+            .clip(RoundedCornerShape(16.dp))
+            .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(if (c.isDark) Color(0xFF141414) else Color.White),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
@@ -2081,7 +2310,7 @@ private fun SearchResultsCard(
             )
         }
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
-        attachment.pages.forEachIndexed { index, page ->
+        visiblePages.forEachIndexed { index, page ->
             val domain = runCatching { java.net.URI(page.url).host ?: page.url }.getOrDefault(page.url)
             Row(
                 modifier = Modifier
@@ -2102,7 +2331,7 @@ private fun SearchResultsCard(
                         color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
-                    Text(domain, color = c.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(domain, color = c.subtext, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (page.excerpt.isNotBlank()) {
                         Text(
                             page.excerpt,
@@ -2112,8 +2341,32 @@ private fun SearchResultsCard(
                     }
                 }
             }
-            if (index < attachment.pages.lastIndex) {
+            if (index < visiblePages.lastIndex) {
                 HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(start = 28.dp))
+            }
+        }
+        if (attachment.pages.size > 3) {
+            HorizontalDivider(color = c.border.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(start = 28.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    if (expanded) str(R.string.chat_collapse_results) else str(R.string.chat_show_more_results, attachment.pages.size - visiblePages.size),
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = c.subtext,
+                    modifier = Modifier.size(14.dp),
+                )
             }
         }
     }
@@ -2128,9 +2381,9 @@ private fun AccessibilityCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .background(c.card)
+            .clip(RoundedCornerShape(16.dp))
+            .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(if (c.isDark) Color(0xFF141414) else Color.White)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2138,7 +2391,7 @@ private fun AccessibilityCard(
         Box(
             modifier = Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(c.accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) { ClawSymbolIcon("accessibility", tint = c.accent, modifier = Modifier.size(18.dp)) }
@@ -2168,18 +2421,18 @@ private fun WebPageCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
-            .background(c.card)
+            .clip(RoundedCornerShape(16.dp))
+            .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(if (c.isDark) Color(0xFF141414) else Color.White)
             .clickable { onOpenBrowser(attachment.url) }
-            .padding(10.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier = Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(c.accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) { ClawSymbolIcon("link", tint = c.accent, modifier = Modifier.size(18.dp)) }
@@ -2192,7 +2445,7 @@ private fun WebPageCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(domain, color = c.accent, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(domain, color = c.subtext, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (attachment.excerpt.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -2225,6 +2478,104 @@ private fun isStickerFileAttachment(attachment: SkillAttachment.FileData): Boole
     attachment.path.contains("/stickers/", ignoreCase = true) ||
         attachment.name.contains("bqb", ignoreCase = true)
 
+private fun queryDisplayNameAndSize(context: Context, uri: Uri): Pair<String, Long?> {
+    var name: String? = null
+    var size: Long? = null
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+        if (cursor.moveToFirst()) {
+            if (nameIndex >= 0) name = cursor.getString(nameIndex)
+            if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) size = cursor.getLong(sizeIndex)
+        }
+    }
+    return (name ?: uri.lastPathSegment ?: "attachment") to size
+}
+
+private fun isTextMime(mimeType: String): Boolean =
+    mimeType.startsWith("text/") ||
+        mimeType in setOf(
+            "application/json",
+            "application/xml",
+            "application/javascript",
+            "application/x-sh",
+            "application/x-yaml",
+            "application/yaml",
+        )
+
+private fun isTextFileName(name: String): Boolean =
+    name.substringAfterLast('.', missingDelimiterValue = "").lowercase() in setOf(
+        "txt", "md", "markdown", "json", "xml", "csv", "tsv", "yaml", "yml", "js", "ts", "kt", "java", "py", "sh", "html", "css",
+    )
+
+private fun imageUriToDataUri(context: Context, uri: Uri): String? {
+    val original = context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input)
+    } ?: return null
+    val longestEdge = max(original.width, original.height)
+    val bitmap = if (longestEdge > MAX_IMAGE_EDGE_PX) {
+        val scale = MAX_IMAGE_EDGE_PX.toFloat() / longestEdge.toFloat()
+        val width = max(1, (original.width * scale).toInt())
+        val height = max(1, (original.height * scale).toInt())
+        Bitmap.createScaledBitmap(original, width, height, true).also {
+            if (it !== original) original.recycle()
+        }
+    } else {
+        original
+    }
+    return try {
+        ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+        }
+    } finally {
+        bitmap.recycle()
+    }
+}
+
+private fun buildPickedAttachment(context: Context, uri: Uri): PickedInput? {
+    val (name, reportedSize) = queryDisplayNameAndSize(context, uri)
+    val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    if (mimeType.startsWith("image/")) {
+        return imageUriToDataUri(context, uri)?.let { PickedInput.Image(it) }
+    }
+
+    if (isTextMime(mimeType) || isTextFileName(name)) {
+        if (reportedSize != null && reportedSize > MAX_TEXT_ATTACHMENT_BYTES) return null
+        val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: return null
+        if (text.toByteArray().size > MAX_TEXT_ATTACHMENT_BYTES) return null
+        return PickedInput.File(FileAttachment(name = name, content = text, isText = true, mimeType = mimeType))
+    }
+
+    if (reportedSize != null && reportedSize > MAX_BINARY_ATTACHMENT_BYTES) return null
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    if (bytes.size > MAX_BINARY_ATTACHMENT_BYTES) return null
+    return PickedInput.File(
+        FileAttachment(
+            name = name,
+            content = Base64.encodeToString(bytes, Base64.NO_WRAP),
+            isText = false,
+            mimeType = mimeType,
+        )
+    )
+}
+
+private fun ChatMessage.stableUiKey(index: Int): String = buildString {
+    append(role.name)
+    append(':')
+    append(senderRoleId)
+    append(':')
+    append(text.hashCode())
+    append(':')
+    append(imageBase64?.hashCode() ?: 0)
+    append(':')
+    append(attachments.size)
+    append(':')
+    append(logLines.size)
+    append(':')
+    append(index)
+}
+
 // ── Input Bar ─────────────────────────────────────────────────────────────────
 @Composable
 private fun InputBar(
@@ -2247,15 +2598,14 @@ private fun InputBar(
     val c = LocalClawColors.current
     val hasAttachment = attachedImageBase64 != null || attachedFile != null
     val sendEnabled = (input.isNotBlank() || hasAttachment) && !isRunning
-    val buttonAlpha by animateFloatAsState(if (sendEnabled) 1f else 0.4f, label = "btn")
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(c.bg, c.surface)))
+            .background(Brush.verticalGradient(listOf(c.bg.copy(alpha = 0.0f), c.bg, c.surface)))
             .navigationBarsPadding()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         if (attachedImageBase64 != null) {
             val bitmap = remember(attachedImageBase64) {
@@ -2266,14 +2616,19 @@ private fun InputBar(
                 }.getOrNull()
             }
             if (bitmap != null) {
+                val ratio = remember(bitmap) {
+                    (bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()).coerceIn(0.7f, 1.8f)
+                }
                 Box(modifier = Modifier.wrapContentSize()) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = null,
                         modifier = Modifier
-                            .size(width = 66.dp, height = 52.dp)
+                            .widthIn(max = 86.dp)
+                            .heightIn(max = 66.dp)
+                            .aspectRatio(ratio)
                             .clip(RoundedCornerShape(10.dp)),
-                        contentScale = ContentScale.Crop,
+                        contentScale = ContentScale.Fit,
                     )
                     Box(
                         modifier = Modifier
@@ -2294,32 +2649,45 @@ private fun InputBar(
         if (attachedFile != null) {
             Row(
                 modifier = Modifier
-                    .wrapContentWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(c.card)
-                    .border(0.5.dp, c.border, RoundedCornerShape(20.dp))
-                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                    .widthIn(max = 260.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (c.isDark) Color(0xFF141414) else Color.White)
+                    .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(Icons.Default.AttachFile, contentDescription = null, tint = c.accent, modifier = Modifier.size(14.dp))
-                Text(attachedFile.name, fontSize = 12.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 180.dp))
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = null,
-                    tint = c.subtext,
-                    modifier = Modifier.size(14.dp).clickable { onRemoveFile() },
-                )
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(c.text.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ClawSymbolIcon(mimeTypeSymbol(attachedFile.mimeType), tint = c.text, modifier = Modifier.size(16.dp))
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(attachedFile.name, fontSize = 12.sp, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(attachedFile.mimeType, fontSize = 10.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .clickable { onRemoveFile() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(14.dp))
+                }
             }
         }
 
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(c.cardAlt)
+                    .background(if (c.isDark) Color(0xFF171717) else Color.White)
                     .border(0.5.dp, c.border, CircleShape)
                     .clickable(enabled = !isRunning) { onPickSticker() },
                 contentAlignment = Alignment.Center,
@@ -2344,30 +2712,30 @@ private fun InputBar(
                 modifier = Modifier.weight(1f),
                 enabled = !isRunning,
                 maxLines = 4,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = c.accent.copy(alpha = 0.7f),
+                    focusedBorderColor = c.text.copy(alpha = 0.55f),
                     unfocusedBorderColor = c.border,
                     focusedTextColor = c.text,
                     unfocusedTextColor = c.text,
-                    cursorColor = c.accent,
+                    cursorColor = c.text,
                     disabledBorderColor = c.border,
                     disabledTextColor = c.subtext,
-                    focusedContainerColor = c.card,
-                    unfocusedContainerColor = c.card,
-                    disabledContainerColor = c.card,
+                    focusedContainerColor = if (c.isDark) Color(0xFF141414) else Color.White,
+                    unfocusedContainerColor = if (c.isDark) Color(0xFF141414) else Color.White,
+                    disabledContainerColor = if (c.isDark) Color(0xFF141414) else Color.White,
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
             )
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(
                         if (isRunning) c.red.copy(alpha = 0.15f)
                         else if (sendEnabled) c.text
                         else if (showAttachMenu) c.text
-                        else c.cardAlt
+                        else if (c.isDark) Color(0xFF171717) else Color.White
                     )
                     .border(0.5.dp, if (sendEnabled || showAttachMenu) Color.Transparent else c.border, CircleShape)
                     .clickable(enabled = true) {
@@ -2380,9 +2748,9 @@ private fun InputBar(
                 contentAlignment = Alignment.Center,
             ) {
                 if (isRunning) {
-                    Icon(Icons.Default.Close, contentDescription = "Stop", tint = c.red, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Close, contentDescription = str(R.string.chat_stop), tint = c.red, modifier = Modifier.size(18.dp))
                 } else if (sendEnabled) {
-                    Icon(Icons.Default.Send, contentDescription = "Send", tint = c.bg, modifier = Modifier.size(17.dp))
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = str(R.string.sticker_send), tint = c.bg, modifier = Modifier.size(17.dp))
                 } else {
                     Text(if (showAttachMenu) "×" else "+", color = if (showAttachMenu) c.bg else c.text, fontSize = 21.sp, fontWeight = FontWeight.Light)
                 }
@@ -2393,16 +2761,16 @@ private fun InputBar(
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(c.surface)
-                    .border(0.5.dp, c.border, RoundedCornerShape(18.dp))
-                    .padding(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(if (c.isDark) Color(0xFF111111) else Color.White)
+                    .border(0.5.dp, c.border, RoundedCornerShape(22.dp))
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 InputCapabilityTile("sticker", str(R.string.sticker_button), onPickSticker, enabled = true)
-                InputCapabilityTile("IMG", str(R.string.chat_20def7), onPickImage, enabled = supportsMultimodal)
-                InputCapabilityTile("DOC", str(R.string.chat_325369), onPickFile, enabled = true)
+                InputCapabilityTile("image", str(R.string.chat_20def7), onPickImage, enabled = supportsMultimodal)
+                InputCapabilityTile("file", str(R.string.chat_325369), onPickFile, enabled = true)
             }
         }
     }
@@ -2427,10 +2795,10 @@ private fun InputCapabilityTile(
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (enabled) c.cardAlt else c.cardAlt.copy(alpha = 0.45f))
-                .border(0.5.dp, c.border, RoundedCornerShape(14.dp)),
+                .size(46.dp)
+                .clip(CircleShape)
+                .background(if (enabled) c.text.copy(alpha = 0.055f) else c.text.copy(alpha = 0.025f))
+                .border(0.5.dp, c.border.copy(alpha = 0.75f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             if (mark == "sticker") {
@@ -2439,7 +2807,11 @@ private fun InputCapabilityTile(
                     modifier = Modifier.size(21.dp),
                 )
             } else {
-                Text(mark, color = if (enabled) c.text else c.subtext.copy(alpha = 0.45f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                ClawSymbolIcon(
+                    symbol = mark,
+                    tint = if (enabled) c.text else c.subtext.copy(alpha = 0.45f),
+                    modifier = Modifier.size(21.dp),
+                )
             }
         }
         Text(label, color = if (enabled) c.subtext else c.subtext.copy(alpha = 0.45f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -56,6 +56,8 @@ data class TaskPlan(
 }
 
 object TaskPlanner {
+    fun fallback(goal: String, taskType: TaskType): TaskPlan = fallbackPlan(goal, taskType)
+
     suspend fun plan(
         llm: LlmGateway,
         goal: String,
@@ -152,6 +154,9 @@ ${if (language == "zh") "- Write the plan in Simplified Chinese." else ""}
 object TaskClassifier {
     fun classify(goal: String, hasImage: Boolean = false, hasFile: Boolean = false): TaskType {
         val text = goal.lowercase()
+        if (hasImage && text.anyContains("打开", "启动", "点击", "滑动", "滚动", "输入", "长按", "返回", "主页", "发微信", "发短信", "打电话", "操作手机", "控制手机", "看屏幕", "读屏幕", "点一下", "按一下", "帮我点", "帮我操作", "open ", "launch ", "click ", "tap ", "scroll ")) {
+            return TaskType.PHONE_CONTROL
+        }
         if (hasImage) return TaskType.GENERAL
         if (hasFile) return TaskType.FILE_CREATE
 

@@ -212,6 +212,16 @@ Example: "Create an expense tracker app with a database"</string>
     <string name="chat_cc42dd">Enable</string>
     <string name="chat_20def7">Image</string>
     <string name="chat_325369">Document</string>
+    <string name="chat_model_source_local">Local</string>
+    <string name="chat_model_source_cloud">Cloud</string>
+    <string name="chat_image_unavailable">Image unavailable</string>
+    <string name="chat_file_too_large">File is too large</string>
+    <string name="chat_show_more_results">Show %1$d more</string>
+    <string name="chat_collapse_results">Collapse results</string>
+    <string name="chat_more_simple">More</string>
+    <string name="chat_collapse_simple">Collapse</string>
+    <string name="chat_latest">Latest</string>
+    <string name="chat_fetch_models">Fetch models</string>
     <string name="console_a2fde5">LAN console</string>
     <string name="console_4ecc72">Console server is running</string>
     <string name="console_b5df8d">Within the same LAN, open the following address 

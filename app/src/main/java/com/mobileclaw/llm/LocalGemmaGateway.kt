@@ -6,10 +6,11 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
-import com.google.ai.edge.litertlm.InputData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
@@ -39,13 +40,15 @@ class LocalGemmaGateway(
             throw IllegalStateException("本地图片理解需要先安装视觉资源包：$target。请在设置 > 本地模型中下载或导入对应的 .task 文件。")
         }
         val rawContent = if (request.imageBase64Present()) {
-            val prompt = request.toLocalVisionPrompt()
-            val input = request.toLocalInputData(prompt)
-            val imageCount = input.count { it is InputData.Image }.coerceAtLeast(1)
+            val prompt = if (request.tools.isEmpty()) request.toLocalVisionPrompt()
+            else request.toLocalVisionToolPrompt()
+            val contents = request.toLocalVisionContents(prompt)
+            val imageCount = contents.contents.count { it is Content.ImageBytes }.coerceAtLeast(1)
             val engine = LocalGemmaRuntime.engine(context, visionPath ?: error("Vision resource is missing"), maxNumImages = imageCount)
-            Log.i("LocalGemma", "vision request model=$modelId promptChars=${prompt.length} images=$imageCount")
-            engine.createSession().use { session ->
-                session.generateContent(input)
+            Log.i("LocalGemma", "vision request model=$modelId promptChars=${prompt.length} images=$imageCount tools=${request.tools.size}")
+            engine.createConversation().use { conversation ->
+                val message = conversation.sendMessage(contents)
+                conversation.renderMessageIntoString(message)
             }
         } else {
             val prompt = request.toLocalPrompt(includeInlineImageNotes = true)
@@ -93,6 +96,51 @@ $question
     """.trimIndent()
 }
 
+private fun ChatRequest.toLocalVisionToolPrompt(): String {
+    val lastUser = messages.lastOrNull { it.role == "user" && (!it.content.isNullOrBlank() || !it.imageBase64.isNullOrBlank()) }
+    val question = lastUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(700)
+        ?: "Analyze the latest screenshot/image and choose the next action."
+    val recentText = messages
+        .filter { it.role != "system" && it.toolCallId == null && it.toolCalls == null }
+        .takeLast(5)
+        .mapNotNull { msg ->
+            val content = msg.content?.takeIf { it.isNotBlank() }?.middleEllipsize(420) ?: return@mapNotNull null
+            "${msg.role}: $content"
+        }
+        .joinToString("\n")
+    return buildString {
+        appendLine("You are MobileClaw's local VLM phone-control model.")
+        appendLine("Use the provided image/screenshot plus recent context to decide the next concrete action.")
+        appendLine("Operate in an observe -> act -> verify loop.")
+        appendLine("If the latest image shows a phone UI and the goal requires interaction, choose one concrete tool action such as tap, scroll, input_text, long_click, navigate, or phone_status.")
+        appendLine("Coordinates from screenshots are image pixels. Use visible target centers from the image for x/y; the app tools map them to device coordinates.")
+        appendLine("Do not call see_screen/screenshot twice in a row unless the previous observation failed or an action changed the UI.")
+        appendLine("If a tool is needed, return ONLY strict JSON in this exact shape:")
+        appendLine("""{"tool_call":{"id":"local-vlm-call","name":"tool_name","arguments":{}},"content":"short reason"}""")
+        appendLine("If the goal is already complete, answer normally with a concise final summary and do not call tools.")
+        appendLine("Do not output markdown fences, <turn>, model, user, or assistant markers.")
+        appendLine()
+        appendLine("Available tools:")
+        tools.take(10).forEach { tool ->
+            appendLine("- ${tool.name}: ${tool.description}")
+            if (tool.parameters.properties.isNotEmpty()) {
+                appendLine("  parameters: ${tool.parameters.properties.keys.take(10).joinToString(", ")}")
+            }
+        }
+        if (tools.size > 10) appendLine("- ... ${tools.size - 10} more tools omitted")
+        appendLine()
+        if (recentText.isNotBlank()) {
+            appendLine("Recent context:")
+            appendLine(recentText)
+            appendLine()
+        }
+        appendLine("Current user goal/question:")
+        appendLine(question)
+        appendLine()
+        appendLine("Your next output:")
+    }
+}
+
 class HybridLlmGateway(
     private val local: LocalGemmaGateway,
     private val cloud: OpenAiGateway,
@@ -103,10 +151,10 @@ class HybridLlmGateway(
     override suspend fun chat(request: ChatRequest): ChatResponse {
         if (nativeOnly()) {
             return runCatching { local.chat(request) }.getOrElse { e ->
-                ChatResponse(content = "当前处于 Only native 本地模式，无法调用云端模型。本地模型暂不可用：${e.message}\n请先在设置里安装并选择可运行的本地模型。")
+                ChatResponse(content = "当前处于 Only native 本地模式，已禁止云端回退。\n本地模型调用失败：${e.message}\n请确认已安装并选择可运行的本地模型；如果是图片/VLM，请优先确认主 .litertlm 模型完整可用。")
             }
         }
-        if (useLocal() && request.tools.isEmpty()) {
+        if (useLocal() && (request.tools.isEmpty() || request.imageBase64Present())) {
             var localTokenEmitted = false
             val localRequest = request.copy(
                 onToken = request.onToken?.let { downstream ->
@@ -120,7 +168,7 @@ class HybridLlmGateway(
                 if (canUseCloud() && !localTokenEmitted) {
                     cloud.chat(request)
                 } else {
-                    ChatResponse(content = "本地模型暂不可用：${e.message}\n请先在设置里下载本地模型，或切回云端模型。")
+                    ChatResponse(content = "本地模型调用失败：${e.message}\n请确认本地模型文件完整，或切回云端模型。")
                 }
             }
         }
@@ -276,12 +324,12 @@ private fun ChatRequest.preferredLocalLanguage(): String {
     return if (recent.any { it in '\u4e00'..'\u9fff' }) "zh" else "en"
 }
 
-private fun ChatRequest.toLocalInputData(prompt: String): List<InputData> {
-    val parts = mutableListOf<InputData>(InputData.Text(prompt))
+private fun ChatRequest.toLocalVisionContents(prompt: String): Contents {
+    val parts = mutableListOf<Content>(Content.Text(prompt))
     messages.mapNotNull { it.imageBase64?.decodeDataUriBytesOrNull() }
         .take(4)
-        .forEach { bytes -> parts.add(InputData.Image(bytes)) }
-    return parts
+        .forEach { bytes -> parts.add(Content.ImageBytes(bytes)) }
+    return Contents.Companion.of(parts)
 }
 
 private fun String.decodeDataUriBytesOrNull(): ByteArray? = runCatching {

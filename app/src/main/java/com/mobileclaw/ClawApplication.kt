@@ -2,6 +2,8 @@ package com.mobileclaw
 
 import android.app.Application
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.TaskRecipeStore
+import com.mobileclaw.agent.TaskReplayStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.AgentConfig
@@ -95,6 +97,12 @@ class ClawApplication : Application() {
     lateinit var localModelManager: LocalModelManager
         private set
 
+    lateinit var taskReplayStore: TaskReplayStore
+        private set
+
+    lateinit var taskRecipeStore: TaskRecipeStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -122,6 +130,8 @@ class ClawApplication : Application() {
         )
         localApiServer.start()
         miniAppStore = MiniAppStore(this)
+        taskReplayStore = TaskReplayStore(filesDir)
+        taskRecipeStore = TaskRecipeStore(filesDir)
         skillNotesStore = SkillNotesStore(this)
         skillLevelStore = SkillLevelStore(this)
         userStorageManager = com.mobileclaw.config.UserStorageManager(this)

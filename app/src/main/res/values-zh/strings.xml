@@ -212,6 +212,16 @@
     <string name="chat_cc42dd">开启</string>
     <string name="chat_20def7">图片</string>
     <string name="chat_325369">文档</string>
+    <string name="chat_model_source_local">本地</string>
+    <string name="chat_model_source_cloud">云端</string>
+    <string name="chat_image_unavailable">图片不可用</string>
+    <string name="chat_file_too_large">文件过大</string>
+    <string name="chat_show_more_results">展开另外 %1$d 条</string>
+    <string name="chat_collapse_results">收起结果</string>
+    <string name="chat_more_simple">更多</string>
+    <string name="chat_collapse_simple">收起</string>
+    <string name="chat_latest">最新</string>
+    <string name="chat_fetch_models">获取模型</string>
     <string name="console_a2fde5">局域网控制台</string>
     <string name="console_4ecc72">控制台服务器运行中</string>
     <string name="console_b5df8d">在同一局域网内，用浏览器打开以下地址

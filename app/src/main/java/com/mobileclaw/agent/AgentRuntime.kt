@@ -36,6 +36,7 @@ class AgentRuntime(
         imageBase64: String? = null,
         role: Role? = null,
         userProfileContext: String = "",
+        preferFastLocalVision: Boolean = false,
         onToken: ((String) -> Unit)? = null,
         onThinkToken: ((String) -> Unit)? = null,
     ): AgentResult {
@@ -50,16 +51,24 @@ class AgentRuntime(
         emit(AgentEvent.Started(ctx.taskId, goal))
 
         // Build once per task — these don't change across steps
-        val injectedSkills = TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty())
+        val injectedSkills = if (preferFastLocalVision && taskType in setOf(TaskType.CHAT, TaskType.GENERAL)) {
+            emptyList()
+        } else {
+            TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty())
+        }
         val tools = injectedSkills.toToolDefinitions()
         val semanticContext = runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
-        val taskPlan = TaskPlanner.plan(
-            llm = llm,
-            goal = goal,
-            taskType = taskType,
-            language = language,
-            priorContext = priorContext,
-        )
+        val taskPlan = if (preferFastLocalVision) {
+            TaskPlanner.fallback(goal, taskType)
+        } else {
+            TaskPlanner.plan(
+                llm = llm,
+                goal = goal,
+                taskType = taskType,
+                language = language,
+                priorContext = priorContext,
+            )
+        }
         emit(AgentEvent.PlanCreated(taskPlan))
         val systemPrompt = buildSystemPrompt(
             skills = injectedSkills,
@@ -170,11 +179,15 @@ class AgentRuntime(
                     segmentActionCount < ctx.maxSteps
                 ) {
                     lastReviewActionCount = actionCount
-                    val review = createFiveStepReview(
-                        systemPrompt = systemPrompt,
-                        ctx = ctx,
-                        workingMemory = workingMemory,
-                    )
+                    val review = if (preferFastLocalVision) {
+                        "5-step review: compare the latest observation with the user goal, avoid repeated screen reading, and choose the next concrete phone action or final answer."
+                    } else {
+                        createFiveStepReview(
+                            systemPrompt = systemPrompt,
+                            ctx = ctx,
+                            workingMemory = workingMemory,
+                        )
+                    }
                     val reviewStep = AgentStep(
                         index = ctx.steps.size,
                         thought = "5-step execution review",
@@ -191,11 +204,15 @@ class AgentRuntime(
 
             completedSegments += 1
             if (completedSegments < MAX_SEGMENTS) {
-                val checkpoint = createContinuationCheckpoint(
-                    systemPrompt = systemPrompt,
-                    ctx = ctx,
-                    workingMemory = workingMemory,
-                )
+                val checkpoint = if (preferFastLocalVision) {
+                    "20-step checkpoint: continue from the latest phone state. Do not restart; choose the next concrete action or finish if complete."
+                } else {
+                    createContinuationCheckpoint(
+                        systemPrompt = systemPrompt,
+                        ctx = ctx,
+                        workingMemory = workingMemory,
+                    )
+                }
                 val checkpointStep = AgentStep(
                     index = ctx.steps.size,
                     thought = "20-step continuation checkpoint",

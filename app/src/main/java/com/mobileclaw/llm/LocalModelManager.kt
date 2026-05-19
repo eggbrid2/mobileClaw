@@ -146,9 +146,8 @@ class LocalModelManager(private val context: Context) {
 
     fun visionModelPathFor(id: String): String? {
         val base = modelInfo(id.removePrefix("local:")) ?: return null
-        return models.value.firstOrNull {
-            it.family == base.family && it.installed && it.isVisionResource
-        }?.path
+        if (!base.supportsVision) return null
+        return modelPath(base.id)
     }
 
     fun visionResourceFor(id: String): LocalModelInfo? {
@@ -230,14 +229,18 @@ class LocalModelManager(private val context: Context) {
 
     private fun scan(): List<LocalModelInfo> = builtins.map { model ->
         val file = File(File(rootDir, model.id), model.fileName)
+        val installed = file.exists() && file.length() >= minimumUsableBytes(model)
         model.copy(
-            installed = file.exists() && file.length() > 0L,
+            installed = installed,
             path = file.takeIf { it.exists() }?.absolutePath.orEmpty(),
             downloadProgress = progressOf(file.length(), model.sizeBytes),
             downloading = false,
-            error = "",
+            error = if (file.exists() && !installed) "Downloaded file is incomplete or invalid (${file.length()} bytes)." else "",
         )
     }
+
+    private fun minimumUsableBytes(model: LocalModelInfo): Long =
+        maxOf(10_000_000L, (model.sizeBytes * 0.75).toLong())
 
     private fun update(id: String, transform: (LocalModelInfo) -> LocalModelInfo) {
         _models.value = _models.value.map { if (it.id == id) transform(it) else it }

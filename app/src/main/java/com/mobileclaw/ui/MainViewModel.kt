@@ -70,6 +70,7 @@ import com.mobileclaw.skill.builtin.AppManagerSkill
 import com.mobileclaw.skill.builtin.SwitchModelSkill
 import com.mobileclaw.skill.builtin.SwitchRoleSkill
 import com.mobileclaw.skill.builtin.TapSkill
+import com.mobileclaw.skill.builtin.TaskRecipeSkill
 import com.mobileclaw.skill.builtin.UserConfigSkill
 import com.mobileclaw.skill.builtin.WebBrowseSkill
 import com.mobileclaw.skill.builtin.WebContentSkill
@@ -176,7 +177,7 @@ class MainViewModel : ViewModel() {
                     isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
                         ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
                     currentModel = snap.model,
-                    supportsMultimodal = snap.supportsMultimodal,
+                    supportsMultimodal = supportsCurrentMultimodal(snap),
                 ) }
             }
         }
@@ -188,6 +189,7 @@ class MainViewModel : ViewModel() {
                     localModels = models,
                     isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
                         ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
+                    supportsMultimodal = supportsCurrentMultimodal(snap),
                 ) }
             }
         }
@@ -637,7 +639,7 @@ class MainViewModel : ViewModel() {
         } else {
             effectiveGoal
         }
-        val priorContext = buildPriorContext(inferredAiPageTarget)
+        val priorContext = buildPriorContext(goal, inferredAiPageTarget)
         val isPhoneControlTask = executionTaskType == TaskType.PHONE_CONTROL
         val currentRole = _uiState.value.currentRole
         val scheduleDecision = RoleScheduler.schedule(
@@ -646,9 +648,10 @@ class MainViewModel : ViewModel() {
             availableRoles = _uiState.value.availableRoles,
             currentRole = currentRole,
         )
-        val scheduledRole = scheduleDecision.role
-        if (scheduledRole.id != currentRole.id) {
-            _uiState.update { it.copy(currentRole = scheduledRole) }
+        val scheduledRole = if (shouldUseScheduledRoleForRun(goal, executionTaskType, currentRole, scheduleDecision.role)) {
+            scheduleDecision.role
+        } else {
+            currentRole
         }
         // Build the user message once so we have a stable reference for persisting
         val userMessage = ChatMessage(
@@ -671,6 +674,15 @@ class MainViewModel : ViewModel() {
             streamingToken = "",
             streamingThought = "",
         )}
+        // Fast path: image understanding is a VLM chat, not an agentic web/search task.
+        if (attachedImage != null &&
+            attachedFile == null &&
+            executionTaskType == TaskType.GENERAL &&
+            shouldAnswerImageDirectly(goal)) {
+            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, priorContext, attachedImage)
+            return
+        }
+
         // Fast path: conversational message with no attachments → skip agent loop
         if (!stickerAwareChat &&
             attachedImage == null && attachedFile == null &&
@@ -830,6 +842,7 @@ class MainViewModel : ViewModel() {
             }.getOrDefault("")
 
             val result = runCatching {
+                val snap = config.snapshot()
                 rt.run(
                     goal             = contextualGoal,
                     taskType         = executionTaskType,
@@ -839,6 +852,7 @@ class MainViewModel : ViewModel() {
                     imageBase64      = attachedImage,
                     role             = scheduledRole,
                     userProfileContext = userProfileContext,
+                    preferFastLocalVision = attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
                     onToken       = { token ->
                         val clean = token.cleanLocalTurnTokens()
                         if (clean.isNotEmpty()) {
@@ -859,7 +873,16 @@ class MainViewModel : ViewModel() {
             val summary = result.getOrNull()?.summary ?: result.exceptionOrNull()?.message ?: "Task failed."
             consoleServer.broadcast("task_completed", summary)
 
-            launch { runCatching { episodicMemory.record(result.getOrNull() ?: return@launch) } }
+            launch {
+                val agentResult = result.getOrNull() ?: return@launch
+                runCatching { episodicMemory.record(agentResult) }
+                runCatching {
+                    val replay = app.taskReplayStore.record(agentResult, executionTaskType, scheduledRole)
+                    if (agentResult.success && replay.steps.any { !it.skillId.isNullOrBlank() && !it.isError }) {
+                        app.taskRecipeStore.createFromReplay(replay)
+                    }
+                }
+            }
             launch {
                 runCatching {
                     conversationMemory.addUserMessage(goal)
@@ -913,6 +936,7 @@ class MainViewModel : ViewModel() {
         goal: String,
         currentRole: Role,
         priorContext: String,
+        imageBase64: String? = null,
     ) {
         val llm = app.createLlmGateway()
         val newJob = viewModelScope.launch {
@@ -947,10 +971,18 @@ class MainViewModel : ViewModel() {
             } else ""
             val contextSection = if (priorContext.isNotBlank()) "\n## Recent Conversation\n$priorContext\n" else ""
             val localChatMode = config.snapshot().localNativeOnly || config.snapshot().localModelEnabled
+            val imageInstruction = if (imageBase64 != null) {
+                if (config.language == "en") {
+                    "\nThe user attached an image. Answer from the image itself. Do not search the web, do not call tools, and do not say you need external lookup unless the user explicitly asks for web research.\n"
+                } else {
+                    "\n用户附带了一张图片。请直接根据图片本身回答。不要网页搜索，不要调用工具；除非用户明确要求联网查询，否则不要说需要外部检索。\n"
+                }
+            } else ""
             val systemPrompt = if (localChatMode) {
                 buildString {
                     appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
                     append(langSection)
+                    append(imageInstruction)
                     if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
                         appendLine("Persona: ${currentRole.systemPromptAddendum.trim().take(180)}")
                     }
@@ -961,37 +993,24 @@ class MainViewModel : ViewModel() {
                     appendLine("Answer directly. Do not create UI blocks unless the user explicitly asks.")
                 }.trim()
             } else {
-                """You are ${currentRole.avatar} ${currentRole.name}, a helpful AI assistant.$langSection$roleSection$contextSection
-## Interactive UI — MANDATORY RULES
-You MUST render interactive components instead of plain text in these situations:
-1. Offering choices/options → use buttons (never write "A. xxx  B. xxx" as text)
-2. Asking user to fill in a value → use input + submit button
-3. Showing 3+ items with attributes → use a table
-4. Comparing options → use a card-based layout
-5. Showing numeric progress/stats → use progress or chart
+                """You are ${currentRole.avatar} ${currentRole.name}, a helpful AI assistant.$langSection$imageInstruction$roleSection$contextSection
+## Context Rules
+Use the current user message as the source of truth. Treat recent conversation as supporting context only.
+Do not start building pages, HTML, MiniAPPs, or UI artifacts unless the user clearly asks to create or modify one.
 
-Embed a ${"```"}ui block with a single JSON object. Keep it on as few lines as possible.
+## Optional Interactive UI
+For normal conversation, reply in plain text.
+Only embed a ${"```"}ui block when the user explicitly asks for interactive choices, forms, tables, comparisons, or dashboards. Keep it on as few lines as possible.
 Types: column/row(gap,padding,children) | card(title,children) | text(content,size,bold,color,align) | button(label,action,style) | input(key,placeholder) | select(key,options:[]) | table(headers:[],rows:[[]]) | chart_bar/chart_line(data:[],labels:[],title) | progress(value,label) | badge(text,color) | divider | spacer(size)
 Actions: "send:message" | "submit:text with {key}" | "copy:text"
-
-Example — when user asks to choose something:
-${"```"}ui
-{"type":"column","gap":10,"children":[{"type":"text","content":str(R.string.vm_708c9d),"bold":true,"size":15},{"type":"row","gap":8,"children":[{"type":"button","label":str(R.string.vm_05f87b),"action":str(R.string.vm_1152c9)},{"type":"button","label":str(R.string.vm_f38c0a),"action":str(R.string.vm_68185f),"style":"outline"}]}]}
-${"```"}
-
-Example — when collecting input:
-${"```"}ui
-{"type":"column","gap":8,"children":[{"type":"input","key":"q","placeholder":str(R.string.vm_input)},{"type":"button","label":str(R.string.vm_submit),"action":"submit:{q}"}]}
-${"```"}
-
-For pure conversational replies (greetings, simple factual answers) — plain text is fine.""".trimIndent()
+For pure conversational replies, greetings, explanations, and simple factual answers, do not output a ui block.""".trimIndent()
             }
 
             val result = runCatching {
                 llm.chat(ChatRequest(
                     messages = listOf(
                         Message(role = "system", content = systemPrompt),
-                        Message(role = "user", content = goal),
+                        Message(role = "user", content = goal, imageBase64 = imageBase64),
                     ),
                     tools = emptyList(),
                     stream = true,
@@ -1031,6 +1050,23 @@ For pure conversational replies (greetings, simple factual answers) — plain te
             launch { runCatching { conversationMemory.addUserMessage(goal); conversationMemory.addAgentMessage(summary) } }
         }
         taskJobs[sessionIdAtStart] = newJob
+    }
+
+    private fun shouldAnswerImageDirectly(goal: String): Boolean {
+        val text = goal.trim().lowercase()
+        if (text.isBlank()) return true
+        val explicitAgentIntent = listOf(
+            "网页搜索", "联网搜索", "搜索网页", "搜一下", "查一下资料", "找来源", "来源",
+            "打开", "启动", "点击", "滑动", "滚动", "输入", "长按", "返回", "操作手机", "控制手机",
+            "生成图片", "画图", "创建", "生成页面", "做个页面", "做一个页面", "保存", "下载",
+            "web search", "search web", "browse", "open ", "launch ", "click ", "tap ", "scroll ",
+        )
+        if (explicitAgentIntent.any { text.contains(it) }) return false
+        val visualQuestion = listOf(
+            "这是什么", "是什么", "图里", "图片", "照片", "截图", "看图", "识别", "描述", "分析这张",
+            "what is", "what's", "describe", "identify", "image", "picture", "photo", "screenshot",
+        )
+        return visualQuestion.any { text.contains(it) } || text.length <= 20 || text.contains("?") || text.contains("？")
     }
 
     fun stopTask() {
@@ -2514,11 +2550,29 @@ $relevantFacts
 
     // ── Internals ────────────────────────────────────────────────────────────
 
-    private fun buildPriorContext(activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null): String {
+    private fun shouldUseScheduledRoleForRun(
+        goal: String,
+        taskType: TaskType,
+        currentRole: Role,
+        scheduledRole: Role,
+    ): Boolean {
+        if (scheduledRole.id == currentRole.id) return true
+        val text = goal.lowercase()
+        val explicitRoleMention = text.contains(scheduledRole.id.lowercase()) ||
+            scheduledRole.name.isNotBlank() && text.contains(scheduledRole.name.lowercase())
+        if (explicitRoleMention) return true
+        if (taskType == TaskType.CHAT || taskType == TaskType.GENERAL) return false
+        return currentRole.id == Role.DEFAULT.id
+    }
+
+    private fun buildPriorContext(
+        goal: String,
+        activeAiPage: com.mobileclaw.ui.aipage.AiPageDef? = null,
+    ): String {
         val msgs = _uiState.value.currentRunState.messages
         val artifactContext = activeAiPage?.let { buildAiPageArtifactContext(it) }.orEmpty()
         if (msgs.isEmpty()) return artifactContext
-        val recent = msgs.takeLast(10)
+        val recent = msgs.takeLast(6)
         val lines = recent.map { msg ->
             val raw = when (msg.role) {
                 MessageRole.USER -> "User: ${msg.text}"
@@ -2528,13 +2582,16 @@ $relevantFacts
                 }
             }
             // Truncate very long individual messages (e.g. code blocks, agent summaries)
-            if (raw.length > 400) raw.take(400) + "…" else raw
+            val cleaned = raw
+                .replace(Regex("```[\\s\\S]*?```"), "[code/file content omitted]")
+                .replace(Regex("\\n{3,}"), "\n\n")
+            if (cleaned.length > 260) cleaned.take(260) + "…" else cleaned
         }
         // Hard cap on total prior context size
         val full = lines.joinToString("\n")
-        val capped = if (full.length > 2000) full.takeLast(2000) else full
+        val capped = if (full.length > 1200) full.takeLast(1200) else full
         val recentContext = if (capped.isNotBlank()) {
-            "## Last 10 Chat Records Before Current User Message\n$capped"
+            "## Relevant Chat Records Before Current User Message\n$capped\n\nCurrent user request: ${goal.take(220)}"
         } else ""
         return listOf(artifactContext, recentContext).filter { it.isNotBlank() }.joinToString("\n\n")
     }
@@ -2563,12 +2620,12 @@ $relevantFacts
         }
         if (explicit != null) return explicit
         val refersToPrevious = text.contains("它") ||
-            text.contains("这个") ||
             text.contains("这个页面") ||
             text.contains("这个ui") ||
+            text.contains("这个原生") ||
+            text.contains("这个 aipage") ||
             text.contains("刚才") ||
             text.contains("上面") ||
-            text.contains("继续") ||
             text.contains("修改") ||
             text.contains("改下") ||
             text.contains("改一下") ||
@@ -2584,7 +2641,7 @@ $relevantFacts
             text.contains("ai page") ||
             text.contains("ui")
         val recentPageContext = currentConversationMentionsAiPage(pages)
-        return if (refersToPrevious && (pageIntent || recentPageContext)) pages.firstOrNull() else null
+        return if (refersToPrevious && pageIntent && recentPageContext) pages.firstOrNull() else null
     }
 
     private fun currentConversationMentionsAiPage(pages: List<com.mobileclaw.ui.aipage.AiPageDef>): Boolean {
@@ -2670,6 +2727,8 @@ $relevantFacts
             appManagerSkill,
             // AI native page builder
             uiBuilderSkill,
+            // Task replay, recipes, and quick-entry pages
+            TaskRecipeSkill(app.taskReplayStore, app.taskRecipeStore, app.aiPageStore, aiPageOpenRequests, app.pendingAgentTask),
             // User external storage management
             com.mobileclaw.skill.builtin.UserStorageSkill(app.userStorageManager),
             // LAN console page editor (千人千面)
@@ -3258,6 +3317,13 @@ private fun addTaskEmoji(text: String): String {
         else -> "✨"
     }
     return "$emoji $text"
+}
+
+private fun supportsCurrentMultimodal(snapshot: ConfigSnapshot): Boolean {
+    if (!snapshot.localModelEnabled && !snapshot.localNativeOnly) return snapshot.supportsMultimodal
+    val manager = ClawApplication.instance.localModelManager
+    val model = manager.modelInfo(snapshot.localModelId) ?: return false
+    return model.supportsVision && manager.modelPath(snapshot.localModelId) != null
 }
 
 private fun String.cleanLocalTurnTokens(): String = cleanLocalGeneratedText()

@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -88,12 +91,15 @@ fun DrawerContent(
     }
 
     val userName = userConfigEntries["user.name"]?.value?.takeIf { it.isNotBlank() } ?: "MobileClaw"
+    val drawerBg = if (c.isDark) Color(0xFF050505) else Color.White
+    val primaryButtonBg = if (c.isDark) Color.White else Color(0xFF101010)
+    val primaryButtonText = if (c.isDark) Color(0xFF101010) else Color.White
 
     Column(
         modifier = Modifier
             .fillMaxHeight()
             .width(290.dp)
-            .background(c.surface)
+            .background(drawerBg)
             .statusBarsPadding()
             .padding(bottom = 12.dp)
     ) {
@@ -120,7 +126,7 @@ fun DrawerContent(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    GradientAvatar(emoji = currentRole.avatar, size = 40.dp, color = c.accent)
+                    GradientAvatar(emoji = currentRole.avatar, size = 40.dp, color = c.text)
                 }
             }
             Spacer(modifier = Modifier.width(10.dp))
@@ -129,8 +135,8 @@ fun DrawerContent(
                     text = userName,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
-                    color = c.accent,
-                    letterSpacing = 0.5.sp,
+                    color = c.text,
+                    letterSpacing = 0.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -138,8 +144,8 @@ fun DrawerContent(
                 Text(
                     text = if (configCount > 0) "${configCount} 项配置 · 编辑" else str(R.string.drawer_edit),
                     fontSize = 11.sp,
-                    color = c.accent.copy(alpha = 0.7f),
-                    letterSpacing = 0.1.sp,
+                    color = c.subtext,
+                    letterSpacing = 0.sp,
                     modifier = Modifier.clickable { onOpenUserConfig() },
                 )
             }
@@ -154,19 +160,27 @@ fun DrawerContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(primaryButtonBg)
                 .clickable { onNewSession() }
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("+", fontSize = 16.sp, color = c.accent, fontWeight = FontWeight.Bold)
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                tint = primaryButtonText,
+                modifier = Modifier.size(16.dp),
+            )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = str(R.string.drawer_new_session),
                 fontSize = 13.sp,
-                color = c.accent,
-                fontWeight = FontWeight.Medium,
+                color = primaryButtonText,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 
@@ -204,33 +218,43 @@ private fun SessionItem(
     onDelete: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val rowBg = if (isSelected) {
+        if (c.isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF3F3F1)
+    } else {
+        Color.Transparent
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isSelected) c.accent.copy(alpha = 0.09f)
-                else androidx.compose.ui.graphics.Color.Transparent
+            .padding(horizontal = 10.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(rowBg)
+            .then(
+                if (isSelected && !c.isDark) {
+                    Modifier.border(0.6.dp, Color(0xFFE8E8E4), RoundedCornerShape(12.dp))
+                } else {
+                    Modifier
+                }
             )
             .clickable { onSelect() }
-            .padding(end = 0.dp, top = 1.dp, bottom = 1.dp),
+            .padding(end = 2.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
                 .width(3.dp)
-                .height(28.dp)
+                .height(24.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(if (isSelected) c.accent else androidx.compose.ui.graphics.Color.Transparent),
+                .background(if (isSelected) c.text else Color.Transparent),
         )
-        Spacer(modifier = Modifier.width(9.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = session.title,
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = if (isSelected) c.accent else c.text,
+            color = c.text,
             modifier = Modifier.weight(1f),
         )
         Spacer(modifier = Modifier.width(6.dp))
