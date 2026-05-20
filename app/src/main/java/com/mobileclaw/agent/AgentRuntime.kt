@@ -151,7 +151,8 @@ class AgentRuntime(
                 emit(AgentEvent.SkillCalling(tc.skillId, tc.params))
 
                 val skill = registry.get(tc.skillId)
-                val skillResult = repeatedPerceptionResult(ctx.steps, tc.skillId)
+                val skillResult = phoneControlGuardResult(taskType, ctx.steps, tc.skillId)
+                    ?: repeatedPerceptionResult(ctx.steps, tc.skillId)
                     ?: if (skill == null) {
                         SkillResult(success = false, output = "Error: skill '${tc.skillId}' not found.")
                     } else {
@@ -322,9 +323,43 @@ This note is for your own next step, so be direct and operational.
         )
     }
 
+    private fun phoneControlGuardResult(taskType: TaskType, steps: List<AgentStep>, skillId: String): SkillResult? {
+        if (taskType != TaskType.PHONE_CONTROL) return null
+        if (skillId !in passivePhoneSkillIds) return null
+
+        val lastActionIndex = steps.indexOfLast { it.skillId in uiChangingSkillIds && !it.isError }
+        val lastSuccessfulPerceptionIndex = steps.indexOfLast { it.skillId in perceptionSkillIds && !it.isError }
+        if (lastSuccessfulPerceptionIndex < 0 || lastSuccessfulPerceptionIndex < lastActionIndex) return null
+
+        val lastStep = steps.lastOrNull()
+        if (skillId == "screenshot" && lastStep?.isError == true && lastStep.skillId in screenshotFallbackSourceIds) return null
+
+        val lastObservation = steps.getOrNull(lastSuccessfulPerceptionIndex)?.observation.orEmpty()
+        val compactObservation = lastObservation
+            .lineSequence()
+            .filter { it.isNotBlank() }
+            .take(18)
+            .joinToString("\n")
+            .take(1800)
+
+        return SkillResult(
+            success = false,
+            output = """
+                Passive phone check blocked: the latest successful screen observation has not been followed by a concrete UI-changing action.
+                Do not keep checking/opening/looking. Use the current screenshot and coordinate list already in context.
+                Next step must be one of: tap, scroll, input_text, long_click, navigate(back/home/launch), or final answer/blocker.
+
+                Latest usable observation:
+                $compactObservation
+            """.trimIndent(),
+        )
+    }
+
     private companion object {
         val perceptionSkillIds = setOf("see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen")
         val screenshotFallbackSourceIds = setOf("see_screen", "read_screen", "bg_read_screen")
+        val passivePhoneSkillIds = perceptionSkillIds + setOf("phone_status", "list_apps", "check_permissions")
+        val uiChangingSkillIds = setOf("tap", "scroll", "input_text", "long_click", "navigate", "vpn_control")
         const val MAX_SEGMENTS = 5
         const val REVIEW_INTERVAL_STEPS = 5
     }

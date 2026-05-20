@@ -89,8 +89,8 @@ class LocalGemmaGateway(
 }
 
 private fun ChatRequest.toLocalVisionPrompt(): String {
-    val lastUser = messages.lastOrNull { it.role == "user" && (!it.content.isNullOrBlank() || !it.imageBase64.isNullOrBlank()) }
-    val question = lastUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(600)
+    val lastTextUser = messages.lastOrNull { it.role == "user" && !it.content.isNullOrBlank() }
+    val question = lastTextUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(600)
         ?: "请理解这张图片，并用简体中文简洁回答用户可能想知道的内容。"
     return """
 你是 MobileClaw 的本地视觉模型。请只根据用户提供的图片和问题回答。
@@ -105,15 +105,16 @@ $question
 }
 
 private fun ChatRequest.toLocalVisionToolPrompt(): String {
-    val lastUser = messages.lastOrNull { it.role == "user" && (!it.content.isNullOrBlank() || !it.imageBase64.isNullOrBlank()) }
-    val question = lastUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(700)
+    val lastTextUser = messages.lastOrNull { it.role == "user" && !it.content.isNullOrBlank() }
+    val question = lastTextUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(700)
         ?: "Analyze the latest screenshot/image and choose the next action."
     val recentText = messages
-        .filter { it.role != "system" && it.toolCallId == null && it.toolCalls == null }
-        .takeLast(5)
+        .filter { it.role != "system" && it.toolCalls == null }
+        .takeLast(8)
         .mapNotNull { msg ->
             val content = msg.content?.takeIf { it.isNotBlank() }?.middleEllipsize(420) ?: return@mapNotNull null
-            "${msg.role}: $content"
+            val role = if (msg.toolCallId != null) "tool(${msg.toolCallId})" else msg.role
+            "$role: $content"
         }
         .joinToString("\n")
     return buildString {
