@@ -1,5 +1,7 @@
 package com.mobileclaw.ui
 
+import android.content.Intent
+import android.provider.Settings
 import android.widget.Toast
 import android.util.Base64
 import androidx.lifecycle.ViewModel
@@ -30,6 +32,7 @@ import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.memory.db.SessionMessageEntity
+import com.mobileclaw.perception.ClawAccessibilityService
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillLoader
 import com.mobileclaw.skill.builtin.BgLaunchSkill
@@ -126,6 +129,7 @@ class MainViewModel : ViewModel() {
     private val roleRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val switchRoleSkill = SwitchRoleSkill(roleManager, roleRequests)
     private val recentGroupStickerPaths = ArrayDeque<String>()
+    private var pendingAccessibilityTaskGoal: String? = null
 
     // Mini-app open requests emitted by AppManagerSkill
     private val appOpenRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -636,25 +640,65 @@ class MainViewModel : ViewModel() {
     fun runTask(goal: String) {
         val trimmed = goal.trim()
         when {
+            trimmed.startsWith(OPEN_ACCESSIBILITY_PREFIX) -> {
+                val originalGoal = trimmed.removePrefix(OPEN_ACCESSIBILITY_PREFIX).trim()
+                pendingAccessibilityTaskGoal = originalGoal.ifBlank { pendingAccessibilityTaskGoal }
+                app.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                appendConfirmationResolution("已打开无障碍设置。开启 MobileClaw 后，回到这里点“已开启并继续”。")
+                return
+            }
+            trimmed.startsWith(CONFIRM_ACCESSIBILITY_TASK_PREFIX) -> {
+                val originalGoal = trimmed.removePrefix(CONFIRM_ACCESSIBILITY_TASK_PREFIX).trim()
+                    .ifBlank { pendingAccessibilityTaskGoal.orEmpty() }
+                if (originalGoal.isBlank()) {
+                    appendConfirmationResolution("没有找到要继续的手机操作任务。")
+                    return
+                }
+                if (!ClawAccessibilityService.isEnabled()) {
+                    requestTaskExecutionConfirmation(originalGoal, TaskType.PHONE_CONTROL)
+                    return
+                }
+                pendingAccessibilityTaskGoal = null
+                runTaskInternal(originalGoal)
+                return
+            }
             trimmed.startsWith(CONFIRM_TASK_PREFIX) -> {
                 runTaskInternal(trimmed.removePrefix(CONFIRM_TASK_PREFIX).trim())
                 return
             }
             trimmed == CANCEL_CONFIRMATION_TEXT -> {
+                pendingAccessibilityTaskGoal = null
                 appendConfirmationResolution("已取消。")
                 return
             }
             trimmed.startsWith(CONFIRM_ROLE_PREFIX) -> {
-                val roleId = trimmed.removePrefix(CONFIRM_ROLE_PREFIX).trim()
+                val payload = trimmed.removePrefix(CONFIRM_ROLE_PREFIX).trim()
+                val roleId = payload.substringBefore("::", payload).trim()
+                val originalGoal = payload.substringAfter("::", "").trim()
                 val role = roleManager.get(roleId)
                 if (role != null) {
                     setActiveRole(role)
-                    appendConfirmationResolution("已切换到 ${role.name}。")
+                    if (originalGoal.isNotBlank()) {
+                        runTaskInternal(originalGoal)
+                    } else {
+                        appendConfirmationResolution("已切换到 ${role.name}。")
+                    }
                 } else {
                     appendConfirmationResolution("没有找到这个角色：$roleId")
                 }
                 return
             }
+        }
+
+        if (pendingAccessibilityTaskGoal != null && isAccessibilityResumeText(trimmed)) {
+            val originalGoal = pendingAccessibilityTaskGoal.orEmpty()
+            if (ClawAccessibilityService.isEnabled()) {
+                pendingAccessibilityTaskGoal = null
+                runTaskInternal(originalGoal)
+            } else {
+                requestTaskExecutionConfirmation(originalGoal, TaskType.PHONE_CONTROL)
+            }
+            return
         }
 
         val roleSwitchTarget = inferExplicitRoleSwitchTarget(trimmed)
@@ -2928,6 +2972,21 @@ $foundationalMemory
     }
 
     private fun requestTaskExecutionConfirmation(goal: String, taskType: TaskType) {
+        if (taskType == TaskType.PHONE_CONTROL && !ClawAccessibilityService.isEnabled()) {
+            pendingAccessibilityTaskGoal = goal
+            val card = SkillAttachment.ActionCard(
+                title = "需要无障碍权限后才能操作手机",
+                body = "这个任务会操作你的手机界面。请先开启 MobileClaw 无障碍服务；开启后回到这里继续同一个流程，不会再重复弹角色或执行确认。\n\n$goal",
+                tone = "phone",
+                actions = listOf(
+                    SkillAttachment.ActionCard.Action("打开无障碍", "$OPEN_ACCESSIBILITY_PREFIX$goal", "primary"),
+                    SkillAttachment.ActionCard.Action("已开启并继续", "$CONFIRM_ACCESSIBILITY_TASK_PREFIX$goal", "secondary"),
+                    SkillAttachment.ActionCard.Action("取消", CANCEL_CONFIRMATION_TEXT, "secondary"),
+                ),
+            )
+            appendConfirmationExchange(goal, card)
+            return
+        }
         val title = when (taskType) {
             TaskType.PHONE_CONTROL -> "这需要操作你的手机界面。"
             TaskType.VPN_CONTROL -> "这需要修改 VPN/代理状态。"
@@ -2951,7 +3010,7 @@ $foundationalMemory
             body = "切换后会改变当前 AI 的人格、模型或可用能力。请确认是否切换。",
             tone = "role",
             actions = listOf(
-                SkillAttachment.ActionCard.Action("确认切换", "$CONFIRM_ROLE_PREFIX${role.id}", "primary"),
+                SkillAttachment.ActionCard.Action("确认切换并继续", "$CONFIRM_ROLE_PREFIX${role.id}::$goal", "primary"),
                 SkillAttachment.ActionCard.Action("取消", CANCEL_CONFIRMATION_TEXT, "secondary"),
             ),
         )
@@ -3013,6 +3072,14 @@ $foundationalMemory
         }
     }
 
+    private fun isAccessibilityResumeText(text: String): Boolean {
+        val normalized = text.trim().lowercase()
+        return normalized in setOf("已开启", "已经开了", "开了", "无障碍已开启", "无障碍开了", "enabled") ||
+            normalized.contains("已开") ||
+            normalized.contains("已经开启") ||
+            normalized.contains("无障碍开")
+    }
+
     private fun inferExplicitRoleSwitchTarget(goal: String): Role? {
         val text = goal.lowercase()
         if (!text.anyContainsLocal("切换角色", "换角色", "切到", "切换到", "switch role")) return null
@@ -3026,7 +3093,7 @@ $foundationalMemory
     private fun inferFollowUpTaskType(goal: String, classifiedTaskType: TaskType): TaskType? {
         if (classifiedTaskType != TaskType.GENERAL) return null
         if (!isContextualFollowUp(goal)) return null
-        val recent = _uiState.value.currentRunState.messages.takeLast(6)
+        val recent = effectiveContextMessages(limit = 6)
         if (recent.any { msg ->
                 msg.senderRoleId == "phone_operator" ||
                     msg.logLines.any { it.skillId in PHONE_CONTROL_SKILLS || it.text.contains("VLM_PHONE_CONTROL") } ||
@@ -3125,7 +3192,7 @@ $foundationalMemory
         includeMemory: Boolean = true,
         includeRecentMessages: Boolean = true,
     ): String {
-        val msgs = _uiState.value.currentRunState.messages
+        val msgs = effectiveContextMessages(limit = 12)
         val userMemoryContext = if (includeMemory) buildUserMemoryContextForPrompt(goal, taskType) else ""
         val artifactContext = buildArtifactContext(intent)
         if (!includeRecentMessages || msgs.isEmpty()) {
@@ -3283,6 +3350,39 @@ $foundationalMemory
         }
     }
 
+    private fun effectiveContextMessages(limit: Int): List<ChatMessage> =
+        _uiState.value.currentRunState.messages
+            .asReversed()
+            .filterNot { it.isContextNoiseMessage() }
+            .take(limit)
+            .asReversed()
+
+    private fun ChatMessage.isContextNoiseMessage(): Boolean {
+        if (attachments.any { it is SkillAttachment.ActionCard || it is SkillAttachment.AccessibilityRequest }) return true
+        val normalized = text.trim()
+        if (normalized.isBlank() && attachments.isEmpty() && logLines.isEmpty() && imageBase64.isNullOrBlank()) return true
+        if (role == MessageRole.AGENT && normalized in setOf("已取消。", "已切换到 手机操控。", "已切换到 手机操控", "已切换到 phone_operator。")) return true
+        if (role == MessageRole.AGENT && normalized.startsWith("已打开无障碍设置")) return true
+        if (role == MessageRole.USER && normalized in setOf(CANCEL_CONFIRMATION_TEXT, "已开启", "已经开了", "开了", "无障碍已开启", "无障碍开了")) return true
+        if (normalized.startsWith(CONFIRM_TASK_PREFIX) ||
+            normalized.startsWith(CONFIRM_ACCESSIBILITY_TASK_PREFIX) ||
+            normalized.startsWith(OPEN_ACCESSIBILITY_PREFIX) ||
+            normalized.startsWith(CONFIRM_ROLE_PREFIX)) return true
+        return false
+    }
+
+    private fun messageContextText(msg: ChatMessage): String {
+        val logSummary = msg.logLines
+            .takeLast(4)
+            .joinToString("\n") { line ->
+                listOfNotNull(line.skillId, line.text.take(180)).joinToString(": ")
+            }
+        val attachmentSummary = summarizeAttachmentsForContext(msg.attachments)
+        return listOf(msg.text, logSummary, attachmentSummary)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+    }
+
     private fun inferAiPageContextTarget(goal: String): com.mobileclaw.ui.aipage.AiPageDef? {
         val pages = app.aiPageStore.getAll()
         if (pages.isEmpty()) return null
@@ -3322,7 +3422,7 @@ $foundationalMemory
             text.contains("ui")
         val recentPageContext = currentConversationMentionsAiPage(pages)
         val shortFollowUp = text.length <= 30 && refersToPrevious
-        return if (recentPageContext && (refersToPrevious && pageIntent || shortFollowUp)) pages.firstOrNull() else null
+        return if (recentPageContext != null && (refersToPrevious && pageIntent || shortFollowUp)) recentPageContext else null
     }
 
     private fun inferMiniAppContextTarget(goal: String): com.mobileclaw.app.MiniApp? {
@@ -3339,54 +3439,61 @@ $foundationalMemory
         val appIntent = text.anyContainsLocal("app", "miniapp", "mini app", "小应用", "小程序", "程序", "应用", "游戏", "网页应用")
         val recentMiniAppContext = currentConversationMentionsMiniApp(apps)
         val shortFollowUp = text.length <= 30 && refersToPrevious
-        return if (recentMiniAppContext && ((refersToPrevious && appIntent) || shortFollowUp)) apps.firstOrNull() else null
+        return if (recentMiniAppContext != null && ((refersToPrevious && appIntent) || shortFollowUp)) recentMiniAppContext else null
     }
 
     private fun inferRecentFileContextTarget(goal: String): SkillAttachment? {
         val text = goal.lowercase()
         if (isMobileClawInternalChatTopic(text)) return null
         if (!isContextualFollowUp(text)) return null
+        if (isGenericContinueOnly(text) && recentEffectiveUserMessageBeforeCurrent()?.let { TaskClassifier.classify(it) } == TaskType.PHONE_CONTROL) {
+            return null
+        }
         val fileIntent = text.anyContainsLocal(
             "文件", "文档", "附件", "这个", "它", "上面", "刚才", "继续", "修改", "改下", "改一下",
             "优化", "更新", "打开", "保存", "导出", "ppt", "docx", "xlsx", "pdf", "csv", "markdown", "html",
         )
         if (!fileIntent) return null
-        return _uiState.value.currentRunState.messages
+        return effectiveContextMessages(limit = 8)
             .asReversed()
             .flatMap { it.attachments.asReversed() }
             .firstOrNull { it is SkillAttachment.FileData || it is SkillAttachment.HtmlData }
     }
 
-    private fun currentConversationMentionsAiPage(pages: List<com.mobileclaw.ui.aipage.AiPageDef>): Boolean {
-        val recent = _uiState.value.currentRunState.messages.takeLast(10)
-        if (recent.isEmpty()) return false
-        val text = recent.joinToString("\n") { it.text.lowercase() }
+    private fun currentConversationMentionsAiPage(pages: List<com.mobileclaw.ui.aipage.AiPageDef>): com.mobileclaw.ui.aipage.AiPageDef? {
+        val recent = effectiveContextMessages(limit = 4)
+        if (recent.isEmpty()) return null
+        val text = recent.joinToString("\n") { messageContextText(it).lowercase() }
+        val explicit = pages.firstOrNull { page ->
+            (page.id.isNotBlank() && text.contains(page.id.lowercase())) ||
+                (page.title.isNotBlank() && text.contains(page.title.lowercase()))
+        }
+        if (explicit != null) return explicit
         if (text.contains("ai native page") ||
             text.contains("原生页面") ||
             text.contains("ai页面") ||
             text.contains("aipage") ||
             text.contains("ui_builder")) {
-            return true
+            return pages.firstOrNull()
         }
-        return pages.take(5).any { page ->
-            page.id.isNotBlank() && text.contains(page.id.lowercase()) ||
-                page.title.isNotBlank() && text.contains(page.title.lowercase())
-        }
+        return null
     }
 
-    private fun currentConversationMentionsMiniApp(apps: List<com.mobileclaw.app.MiniApp>): Boolean {
-        val recent = _uiState.value.currentRunState.messages.takeLast(10)
-        if (recent.isEmpty()) return false
+    private fun currentConversationMentionsMiniApp(apps: List<com.mobileclaw.app.MiniApp>): com.mobileclaw.app.MiniApp? {
+        val recent = effectiveContextMessages(limit = 4)
+        if (recent.isEmpty()) return null
         val text = recent.joinToString("\n") { msg ->
-            msg.text.lowercase() + "\n" + summarizeAttachmentsForContext(msg.attachments).lowercase()
+            messageContextText(msg).lowercase() + "\n" + summarizeAttachmentsForContext(msg.attachments).lowercase()
         }
-        if (text.anyContainsLocal("miniapp", "mini app", "小应用", "小程序", "app_manager", "应用已创建", "app '")) {
-            return true
-        }
-        return apps.take(5).any { mini ->
+        val explicit = apps.firstOrNull { mini ->
             (mini.id.isNotBlank() && text.contains(mini.id.lowercase())) ||
                 (mini.title.isNotBlank() && text.contains(mini.title.lowercase()))
         }
+        if (explicit != null) return explicit
+        if (text.anyContainsLocal("miniapp", "mini app", "小应用", "小程序", "app_manager", "应用已创建", "app '")) {
+            return apps.firstOrNull()
+        }
+        return null
     }
 
     private fun isContextualFollowUp(text: String): Boolean {
@@ -3400,6 +3507,19 @@ $foundationalMemory
         )
     }
 
+    private fun isGenericContinueOnly(text: String): Boolean {
+        val normalized = text.trim().lowercase()
+        return normalized in setOf("继续", "继续啊", "接着", "接着啊", "继续做", "继续执行", "continue", "go on")
+    }
+
+    private fun recentEffectiveUserMessageBeforeCurrent(): String? =
+        effectiveContextMessages(limit = 8)
+            .asReversed()
+            .firstOrNull { it.role == MessageRole.USER }
+            ?.text
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
     private fun isMobileClawInternalChatTopic(text: String): Boolean =
         text.anyContainsLocal(
             "聊天", "chat", "群聊", "单聊", "对话", "上下文", "乱切", "角色", "记忆",
@@ -3410,6 +3530,8 @@ $foundationalMemory
 
     private companion object {
         const val CONFIRM_TASK_PREFIX = "确认执行:"
+        const val CONFIRM_ACCESSIBILITY_TASK_PREFIX = "确认无障碍并执行:"
+        const val OPEN_ACCESSIBILITY_PREFIX = "打开无障碍设置:"
         const val CONFIRM_ROLE_PREFIX = "确认切换角色:"
         const val CANCEL_CONFIRMATION_TEXT = "取消"
         val PHONE_CONTROL_SKILLS = setOf(
