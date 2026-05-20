@@ -83,6 +83,13 @@ fun clawIconForSymbol(symbol: String?): ImageVector {
     val value = symbol?.trim().orEmpty().lowercase()
     return when {
         value.isBlank() -> Icons.Filled.SmartToy
+        value in setOf("role:general", "role:custom", "role", "assistant") -> Icons.Filled.SmartToy
+        value in setOf("role:coder") -> Icons.Outlined.Code
+        value in setOf("role:web") -> Icons.Outlined.Language
+        value in setOf("role:phone") -> Icons.Outlined.PhoneAndroid
+        value in setOf("role:creator") -> Icons.Outlined.Brush
+        value in setOf("role:skill") -> Icons.Outlined.Extension
+        value in setOf("role:vpn") -> Icons.Outlined.Lock
         value in setOf("💬", "chat", "message", "聊天") -> Icons.Outlined.ChatBubbleOutline
         value in setOf("🧬", "profile", "memory", "画像") -> Icons.Outlined.Psychology
         value in setOf("physio", "cognitive") -> Icons.Outlined.Psychology

@@ -9,11 +9,12 @@ import com.mobileclaw.memory.db.ConversationEntity
 import com.mobileclaw.memory.db.EpisodeEntity
 
 /**
- * Extracts structured user profile facts from two sources:
+ * Extracts structured long-term memory facts from two sources:
  *  1. Conversation history (chat RAG) — called after each task
  *  2. Task execution patterns (episode history) — called on manual refresh
  *
- * Results are stored in SemanticMemory under "profile.<dimension>.<aspect>" keys.
+ * Results are stored in SemanticMemory under profile/preference/rule/correction/
+ * failure/lesson/project/tool-policy keys.
  */
 class UserProfileExtractor(
     private val llm: LlmGateway,
@@ -45,10 +46,26 @@ class UserProfileExtractor(
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private suspend fun persistFact(fact: ProfileFact) {
-        if (fact.key.startsWith("profile.") && fact.value.isNotBlank()) {
-            semanticMemory.set(fact.key, fact.value, fact.confidence.coerceIn(0f, 1f))
+        if (isAllowedMemoryKey(fact.key) && fact.value.isNotBlank()) {
+            semanticMemory.set(
+                key = fact.key,
+                value = fact.value,
+                confidence = fact.confidence.coerceIn(0f, 1f),
+                type = SemanticMemory.inferType(fact.key),
+                source = "memory_extractor",
+            )
         }
     }
+
+    private fun isAllowedMemoryKey(key: String): Boolean =
+        key.startsWith("profile.") ||
+            key.startsWith("preference.") ||
+            key.startsWith("rule.") ||
+            key.startsWith("correction.") ||
+            key.startsWith("failure.") ||
+            key.startsWith("lesson.") ||
+            key.startsWith("project.") ||
+            key.startsWith("tool.policy.")
 
     private fun buildConversationSnippet(
         messages: List<ConversationEntity>,
@@ -124,7 +141,7 @@ class UserProfileExtractor(
     // ── LLM calls ─────────────────────────────────────────────────────────────
 
     private val keysHint = """
-可用key（选最相关的填写，每次最多6条）:
+可用key（选最相关的填写，每次最多8条）:
 profile.physio.health / profile.physio.fitness / profile.physio.appearance / profile.physio.medical
 profile.personality.temperament / profile.personality.style / profile.personality.emotion_pattern
 profile.cognitive.thinking / profile.cognitive.learning / profile.cognitive.perspective
@@ -132,30 +149,42 @@ profile.emotional.stability / profile.emotional.empathy / profile.emotional.stre
 profile.social.style / profile.social.communication / profile.social.relationships
 profile.values.core / profile.values.goals / profile.values.principles
 profile.capability.skills / profile.capability.execution / profile.capability.creativity
-profile.spiritual.core / profile.spiritual.beliefs / profile.spiritual.resilience""".trimIndent()
+profile.spiritual.core / profile.spiritual.beliefs / profile.spiritual.resilience
+preference.chat.style / preference.chat.language / preference.ui.style / preference.ui.avoid / preference.code.style / preference.document.style
+rule.user_must.<short_name> / rule.user_do_not.<short_name>
+correction.recent.<short_name>
+failure.<domain>.<short_name>
+lesson.<domain>.<short_name>
+project.mobileclaw.<short_name>
+tool.policy.<tool_or_domain>.<short_name>""".trimIndent()
 
     private suspend fun callLlmConversation(context: String): List<ProfileFact> {
         val prompt = """
-你是用户画像分析师，根据以下对话记录推断用户特征。
+你是 MobileClaw 的长期记忆分析师，根据以下对话记录提取会影响后续 AI 判断的稳定记忆。
 $context
 
 $keysHint
 
-规则：只输出有充分依据的条目，value用简短中文（20字内），只输出JSON数组。
-示例：[{"key":"profile.cognitive.thinking","value":"逻辑思维强，喜欢系统化","confidence":0.7}]""".trimIndent()
+规则：
+- 只输出有充分依据的条目，不要臆测。
+- 用户明确纠错、长期偏好、禁止项、工具策略，比人格画像更重要。
+- 用户说“以后/不要/必须/我希望/你老是”时，优先沉淀为 rule/preference/correction/tool.policy。
+- value 用简短中文（40字内），只输出 JSON 数组。
+示例：[{"key":"preference.chat.style","value":"喜欢直接执行，少废话","confidence":0.9},{"key":"tool.policy.image_understanding.no_web_search","value":"用户上传图片询问内容时不要默认网页搜索","confidence":0.95}]""".trimIndent()
 
         return callLlm(prompt)
     }
 
     private suspend fun callLlmEpisodes(analysis: String): List<ProfileFact> {
         val prompt = """
-你是用户画像分析师，根据用户的AI任务历史推断其特征。
+你是 MobileClaw 的长期记忆分析师，根据用户的 AI 任务历史提取稳定偏好、失败经验和工具策略。
 $analysis
 
 $keysHint
 
 根据技能使用频率、任务类型、成功率推断用户的能力、认知和性格特征。
-只输出有充分依据的条目，value用简短中文（20字内），只输出JSON数组。""".trimIndent()
+同时识别反复失败的任务模式，沉淀为 failure/lesson/tool.policy。
+只输出有充分依据的条目，value用简短中文（40字内），只输出JSON数组。""".trimIndent()
 
         return callLlm(prompt)
     }

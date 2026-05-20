@@ -70,6 +70,7 @@ class RoleManager(private val context: Context) {
 
     private fun normalize(role: Role): Role {
         return role.copy(
+            avatar = normalizeRoleAvatar(role.id, role.avatar),
             systemPromptAddendum = role.systemPromptAddendum ?: "",
             forcedSkillIds = role.forcedSkillIds ?: emptyList(),
             preferredTaskTypes = role.preferredTaskTypes ?: emptyList(),

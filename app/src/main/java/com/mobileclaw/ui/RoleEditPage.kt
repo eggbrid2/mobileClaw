@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.RoleAvatarDefaults
+import com.mobileclaw.agent.isRoleImageAvatar
+import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.agent.TaskType
 import com.mobileclaw.skill.SkillMeta
 import java.util.UUID
@@ -73,7 +76,7 @@ fun RoleEditPage(
     val c = LocalClawColors.current
 
     var name by remember { mutableStateOf(initial.name) }
-    var avatar by remember { mutableStateOf(initial.avatar) }
+    var avatar by remember { mutableStateOf(normalizeRoleAvatar(initial.id, initial.avatar)) }
     var description by remember { mutableStateOf(initial.description) }
     var addendum by remember { mutableStateOf(initial.systemPromptAddendum) }
     var schedulerKeywords by remember { mutableStateOf(initial.keywords.joinToString(", ")) }
@@ -83,7 +86,7 @@ fun RoleEditPage(
     var modelDropdownExpanded by remember { mutableStateOf(false) }
     var cropSourceUri by remember { mutableStateOf<Uri?>(null) }
 
-    val isImageAvatar = avatar.startsWith("content://") || avatar.startsWith("file://")
+    val isImageAvatar = isRoleImageAvatar(avatar)
 
     val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -118,7 +121,7 @@ fun RoleEditPage(
                             id = initial.id,
                             name = name.trim(),
                             description = description.trim(),
-                            avatar = avatar.trim().ifBlank { "🤖" },
+                            avatar = normalizeRoleAvatar(initial.id, avatar),
                             systemPromptAddendum = addendum.trim(),
                             forcedSkillIds = selectedSkillIds.toList(),
                             modelOverride = selectedModel.trim().ifBlank { null },
@@ -156,7 +159,7 @@ fun RoleEditPage(
                         .clickable { imagePicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    GradientAvatar(emoji = avatar, size = 80.dp, color = c.accent)
+                    GradientAvatar(avatar = avatar, size = 80.dp, color = c.accent)
                     // Camera badge overlay
                     Box(
                         modifier = Modifier
@@ -171,17 +174,11 @@ fun RoleEditPage(
                 }
                 Spacer(Modifier.height(6.dp))
                 if (isImageAvatar) {
-                    TextButton(onClick = { avatar = "🤖" }) {
+                    TextButton(onClick = { avatar = RoleAvatarDefaults.forRoleId(initial.id) }) {
                         Text(str(R.string.role_edit_74308d), fontSize = 12.sp, color = c.subtext)
                     }
                 } else {
-                    OutlinedTextField(
-                        value = avatar,
-                        onValueChange = { if (it.length <= 2) avatar = it },
-                        label = { Text(str(R.string.role_edit_74308d)) },
-                        modifier = Modifier.width(100.dp),
-                        singleLine = true,
-                    )
+                    Text(str(R.string.role_edit_74308d), color = c.subtext, fontSize = 12.sp)
                 }
             }
 

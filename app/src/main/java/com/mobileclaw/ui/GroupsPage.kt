@@ -206,7 +206,7 @@ private fun GroupCard(
     val fallbackPreview = remember(members) {
         buildString {
             append(str(R.string.groups_you))
-            members.take(3).forEach { append(" · ${safeAvatarGlyph(it.avatar)} ${it.name}") }
+            members.take(3).forEach { append(" · ${it.name}") }
             if (members.size > 3) append(" · +${members.size - 3}")
         }
     }
@@ -387,7 +387,7 @@ private fun CreateGroupPage(
                             .padding(horizontal = 12.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        GradientAvatar(emoji = role.avatar, size = 38.dp, color = if (selected) c.accent else c.subtext)
+                        GradientAvatar(avatar = role.avatar, size = 38.dp, color = if (selected) c.accent else c.subtext)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(role.name, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

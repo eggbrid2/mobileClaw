@@ -18,9 +18,9 @@ class MemorySkill(private val memory: SemanticMemory) : Skill {
         name = "Semantic Memory",
         description = "Read or write persistent key-value facts about the device, user preferences, and app packages. " +
             "Stored facts are automatically available in future tasks. " +
-            "action: 'get' to read one key | 'set' to store a value | 'delete' to remove | 'list' to show all stored facts.",
+            "action: 'get' to read one key | 'set' to store a value | 'delete' to remove | 'list' to show all stored facts | 'pin'/'unpin' | 'disable'/'enable'.",
         parameters = listOf(
-            SkillParam("action", "string", "'get' | 'set' | 'delete' | 'list'"),
+            SkillParam("action", "string", "'get' | 'set' | 'delete' | 'list' | 'pin' | 'unpin' | 'disable' | 'enable'"),
             SkillParam("key", "string", "Dot-notation key, e.g. 'app.wechat.package_name' or 'user.preferred_browser'", required = false),
             SkillParam("value", "string", "Value to store (required for action=set)", required = false),
         ),
@@ -41,7 +41,7 @@ class MemorySkill(private val memory: SemanticMemory) : Skill {
             "set" -> {
                 val key = params["key"] as? String ?: return SkillResult(false, "key is required for action=set")
                 val value = params["value"] as? String ?: return SkillResult(false, "value is required for action=set")
-                memory.set(key, value)
+                memory.set(key = key, value = value, source = "memory_skill")
                 SkillResult(true, "Stored: $key = $value")
             }
             "delete" -> {
@@ -50,11 +50,24 @@ class MemorySkill(private val memory: SemanticMemory) : Skill {
                 SkillResult(true, "Deleted key: $key")
             }
             "list" -> {
-                val all = memory.all()
+                val all = memory.facts()
                 if (all.isEmpty()) SkillResult(true, "No facts stored yet.")
-                else SkillResult(true, all.entries.joinToString("\n") { "- ${it.key}: ${it.value}" })
+                else SkillResult(true, all.joinToString("\n") { fact ->
+                    val pin = if (fact.pinned) " pinned" else ""
+                    "- ${fact.key}: ${fact.value} (${fact.type}, confidence=${"%.2f".format(fact.confidence)}, used=${fact.useCount}$pin)"
+                })
             }
-            else -> SkillResult(false, "Unknown action '$action'. Use: get, set, delete, list")
+            "pin", "unpin" -> {
+                val key = params["key"] as? String ?: return SkillResult(false, "key is required for action=$action")
+                memory.setPinned(key, action == "pin")
+                SkillResult(true, if (action == "pin") "Pinned key: $key" else "Unpinned key: $key")
+            }
+            "disable", "enable" -> {
+                val key = params["key"] as? String ?: return SkillResult(false, "key is required for action=$action")
+                memory.setEnabled(key, action == "enable")
+                SkillResult(true, if (action == "enable") "Enabled key: $key" else "Disabled key: $key")
+            }
+            else -> SkillResult(false, "Unknown action '$action'. Use: get, set, delete, list, pin, unpin, disable, enable")
         }
     }
 }

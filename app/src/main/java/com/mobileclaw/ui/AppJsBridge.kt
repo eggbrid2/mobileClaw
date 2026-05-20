@@ -19,7 +19,10 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import com.google.gson.Gson
 import com.mobileclaw.app.MiniAppStore
+import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.MemoryContextBuilder
+import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.runBlocking
@@ -161,7 +164,9 @@ _env_info = json.dumps({
 
     @JavascriptInterface
     fun setConfig(key: String, value: String) = runBlocking<Unit> {
-        runCatching { userConfig.set(key, value) }
+        runCatching {
+            MemoryWriter(semanticMemory, userConfig).syncUserConfig(key, value)
+        }
     }
 
     @JavascriptInterface
@@ -171,7 +176,17 @@ _env_info = json.dumps({
 
     @JavascriptInterface
     fun setMemory(key: String, value: String) = runBlocking<Unit> {
-        runCatching { semanticMemory.set(key, value) }
+        runCatching { semanticMemory.set(key = key, value = value, source = "app_js_bridge", sourceRef = appId) }
+    }
+
+    @JavascriptInterface
+    fun memoryContext(message: String): String = runBlocking {
+        runCatching {
+            val taskType = TaskClassifier.classify(message)
+            MemoryContextBuilder(semanticMemory, userConfig)
+                .build(message, taskType)
+                .toPrompt()
+        }.getOrDefault("")
     }
 
     // ── File I/O ───────────────────────────────────────────────────────────────

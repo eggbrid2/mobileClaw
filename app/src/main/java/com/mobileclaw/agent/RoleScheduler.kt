@@ -23,8 +23,25 @@ object RoleScheduler {
         goal: String,
         availableRoles: List<Role>,
         currentRole: Role,
+        memoryContext: String = "",
     ): RoleScheduleDecision {
         val roles = (availableRoles + Role.BUILTINS).distinctBy { it.id }
+        val explicitRole = roles.firstOrNull { role ->
+            goal.contains(role.id, ignoreCase = true) ||
+                role.name.isNotBlank() && goal.contains(role.name, ignoreCase = true)
+        }
+        if (explicitRole != null) {
+            return RoleScheduleDecision(
+                role = explicitRole,
+                reason = "TaskType=$taskType, explicit role mention, goal=${goal.take(80)}",
+            )
+        }
+        if (shouldKeepCurrentRole(memoryContext, taskType, currentRole)) {
+            return RoleScheduleDecision(
+                role = currentRole,
+                reason = "TaskType=$taskType, memory keeps current role=${currentRole.id}, goal=${goal.take(80)}",
+            )
+        }
         val scored = roles.map { scoreRole(it, taskType, goal, currentRole) }
         val fallback = fallbackRole(taskType, roles, currentRole)
         val best = scored.maxWithOrNull(
@@ -85,6 +102,21 @@ object RoleScheduler {
             score += 5
         }
         return RoleScore(role, score, reasons)
+    }
+
+    private fun shouldKeepCurrentRole(memoryContext: String, taskType: TaskType, currentRole: Role): Boolean {
+        if (memoryContext.isBlank()) return false
+        val lower = memoryContext.lowercase()
+        val noAutoSwitch = lower.contains("不要乱切人") ||
+            lower.contains("不要自动切角色") ||
+            lower.contains("不要乱切角色") ||
+            lower.contains("乱切人") ||
+            lower.contains("乱切角色") ||
+            lower.contains("no auto role switch") ||
+            lower.contains("agent.behavior.keep_current_role") ||
+            lower.contains("keep current role")
+        if (!noAutoSwitch) return false
+        return currentRole.id != Role.DEFAULT.id || taskType in listOf(TaskType.CHAT, TaskType.GENERAL)
     }
 
     private fun fallbackRole(taskType: TaskType, roles: List<Role>, currentRole: Role): Role {

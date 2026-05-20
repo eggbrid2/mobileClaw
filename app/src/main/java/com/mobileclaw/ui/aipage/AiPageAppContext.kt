@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.mobileclaw.ClawApplication
+import com.mobileclaw.agent.TaskClassifier
+import com.mobileclaw.memory.MemoryContextBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -26,6 +28,7 @@ class AiPageAppContext(private val context: Context) {
             val cappedLimit = limit.coerceIn(1, 100)
             when (domain.lowercase()) {
                 "memory" -> mapOf("memory" to memory())
+                "memory_context", "memoryContext" -> mapOf("memoryContext" to memoryContext())
                 "chat", "chats" -> mapOf("chat" to chat(cappedLimit))
                 "groups", "group_chat", "group_chats" -> mapOf("groups" to groups(cappedLimit))
                 "settings", "config" -> mapOf("settings" to settings())
@@ -36,6 +39,7 @@ class AiPageAppContext(private val context: Context) {
                 "summary" -> summary(cappedLimit)
                 else -> summary(cappedLimit) + mapOf(
                     "memory" to memory(),
+                    "memoryContext" to memoryContext(),
                     "chat" to chat(cappedLimit),
                     "groups" to groups(cappedLimit),
                     "settings" to settings(),
@@ -75,6 +79,16 @@ class AiPageAppContext(private val context: Context) {
                 )
             },
         )
+    }
+
+    private suspend fun memoryContext(message: String = ""): Map<String, Any> {
+        val prompt = runCatching {
+            val taskType = TaskClassifier.classify(message)
+            MemoryContextBuilder(app.semanticMemory, app.userConfig)
+                .build(message, taskType)
+                .toPrompt()
+        }.getOrDefault("")
+        return mapOf("prompt" to prompt)
     }
 
     private suspend fun chat(limit: Int): Map<String, Any> {

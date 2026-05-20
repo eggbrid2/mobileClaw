@@ -126,7 +126,7 @@ fun DrawerContent(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    GradientAvatar(emoji = currentRole.avatar, size = 40.dp, color = c.text)
+                    GradientAvatar(avatar = currentRole.avatar, size = 40.dp, color = c.text)
                 }
             }
             Spacer(modifier = Modifier.width(10.dp))

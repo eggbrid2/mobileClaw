@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.util.Base64
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.UserConfig
 import com.mobileclaw.skill.Skill
@@ -42,12 +43,13 @@ import java.util.concurrent.TimeUnit
  *   icon_api_endpoint  — (optional) custom endpoint override
  *
  * Output: 512×512 PNG with rounded corners, saved to filesDir/icons/.
- * Can optionally be applied to a mini-app via apply_to_app.
+ * Can optionally be applied to a mini-app via apply_to_app or a role via apply_to_role.
  */
 class GenerateIconSkill(
     private val context: Context,
     private val userConfig: UserConfig,
     private val miniAppStore: MiniAppStore,
+    private val roleManager: RoleManager? = null,
 ) : Skill {
 
     private val client = OkHttpClient.Builder()
@@ -63,12 +65,13 @@ class GenerateIconSkill(
         description = "Generates a 512×512 app icon using configurable Chinese domestic AI APIs " +
             "(DashScope/Wanx, CogView, or any OpenAI-compatible image API). " +
             "Requires user_config key icon_api_key; optionally icon_api_provider (dashscope|cogview|openai) and icon_api_endpoint. " +
-            "Use apply_to_app to set the icon on an existing mini-app.",
+            "Use apply_to_app to set the icon on an existing mini-app, or apply_to_role to set it as a role avatar.",
         descriptionZh = "使用可配置的国内 AI 图像接口生成 512×512 应用图标（支持通义万象、CogView、OpenAI 兼容接口）。" +
-            "需要在 user_config 中设置 icon_api_key。可用 apply_to_app 直接为迷你应用设置图标。",
+            "需要在 user_config 中设置 icon_api_key。可用 apply_to_app 设置迷你应用图标，或 apply_to_role 设置角色头像。",
         parameters = listOf(
             SkillParam("prompt", "string", "Description of the icon to generate, e.g. 'a minimalist calendar icon with blue gradient'"),
             SkillParam("apply_to_app", "string", "App ID to apply the generated icon to (optional)", required = false),
+            SkillParam("apply_to_role", "string", "Role ID to apply the generated icon as its avatar (optional)", required = false),
             SkillParam("style", "string", "Icon style hint: 'flat' | 'gradient' | '3d' | 'sketch' (optional, default: flat)", required = false),
         ),
         type = SkillType.NATIVE,
@@ -81,6 +84,7 @@ class GenerateIconSkill(
         val prompt = params["prompt"] as? String
             ?: return@withContext SkillResult(false, "prompt parameter is required")
         val applyToApp = params["apply_to_app"] as? String
+        val applyToRole = params["apply_to_role"] as? String
         val style = params["style"] as? String ?: "flat"
 
         val apiKey = userConfig.get("icon_api_key")?.trim()
@@ -121,10 +125,22 @@ class GenerateIconSkill(
             }
         }
 
+        if (applyToRole != null) {
+            val manager = roleManager
+                ?: return@withContext SkillResult(false, "Icon saved to ${outFile.absolutePath} but role manager is not available.")
+            val role = manager.get(applyToRole)
+                ?: return@withContext SkillResult(false, "Icon saved to ${outFile.absolutePath} but role '$applyToRole' was not found.")
+            manager.save(role.copy(avatar = outFile.absolutePath))
+        }
+
         val b64 = Base64.encodeToString(processed, Base64.NO_WRAP)
         val dataUri = "data:image/png;base64,$b64"
 
-        val appNote = if (applyToApp != null) " 已应用到应用 '$applyToApp'。" else " 使用 apply_to_app 参数将其设置为某个应用的图标。"
+        val appNote = when {
+            applyToRole != null -> " 已应用到角色 '$applyToRole'。"
+            applyToApp != null -> " 已应用到应用 '$applyToApp'。"
+            else -> " 使用 apply_to_app 或 apply_to_role 参数将其设置为应用图标或角色头像。"
+        }
         SkillResult(
             success = true,
             output = "图标已生成：${outFile.name}$appNote",

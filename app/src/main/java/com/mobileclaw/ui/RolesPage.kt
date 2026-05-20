@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.str
 
 @Composable
@@ -104,7 +105,7 @@ fun RolesPage(
                         id = "custom_${java.util.UUID.randomUUID().toString().take(8)}",
                         name = "",
                         description = "",
-                        avatar = "🤖",
+                        avatar = RoleAvatarDefaults.CUSTOM,
                         isBuiltin = false,
                     )
                 )
@@ -150,7 +151,7 @@ private fun RoleRow(
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GradientAvatar(emoji = role.avatar, size = 40.dp, color = if (isActive) c.accent else c.subtext)
+        GradientAvatar(avatar = role.avatar, size = 40.dp, color = if (isActive) c.accent else c.subtext)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(role.name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)

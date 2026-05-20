@@ -1197,6 +1197,8 @@ You MUST respond in Simplified Chinese (简体中文).
     <string name="cache_vpn_subtitle">测速与运行时 mihomo 配置，需要时会重新生成</string>
     <string name="cache_stickers_title">表情包缓存</string>
     <string name="cache_stickers_subtitle">ChineseBQB 索引和已下载表情图片</string>
+    <string name="cache_chat_images_title">聊天图片缓存</string>
+    <string name="cache_chat_images_subtitle">为避免数据库膨胀而单独保存的大图缩略资源</string>
     <string name="cache_documents_title">生成的办公文档</string>
     <string name="cache_documents_subtitle">AI 生成的 PPT、Word、PDF、表格等附件</string>
     <string name="cache_videos_title">生成的视频</string>
@@ -1207,4 +1209,6 @@ You MUST respond in Simplified Chinese (简体中文).
     <string name="cache_created_files_subtitle">create_file 生成的本地附件</string>
     <string name="cache_python_title">Python 运行包缓存</string>
     <string name="cache_python_subtitle">办公文档工具自动下载的依赖，清理后会按需重装</string>
+    <string name="cache_task_replays_title">任务回放缓存</string>
+    <string name="cache_task_replays_subtitle">历史任务轨迹和从任务中生成的复用配方</string>
 </resources>

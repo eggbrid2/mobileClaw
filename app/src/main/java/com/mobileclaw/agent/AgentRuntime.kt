@@ -5,6 +5,7 @@ import com.mobileclaw.llm.LlmGateway
 import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
 import com.mobileclaw.llm.ToolProperty
+import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.memory.WorkingMemory
 import com.mobileclaw.skill.SkillMeta
@@ -22,6 +23,7 @@ class AgentRuntime(
     private val llm: LlmGateway,
     private val registry: SkillRegistry,
     private val semanticMemory: SemanticMemory? = null,
+    private val memoryContextBuilder: MemoryContextBuilder? = null,
 ) {
     private val _events = MutableSharedFlow<AgentEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<AgentEvent> = _events
@@ -51,13 +53,22 @@ class AgentRuntime(
         emit(AgentEvent.Started(ctx.taskId, goal))
 
         // Build once per task — these don't change across steps
+        val foundationalMemoryContext = runCatching {
+            memoryContextBuilder?.build(goal, taskType)?.toPrompt().orEmpty()
+        }.getOrDefault("")
         val injectedSkills = if (preferFastLocalVision && taskType in setOf(TaskType.CHAT, TaskType.GENERAL)) {
             emptyList()
         } else {
-            TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty())
+            TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty(), foundationalMemoryContext)
         }
         val tools = injectedSkills.toToolDefinitions()
-        val semanticContext = runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
+        val semanticContext = foundationalMemoryContext.ifBlank {
+            runCatching { semanticMemory?.toPromptContext() ?: "" }.getOrDefault("")
+        }
+        val runtimePriorContext = listOf(foundationalMemoryContext, priorContext)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\n\n")
         val taskPlan = if (preferFastLocalVision) {
             TaskPlanner.fallback(goal, taskType)
         } else {
@@ -66,13 +77,13 @@ class AgentRuntime(
                 goal = goal,
                 taskType = taskType,
                 language = language,
-                priorContext = priorContext,
+                priorContext = runtimePriorContext,
             )
         }
         emit(AgentEvent.PlanCreated(taskPlan))
         val systemPrompt = buildSystemPrompt(
             skills = injectedSkills,
-            priorContext = priorContext,
+            priorContext = runtimePriorContext,
             episodicContext = episodicContext,
             semanticContext = semanticContext,
             language = language,

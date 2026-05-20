@@ -164,11 +164,12 @@ object TaskClassifier {
         if (text.anyContains("打开", "启动", "点击", "滑动", "滚动", "输入", "长按", "返回", "主页", "发微信", "发短信", "打电话", "操作手机", "控制手机", "看屏幕", "读屏幕", "open ", "launch ", "click ")) {
             return TaskType.PHONE_CONTROL
         }
-        if (text.anyContains("搜索", "查询", "查一下", "网页", "浏览", "新闻", "最新", "资料", "research", "search", "browse")) return TaskType.WEB_RESEARCH
-        if (text.anyContains("生成图片", "画图", "图片", "图标", "视频", "image", "icon", "video")) return TaskType.IMAGE_GENERATION
+        if (isFollowUpOnly(text)) return TaskType.GENERAL
+        if (hasExplicitWebResearchIntent(text)) return TaskType.WEB_RESEARCH
+        if (hasExplicitImageGenerationIntent(text)) return TaskType.IMAGE_GENERATION
         if (hasExplicitPageBuildIntent(text)) return TaskType.APP_BUILD
         if (text.anyContains("做个app", "做一个app", "创建应用", "小应用", "网页应用", "miniapp", "mini app", "html", "game", "calculator", "小游戏", "程序")) return TaskType.APP_BUILD
-        if (text.anyContains("文件", "文档", "ppt", "docx", "xlsx", "pdf", "csv", "markdown")) return TaskType.FILE_CREATE
+        if (hasExplicitFileIntent(text)) return TaskType.FILE_CREATE
         if (text.anyContains("role", "persona", "角色", "人设", "创建角色", "新建角色", "修改角色", "角色管理", "切换角色")) return TaskType.SKILL_MANAGEMENT
         if (text.anyContains("skill", "技能", "安装能力", "创建技能", "技能市场")) return TaskType.SKILL_MANAGEMENT
         if (text.anyContains("shell", "python", "脚本", "执行命令", "运行代码", "pip")) return TaskType.CODE_EXECUTION
@@ -184,14 +185,53 @@ object TaskClassifier {
         val buildVerb = text.anyContains("创建", "生成", "做个", "做一个", "新建", "设计", "开发", "搭建", "build", "create")
         return pageNoun && buildVerb
     }
+
+    private fun hasExplicitWebResearchIntent(text: String): Boolean {
+        if (text.anyContains("不要搜索", "别搜索", "不用搜索", "不要联网", "别联网", "不用联网", "按上面", "基于上面")) return false
+        if (text.anyContains("联网搜索", "网页搜索", "搜索网页", "搜一下", "查一下资料", "找来源", "找资料", "浏览网页", "web research", "web search", "search web", "browse web")) return true
+        if (text.anyContains("新闻", "最新", "官网", "网页", "research", "search", "browse")) return true
+        return text.anyContains("搜索") && !text.anyContains("搜索框", "搜索按钮", "搜索页面")
+    }
+
+    private fun hasExplicitImageGenerationIntent(text: String): Boolean {
+        if (text.anyContains("这张图片", "这个图片", "图片里", "图里", "看图", "识别图片", "分析图片", "描述图片", "what is in the image", "describe image")) return false
+        if (text.anyContains("生成图片", "生成一张", "画图", "画一张", "绘制", "出图", "生图", "做张图", "生成图标", "生成视频", "image generation", "generate image", "draw ")) return true
+        val mediaNoun = text.anyContains("图片", "图像", "图标", "海报", "封面", "插画", "视频", "icon", "poster", "video")
+        val createVerb = text.anyContains("生成", "创建", "设计", "制作", "画", "做一个", "做个", "create", "generate", "design")
+        return mediaNoun && createVerb
+    }
+
+    private fun hasExplicitFileIntent(text: String): Boolean {
+        if (text.anyContains("这个文件是什么", "解释文件", "读取文件", "看看文件", "文件内容是什么")) return true
+        val officeNoun = text.anyContains("ppt", "pptx", "docx", "word", "xlsx", "excel", "pdf", "csv", "markdown", "md")
+        val createVerb = text.anyContains("生成", "创建", "写", "导出", "保存", "做一个", "做个", "制作", "整理成", "create", "generate", "export", "save")
+        if (officeNoun && createVerb) return true
+        return text.anyContains("创建文件", "生成文件", "写入文件", "保存文件", "导出文件", "生成文档", "创建文档")
+    }
+
+    private fun isFollowUpOnly(text: String): Boolean {
+        val normalized = text.trim()
+        if (normalized.length > 40) return false
+        return normalized.anyContains(
+            "继续", "接着", "然后呢", "详细说", "改一下", "改下", "优化下", "优化一下", "不是这个",
+            "不是这样", "不对", "换个方式", "换成", "改成", "按上面", "基于上面", "就这个", "它",
+            "this", "that", "continue", "change it", "update it", "not this",
+        )
+    }
 }
 
 object TaskToolPolicy {
-    fun select(registry: SkillRegistry, taskType: TaskType, forcedSkillIds: List<String> = emptyList()): List<SkillMeta> {
+    fun select(
+        registry: SkillRegistry,
+        taskType: TaskType,
+        forcedSkillIds: List<String> = emptyList(),
+        memoryContext: String = "",
+    ): List<SkillMeta> {
         val allowed = allowedSkillIds(taskType)
-        val taskSkills = allowed.mapNotNull { registry.get(it)?.meta }
+        val memoryFiltered = applyMemoryToolPolicy(allowed, taskType, memoryContext)
+        val taskSkills = memoryFiltered.mapNotNull { registry.get(it)?.meta }
         val forced = forcedSkillIds
-            .filter { it in allowed }
+            .filter { it in memoryFiltered }
             .mapNotNull { registry.get(it)?.meta }
         return (taskSkills + forced).distinctBy { it.id }
     }
@@ -245,8 +285,11 @@ object TaskToolPolicy {
 """.trimIndent()
         TaskType.CHAT, TaskType.GENERAL -> """
 ## Current Task Mode: GENERAL
-- Use only the tools needed for this task. If the user asks to operate the phone, switch behavior to phone-control style.
+- This is a conversation-first mode. Answer directly unless a very small allowed helper tool is clearly useful.
+- Do not search the web, operate the phone, create files/pages, switch roles, or manage VPN from GENERAL. Those require a more specific Task Mode.
 - For casual conversation, humor, teasing, celebration, awkwardness, comfort, thanks, surprise, speechless moments, or meme-like replies, actively consider `sticker_bqb`.
+- When the user gives durable personal preferences or asks you to remember/configure something, store it with `user_config` for explicit user settings or `user_profile`/`memory` for inferred facts.
+- Before personalized advice, prefer the injected User Memory and Configuration context; call `user_config` or `user_profile` only if you need fresher or complete details.
 - Only call `sticker_bqb` when the sticker's query matches your intended reaction or emotion. Send at most one sticker per turn, and do not use it for serious, professional, or safety-critical answers.
 - If you send a sticker, keep accompanying text short and natural; do not explain the sticker as an attachment.
 """.trimIndent()
@@ -262,13 +305,50 @@ object TaskToolPolicy {
         TaskType.APP_BUILD -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
         TaskType.IMAGE_GENERATION -> listOf("generate_image", "generate_icon", "generate_video", "create_file")
         TaskType.VPN_CONTROL -> listOf("vpn_control")
-        TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes", "role_manager", "switch_role")
+        TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes", "role_manager", "switch_role", "generate_icon")
         TaskType.CODE_EXECUTION -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files")
         TaskType.CHAT -> listOf("sticker_bqb")
-        TaskType.GENERAL -> listOf(
-            "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate",
-            "phone_status", "web_search", "fetch_url", "create_file", "read_file", "list_files",
-            "memory", "user_profile", "vpn_control", "role_manager", "switch_role", "sticker_bqb",
-        )
+        TaskType.GENERAL -> listOf("memory", "user_profile", "user_config", "sticker_bqb")
+    }
+
+    private fun applyMemoryToolPolicy(
+        allowed: List<String>,
+        taskType: TaskType,
+        memoryContext: String,
+    ): List<String> {
+        if (memoryContext.isBlank()) return allowed
+        val lower = memoryContext.lowercase()
+        var result = allowed
+        val noWeb = lower.contains("不要搜索") ||
+            lower.contains("不要网页搜索") ||
+            lower.contains("不要联网") ||
+            lower.contains("不用联网") ||
+            lower.contains("no web search") ||
+            lower.contains("offline only") ||
+            lower.contains("no_web_search") ||
+            lower.contains("image_understanding.no_web_search") ||
+            (lower.contains("网页搜索") && listOf("不该", "不希望", "老是", "总是", "经常", "不停").any { lower.contains(it) })
+        if (noWeb && taskType != TaskType.WEB_RESEARCH) {
+            result = result.filterNot { it in listOf("web_search", "fetch_url", "web_browse", "web_content", "web_js") }
+        }
+        val noPhone = lower.contains("不要操作手机") || lower.contains("no phone control")
+        if (noPhone && taskType != TaskType.PHONE_CONTROL) {
+            result = result.filterNot { it in listOf("see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate", "phone_status") }
+        }
+        val preferNativePage = lower.contains("页面优先生成原生页面") ||
+            lower.contains("优先生成原生页面") ||
+            lower.contains("ai native page") ||
+            lower.contains("native page first")
+        val preferMiniApp = lower.contains("程序优先生成miniapp") ||
+            lower.contains("优先生成miniapp") ||
+            lower.contains("prefer miniapp")
+        if (taskType == TaskType.APP_BUILD) {
+            result = when {
+                preferNativePage && !preferMiniApp -> result.sortedBy { if (it == "ui_builder") 0 else 1 }
+                preferMiniApp && !preferNativePage -> result.sortedBy { if (it == "app_manager") 0 else 1 }
+                else -> result
+            }
+        }
+        return result
     }
 }

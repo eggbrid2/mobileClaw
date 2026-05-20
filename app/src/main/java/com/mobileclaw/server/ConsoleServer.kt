@@ -2,7 +2,10 @@ package com.mobileclaw.server
 
 import android.os.Build
 import com.google.gson.Gson
+import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.MemoryContextBuilder
+import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.memory.db.ClawDatabase
 import com.mobileclaw.skill.SkillDefinition
@@ -42,6 +45,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  *   POST /api/skill                          — install a skill definition
  *   DELETE /api/skill/<id>                   — delete a dynamic skill
  *   GET  /api/memory                         — all semantic memory facts
+ *   POST /api/memory/context                 — build foundational memory context {message}
  *   POST /api/memory                         — set memory fact {key, value}
  *   GET  /api/config                         — all user config entries
  *   POST /api/config                         — set config entry {key, value, description?}
@@ -181,6 +185,7 @@ class ConsoleServer(
                     handleSkillDelete(socket, id)
                 }
                 path == "/api/memory" && method == "GET" -> handleMemoryGet(socket)
+                path == "/api/memory/context" && method == "POST" -> handleMemoryContext(socket, body)
                 path == "/api/memory" && method == "POST" -> handleMemorySet(socket, body)
                 path == "/api/config" && method == "GET" -> handleConfigGet(socket)
                 path == "/api/config" && method == "POST" -> handleConfigSet(socket, body)
@@ -344,8 +349,29 @@ class ConsoleServer(
     }
 
     private fun handleMemoryGet(socket: Socket) {
-        val facts = runBlocking { runCatching { semanticMemory?.all() }.getOrNull() ?: emptyMap<String, String>() }
-        sendJson(socket, "200 OK", mapOf("memory" to facts, "total" to facts.size))
+        val facts = runBlocking { runCatching { semanticMemory?.facts() }.getOrNull() ?: emptyList() }
+        sendJson(socket, "200 OK", mapOf("memory" to facts.associate { it.key to it.value }, "facts" to facts, "total" to facts.size))
+    }
+
+    private fun handleMemoryContext(socket: Socket, body: String) {
+        val mem = semanticMemory ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Memory not available")); return
+        }
+        val cfg = userConfig ?: run {
+            sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
+        }
+        runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val req = gson.fromJson(body.ifBlank { "{}" }, Map::class.java) as Map<String, Any>
+            val message = req["message"] as? String ?: ""
+            val taskType = TaskClassifier.classify(message)
+            val context = runBlocking {
+                MemoryContextBuilder(mem, cfg).build(message, taskType).toPrompt()
+            }
+            sendJson(socket, "200 OK", mapOf("memoryContext" to context, "taskType" to taskType.name))
+        }.onFailure { e ->
+            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        }
     }
 
     private fun handleMemorySet(socket: Socket, body: String) {
@@ -357,7 +383,8 @@ class ConsoleServer(
             val req = gson.fromJson(body, Map::class.java) as Map<String, Any>
             val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
             val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
-            runBlocking { mem.set(key, value) }
+            val source = req["source"] as? String ?: "console_api"
+            runBlocking { mem.set(key = key, value = value, source = source) }
             sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
         }.onFailure { e ->
             sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
@@ -379,7 +406,10 @@ class ConsoleServer(
             val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
             val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
             val desc = req["description"] as? String ?: ""
-            runBlocking { cfg.set(key, value, desc) }
+            runBlocking {
+                val mem = semanticMemory
+                if (mem != null) MemoryWriter(mem, cfg).syncUserConfig(key, value, desc) else cfg.set(key, value, desc)
+            }
             sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
         }.onFailure { e ->
             sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
@@ -390,7 +420,12 @@ class ConsoleServer(
         val cfg = userConfig ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
         }
-        runBlocking { runCatching { cfg.delete(key) } }
+        runBlocking {
+            runCatching {
+                val mem = semanticMemory
+                if (mem != null) MemoryWriter(mem, cfg).deleteUserConfig(key) else cfg.delete(key)
+            }
+        }
         sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to key))
     }
 

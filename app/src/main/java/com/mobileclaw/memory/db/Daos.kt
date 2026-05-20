@@ -28,14 +28,26 @@ interface SemanticDao {
     @Query("SELECT * FROM semantic_facts WHERE `key` = :key")
     suspend fun get(key: String): SemanticFactEntity?
 
-    @Query("SELECT * FROM semantic_facts")
+    @Query("SELECT * FROM semantic_facts WHERE enabled = 1")
     suspend fun all(): List<SemanticFactEntity>
 
-    @Query("SELECT * FROM semantic_facts WHERE `key` LIKE :prefix || '%'")
+    @Query("SELECT * FROM semantic_facts")
+    suspend fun allIncludingDisabled(): List<SemanticFactEntity>
+
+    @Query("SELECT * FROM semantic_facts WHERE `key` LIKE :prefix || '%' AND enabled = 1")
     suspend fun allWithPrefix(prefix: String): List<SemanticFactEntity>
 
     @Query("DELETE FROM semantic_facts WHERE `key` = :key")
     suspend fun delete(key: String)
+
+    @Query("UPDATE semantic_facts SET enabled = :enabled, updatedAt = :updatedAt WHERE `key` = :key")
+    suspend fun setEnabled(key: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE semantic_facts SET pinned = :pinned, updatedAt = :updatedAt WHERE `key` = :key")
+    suspend fun setPinned(key: String, pinned: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE semantic_facts SET lastUsedAt = :usedAt, useCount = useCount + 1 WHERE `key` IN (:keys)")
+    suspend fun markUsed(keys: List<String>, usedAt: Long = System.currentTimeMillis())
 }
 
 @Dao

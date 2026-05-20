@@ -6,6 +6,7 @@ import com.mobileclaw.app.MiniApp
 import com.mobileclaw.config.ConfigEntry
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.LocalModelInfo
+import com.mobileclaw.memory.MemoryFact
 import com.mobileclaw.memory.db.EpisodeEntity
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.skill.SkillAttachment
@@ -49,6 +50,7 @@ data class MainUiState(
     val inputImageBase64: String? = null,
     val inputFileAttachment: FileAttachment? = null,
     val profileFacts: Map<String, String> = emptyMap(),
+    val semanticFacts: List<MemoryFact> = emptyList(),
     val recentEpisodes: List<EpisodeEntity> = emptyList(),
     val profileLoading: Boolean = false,
     val profileExtracting: Boolean = false,

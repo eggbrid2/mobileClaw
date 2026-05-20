@@ -144,7 +144,8 @@ class MiniAppStore(private val context: Context) {
     },
     memory:{
       get:function(k){try{return A.getMemory(k)||''}catch(e){return ''}},
-      set:function(k,v){try{A.setMemory(k,String(v))}catch(e){}}
+      set:function(k,v){try{A.setMemory(k,String(v))}catch(e){}},
+      context:function(m){try{return A.memoryContext(String(m||''))||''}catch(e){return ''}}
     },
     // ── Files (sync — local disk) ─────────────────────────────────────────
     files:{

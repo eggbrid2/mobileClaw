@@ -27,9 +27,17 @@ class LocalGemmaGateway(
 
     override suspend fun chat(request: ChatRequest): ChatResponse = withContext(Dispatchers.IO) {
         val startedAt = System.currentTimeMillis()
-        val modelId = modelIdProvider().removePrefix("local:")
+        val requestedModelId = modelIdProvider().removePrefix("local:")
+        val modelId = if (request.imageBase64Present()) {
+            requestedModelId
+        } else {
+            manager.runnableModelIdFor(requestedModelId) ?: requestedModelId
+        }
         val model = manager.modelInfo(modelId)
             ?: throw IllegalStateException("Local model is not registered: $modelId")
+        if (!request.imageBase64Present() && !model.supportsChatRuntime) {
+            throw IllegalStateException("Selected local resource is not a chat model: ${model.name}")
+        }
         if (request.imageBase64Present() && !model.supportsVision) {
             throw IllegalStateException("Selected local model does not support vision input: ${model.name}")
         }
@@ -327,7 +335,7 @@ private fun ChatRequest.preferredLocalLanguage(): String {
 private fun ChatRequest.toLocalVisionContents(prompt: String): Contents {
     val parts = mutableListOf<Content>(Content.Text(prompt))
     messages.mapNotNull { it.imageBase64?.decodeDataUriBytesOrNull() }
-        .take(4)
+        .takeLast(4)
         .forEach { bytes -> parts.add(Content.ImageBytes(bytes)) }
     return Contents.Companion.of(parts)
 }

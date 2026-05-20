@@ -9,8 +9,8 @@ import java.io.File
 
 data class CacheCategory(
     val id: String,
-    @StringRes val titleRes: Int,
-    @StringRes val subtitleRes: Int,
+    @param:StringRes val titleRes: Int,
+    @param:StringRes val subtitleRes: Int,
     val sizeBytes: Long,
     val pathCount: Int,
 )
@@ -76,6 +76,12 @@ class CacheCleaner(private val context: Context) {
                 paths = listOf(File(context.filesDir, "stickers")),
             ),
             CacheSpec(
+                id = "chat_images",
+                titleRes = R.string.cache_chat_images_title,
+                subtitleRes = R.string.cache_chat_images_subtitle,
+                paths = listOf(File(context.filesDir, "chat_images")),
+            ),
+            CacheSpec(
                 id = "documents",
                 titleRes = R.string.cache_documents_title,
                 subtitleRes = R.string.cache_documents_subtitle,
@@ -105,13 +111,19 @@ class CacheCleaner(private val context: Context) {
                 subtitleRes = R.string.cache_python_subtitle,
                 paths = listOf(File(context.filesDir, "pip_packages")),
             ),
+            CacheSpec(
+                id = "task_replays",
+                titleRes = R.string.cache_task_replays_title,
+                subtitleRes = R.string.cache_task_replays_subtitle,
+                paths = listOf(File(context.filesDir, "task_replays"), File(context.filesDir, "task_recipes")),
+            ),
         )
     }
 
     private data class CacheSpec(
         val id: String,
-        @StringRes val titleRes: Int,
-        @StringRes val subtitleRes: Int,
+        @param:StringRes val titleRes: Int,
+        @param:StringRes val subtitleRes: Int,
         val paths: List<File>,
     )
 }

@@ -2,11 +2,15 @@ package com.mobileclaw.memory.db
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 
-@Entity(tableName = "session_messages")
+@Entity(
+    tableName = "session_messages",
+    indices = [Index(value = ["sessionId", "createdAt"])],
+)
 data class SessionMessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sessionId: String,

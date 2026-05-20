@@ -144,14 +144,31 @@ class LocalModelManager(private val context: Context) {
         return models.value.firstOrNull { it.id == normalized && it.installed && it.supportsChatRuntime }?.path
     }
 
+    fun runnableModelIdFor(id: String): String? {
+        val normalized = id.removePrefix("local:")
+        val selected = modelInfo(normalized) ?: return null
+        if (selected.supportsChatRuntime) return selected.id
+        if (selected.isVisionResource) {
+            return models.value.firstOrNull { it.family == selected.family && it.supportsChatRuntime }?.id
+        }
+        return null
+    }
+
     fun visionModelPathFor(id: String): String? {
-        val base = modelInfo(id.removePrefix("local:")) ?: return null
-        if (!base.supportsVision) return null
-        return modelPath(base.id)
+        val selected = modelInfo(id.removePrefix("local:")) ?: return null
+        if (!selected.supportsVision) return null
+        if (selected.isVisionResource) {
+            return selected.path.takeIf { selected.installed && it.isNotBlank() }
+        }
+        val pairedVisionResource = models.value.firstOrNull {
+            it.family == selected.family && it.isVisionResource && it.installed
+        }
+        return pairedVisionResource?.path
     }
 
     fun visionResourceFor(id: String): LocalModelInfo? {
         val base = modelInfo(id.removePrefix("local:")) ?: return null
+        if (base.isVisionResource) return base
         return models.value.firstOrNull { it.family == base.family && it.isVisionResource }
     }
 

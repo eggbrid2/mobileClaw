@@ -2,12 +2,16 @@ package com.mobileclaw.memory.db
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 
-@Entity(tableName = "sessions")
+@Entity(
+    tableName = "sessions",
+    indices = [Index(value = ["updatedAt"])],
+)
 data class SessionEntity(
     @PrimaryKey val id: String,
     val title: String,

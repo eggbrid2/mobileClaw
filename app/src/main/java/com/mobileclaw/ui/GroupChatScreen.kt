@@ -572,7 +572,7 @@ fun GroupChatScreen(
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
                 // User row
-                MemberDrawerRow(avatar = "👤", name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
+                MemberDrawerRow(avatar = "user", name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
                 HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
                 // Agent rows
@@ -647,7 +647,7 @@ private fun MemberDrawerRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        GradientAvatar(emoji = avatar, size = 32.dp, color = color, fontSize = 16.sp)
+        GradientAvatar(avatar = avatar, size = 32.dp, color = color, fontSize = 16.sp)
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(name, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -735,7 +735,7 @@ private fun GroupMessageBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         if (!isUser) {
-            GradientAvatar(emoji = message.senderAvatar, size = 30.dp, color = accentColor)
+            GradientAvatar(avatar = message.senderAvatar, size = 30.dp, color = accentColor)
             Spacer(Modifier.size(6.dp))
         }
 
@@ -975,7 +975,7 @@ private fun GroupMessageBubble(
 
         if (isUser) {
             Spacer(Modifier.size(6.dp))
-            GradientAvatar(emoji = "👤", size = 30.dp, color = c.green)
+            GradientAvatar(avatar = "user", size = 30.dp, color = c.green)
         }
     }
 }
@@ -2269,7 +2269,7 @@ private fun MemberChip(avatar: String, name: String, color: Color) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        Text(safeAvatarGlyph(avatar), fontSize = 11.sp, maxLines = 1)
+        GradientAvatar(avatar = avatar, size = 16.dp, color = color)
         Text(name, color = color, fontSize = 10.sp, fontWeight = FontWeight.Medium)
     }
 }
@@ -2308,7 +2308,7 @@ private fun MentionPickerSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        GradientAvatar(emoji = role.avatar, size = 22.dp, color = color)
+                        GradientAvatar(avatar = role.avatar, size = 22.dp, color = color)
                         Text(role.name, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }

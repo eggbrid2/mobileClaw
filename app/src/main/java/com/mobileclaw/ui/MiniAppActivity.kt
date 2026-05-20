@@ -135,8 +135,11 @@ private fun MiniAppScreen(
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 allowFileAccess = true
-                @Suppress("DEPRECATION") allowFileAccessFromFileURLs = true
-                @Suppress("DEPRECATION") allowUniversalAccessFromFileURLs = true
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = true
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = true
+                @Suppress("DEPRECATION")
                 databaseEnabled = true
                 useWideViewPort = true
                 loadWithOverviewMode = false

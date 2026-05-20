@@ -1,6 +1,8 @@
 package com.mobileclaw.skill.builtin
 
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.MemoryWriter
+import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
@@ -9,7 +11,10 @@ import com.mobileclaw.skill.SkillType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class UserConfigSkill(private val userConfig: UserConfig) : Skill {
+class UserConfigSkill(
+    private val userConfig: UserConfig,
+    private val semanticMemory: SemanticMemory? = null,
+) : Skill {
 
     override val meta = SkillMeta(
         id = "user_config",
@@ -62,13 +67,15 @@ class UserConfigSkill(private val userConfig: UserConfig) : Skill {
                 val value = params["value"] as? String
                     ?: return@withContext SkillResult(false, "value is required for set")
                 val description = params["description"] as? String ?: ""
-                userConfig.set(key, value, description)
+                val mem = semanticMemory
+                if (mem != null) MemoryWriter(mem, userConfig).syncUserConfig(key, value, description) else userConfig.set(key, value, description)
                 SkillResult(true, "Saved: $key = $value")
             }
             "delete" -> {
                 val key = params["key"] as? String
                     ?: return@withContext SkillResult(false, "key is required for delete")
-                userConfig.delete(key)
+                val mem = semanticMemory
+                if (mem != null) MemoryWriter(mem, userConfig).deleteUserConfig(key) else userConfig.delete(key)
                 SkillResult(true, "Deleted: $key")
             }
             else -> SkillResult(false, "Unknown action: $action. Use get | set | delete | list")

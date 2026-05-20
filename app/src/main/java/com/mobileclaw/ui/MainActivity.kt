@@ -520,6 +520,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 ProfilePage(
                                     facts = uiState.profileFacts,
+                                    semanticFacts = uiState.semanticFacts,
                                     episodes = uiState.recentEpisodes,
                                     isLoading = uiState.profileLoading,
                                     isExtracting = uiState.profileExtracting,
@@ -527,6 +528,9 @@ class MainActivity : ComponentActivity() {
                                     onBack = { vm.navigateBack() },
                                     onRefreshExtraction = { vm.triggerProfileExtraction() },
                                     onSetFact = { key, value -> vm.setProfileFact(key, value) },
+                                    onPinMemory = { key, pinned -> vm.setMemoryPinned(key, pinned) },
+                                    onEnableMemory = { key, enabled -> vm.setMemoryEnabled(key, enabled) },
+                                    onDeleteMemory = { key -> vm.deleteMemoryFact(key) },
                                     personalitySummary = uiState.personalitySummary,
                                     personalitySummaryLoading = uiState.personalitySummaryLoading,
                                     onGenerateSummary = { vm.generatePersonalitySummary() },

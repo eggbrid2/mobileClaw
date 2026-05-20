@@ -105,11 +105,11 @@ fun buildSystemPrompt(
         "ja" -> "\n## Response Language\nYou MUST respond in Japanese (日本語) for all output.\n"
         else -> "\n## Response Language\nYou MUST respond in $language for all output.\n"
     }
-    val semanticSection = if (semanticContext.isNotBlank()) "\n## Stored Device Knowledge\n$semanticContext\n" else ""
+    val semanticSection = if (semanticContext.isNotBlank()) "\n## Stored Long-Term Memory\n$semanticContext\n" else ""
     val episodicSection = if (episodicContext.isNotBlank()) "\n## Lessons from Past Tasks\n$episodicContext\n" else ""
     val contextSection = if (priorContext.isNotBlank()) "\n## Conversation History\n$priorContext\n" else ""
     val roleSection = if (role != null && role.id != "general") {
-        "\n## Active Role: ${role.avatar} ${role.name}\n${role.systemPromptAddendum.trim()}\n"
+        "\n## Active Role: ${role.name}\n${role.systemPromptAddendum.trim()}\n"
     } else ""
     val taskSection = "\n${TaskToolPolicy.prompt(taskType)}\n"
     val planSection = taskPlan?.let { "\n${it.toPrompt()}\n" } ?: ""

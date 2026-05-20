@@ -53,36 +53,36 @@ import kotlinx.coroutines.withContext
 
 /**
  * Standard avatar for the minimal black-white AI style.
- * Image avatars still render as-is; emoji avatars sit on a quiet monochrome surface.
+ * Image avatars render as-is; symbolic avatars render as quiet monochrome role icons.
  */
 @Composable
 fun GradientAvatar(
-    emoji: String,
+    avatar: String,
     size: Dp,
     color: Color,
     modifier: Modifier = Modifier,
     shape: androidx.compose.ui.graphics.Shape = CircleShape,
     fontSize: TextUnit = (size.value * 0.46f).sp,
 ) {
-    val isImageUri = emoji.startsWith("content://") || emoji.startsWith("file://") ||
-        emoji.startsWith("data:") || emoji.startsWith("/")
+    val normalized = com.mobileclaw.agent.normalizeRoleAvatar("", avatar)
+    val isImageUri = com.mobileclaw.agent.isRoleImageAvatar(normalized)
     val context = LocalContext.current
-    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = emoji) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = normalized) {
         if (isImageUri) {
             value = withContext(Dispatchers.IO) {
                 runCatching {
                     when {
-                        emoji.startsWith("data:") -> {
-                            val base64Data = emoji.substringAfter(",")
+                        normalized.startsWith("data:") -> {
+                            val base64Data = normalized.substringAfter(",")
                             val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
                             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
                         }
-                        emoji.startsWith("/") -> {
+                        normalized.startsWith("/") -> {
                             // Bare file system path — decode directly
-                            BitmapFactory.decodeFile(emoji)?.asImageBitmap()
+                            BitmapFactory.decodeFile(normalized)?.asImageBitmap()
                         }
                         else -> {
-                            context.contentResolver.openInputStream(Uri.parse(emoji))?.use { stream ->
+                            context.contentResolver.openInputStream(Uri.parse(normalized))?.use { stream ->
                                 BitmapFactory.decodeStream(stream)?.asImageBitmap()
                             }
                         }
@@ -114,15 +114,15 @@ fun GradientAvatar(
                     contentScale = ContentScale.Crop,
                 )
             } else {
-                Text(safeAvatarGlyph(emoji), fontSize = fontSize)
+                ClawSymbolIcon(symbol = "role:custom", tint = color, modifier = Modifier.size(size * 0.46f))
             }
         } else {
-            Text(safeAvatarGlyph(emoji), fontSize = fontSize, maxLines = 1)
+            ClawSymbolIcon(symbol = normalized, tint = color, modifier = Modifier.size(size * 0.46f))
         }
     }
 }
 
-fun safeAvatarGlyph(raw: String, fallback: String = "🤖"): String {
+fun safeAvatarGlyph(raw: String, fallback: String = "AI"): String {
     val value = raw.trim()
     if (value.isBlank()) return fallback
     if (
@@ -134,7 +134,7 @@ fun safeAvatarGlyph(raw: String, fallback: String = "🤖"): String {
         value.contains("/data/", ignoreCase = true) ||
         value.contains("/cache/", ignoreCase = true)
     ) return fallback
-    return if (value.codePointCount(0, value.length) <= 3) value else fallback
+    return if (value.startsWith("role:")) value.substringAfter(":").take(2).uppercase() else fallback
 }
 
 /**
@@ -142,7 +142,7 @@ fun safeAvatarGlyph(raw: String, fallback: String = "🤖"): String {
  */
 @Composable
 fun GradientAvatarRounded(
-    emoji: String,
+    avatar: String,
     size: Dp,
     color: Color,
     cornerRadius: Dp = 10.dp,
@@ -150,7 +150,7 @@ fun GradientAvatarRounded(
     fontSize: TextUnit = (size.value * 0.46f).sp,
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    GradientAvatar(emoji = emoji, size = size, color = color, modifier = modifier, shape = shape, fontSize = fontSize)
+    GradientAvatar(avatar = avatar, size = size, color = color, modifier = modifier, shape = shape, fontSize = fontSize)
 }
 
 /**

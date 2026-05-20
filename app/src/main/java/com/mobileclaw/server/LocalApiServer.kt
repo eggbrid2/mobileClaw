@@ -1,8 +1,11 @@
 package com.mobileclaw.server
 
 import com.google.gson.Gson
+import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.SemanticMemory
+import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.skill.HttpSkillConfig
 import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillLoader
@@ -28,6 +31,7 @@ import java.net.Socket
  *   GET  /api/skills          — list all registered skills
  *   POST /api/skill           — save a new SkillDefinition (JSON body)
  *   GET  /api/memory          — list all semantic memory facts
+ *   POST /api/memory/context  — build foundational memory context {message}
  *   POST /api/memory          — set a memory fact {key, value}
  *   GET  /api/config          — list all user config entries
  *   POST /api/config          — set a config entry {key, value}
@@ -152,8 +156,22 @@ class LocalApiServer(
             }
 
             path == "/api/memory" && method == "GET" -> {
-                val facts = runBlocking { runCatching { semanticMemory.all() }.getOrDefault(emptyMap()) }
-                "200 OK" to mapOf("memory" to facts)
+                val facts = runBlocking { runCatching { semanticMemory.facts() }.getOrDefault(emptyList()) }
+                "200 OK" to mapOf("memory" to facts.associate { it.key to it.value }, "facts" to facts, "total" to facts.size)
+            }
+
+            path == "/api/memory/context" && method == "POST" -> {
+                runCatching {
+                    val req = gson.fromJson(body.ifBlank { "{}" }, Map::class.java)
+                    val message = req["message"] as? String ?: ""
+                    val taskType = TaskClassifier.classify(message)
+                    val context = runBlocking {
+                        MemoryContextBuilder(semanticMemory, userConfig).build(message, taskType).toPrompt()
+                    }
+                    "200 OK" to mapOf("memoryContext" to context, "taskType" to taskType.name)
+                }.getOrElse { e ->
+                    "400 Bad Request" to mapOf("error" to (e.message ?: "Bad request"))
+                }
             }
 
             path == "/api/memory" && method == "POST" -> {
@@ -161,7 +179,8 @@ class LocalApiServer(
                     val req = gson.fromJson(body, Map::class.java)
                     val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
                     val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
-                    runBlocking { semanticMemory.set(key, value) }
+                    val source = req["source"] as? String ?: "local_api"
+                    runBlocking { semanticMemory.set(key = key, value = value, source = source) }
                     "200 OK" to mapOf("success" to true, "key" to key)
                 }.getOrElse { e ->
                     "400 Bad Request" to mapOf("error" to (e.message ?: "Bad request"))
@@ -178,7 +197,7 @@ class LocalApiServer(
                     val req = gson.fromJson(body, Map::class.java)
                     val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
                     val value = req["value"] as? String ?: throw IllegalArgumentException("value required")
-                    runBlocking { userConfig.set(key, value) }
+                    runBlocking { MemoryWriter(semanticMemory, userConfig).syncUserConfig(key, value) }
                     "200 OK" to mapOf("success" to true, "key" to key)
                 }.getOrElse { e ->
                     "400 Bad Request" to mapOf("error" to (e.message ?: "Bad request"))
@@ -188,4 +207,5 @@ class LocalApiServer(
             else -> "404 Not Found" to mapOf("error" to "Not found: $method $path")
         }
     }
+
 }

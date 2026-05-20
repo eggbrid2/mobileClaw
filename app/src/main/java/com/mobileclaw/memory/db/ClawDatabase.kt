@@ -3,6 +3,7 @@ package com.mobileclaw.memory.db
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -11,7 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.mobileclaw.vpn.SubscriptionDao
 import com.mobileclaw.vpn.SubscriptionEntity
 
-@Entity(tableName = "episodes")
+@Entity(
+    tableName = "episodes",
+    indices = [Index(value = ["createdAt"])],
+)
 data class EpisodeEntity(
     @PrimaryKey val id: String,
     val goalText: String,
@@ -28,10 +32,25 @@ data class SemanticFactEntity(
     @PrimaryKey val key: String,
     val value: String,
     val confidence: Float = 1.0f,
+    val type: String = "fact",
+    val scope: String = "global",
+    val source: String = "unknown",
+    val sourceRef: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val lastUsedAt: Long = 0L,
+    val useCount: Int = 0,
+    val pinned: Boolean = false,
+    val enabled: Boolean = true,
 )
 
-@Entity(tableName = "conversations")
+@Entity(
+    tableName = "conversations",
+    indices = [
+        Index(value = ["createdAt"]),
+        Index(value = ["role", "createdAt"]),
+    ],
+)
 data class ConversationEntity(
     @PrimaryKey val id: String,
     val role: String,               // "user" | "agent" | "observation"
@@ -74,6 +93,36 @@ private val MIGRATION_7_8 = object : Migration(7, 8) {
         db.execSQL("ALTER TABLE session_messages ADD COLUMN senderRoleId TEXT NOT NULL DEFAULT ''")
         db.execSQL("ALTER TABLE session_messages ADD COLUMN senderRoleName TEXT NOT NULL DEFAULT ''")
         db.execSQL("ALTER TABLE session_messages ADD COLUMN senderRoleAvatar TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_episodes_createdAt ON episodes(createdAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_conversations_createdAt ON conversations(createdAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_conversations_role_createdAt ON conversations(role, createdAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_sessions_updatedAt ON sessions(updatedAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_session_messages_sessionId_createdAt ON session_messages(sessionId, createdAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_messages_groupId_createdAt_id ON group_messages(groupId, createdAt, id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_messages_createdAt ON group_messages(createdAt)")
+    }
+}
+
+private val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN type TEXT NOT NULL DEFAULT 'fact'")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN sourceRef TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN lastUsedAt INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN useCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("UPDATE semantic_facts SET createdAt = updatedAt WHERE createdAt = 0")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_type ON semantic_facts(type)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_scope ON semantic_facts(scope)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_enabled_updatedAt ON semantic_facts(enabled, updatedAt)")
     }
 }
 
@@ -126,7 +175,7 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         GroupMessageEntity::class,
         SubscriptionEntity::class,
     ],
-    version = 8,
+    version = 10,
     exportSchema = false,
 )
 abstract class ClawDatabase : RoomDatabase() {
@@ -148,7 +197,7 @@ abstract class ClawDatabase : RoomDatabase() {
                     ClawDatabase::class.java,
                     "claw.db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .build().also { INSTANCE = it }
             }
     }

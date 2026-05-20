@@ -21,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
+import com.mobileclaw.memory.MemoryFact
 import com.mobileclaw.memory.db.EpisodeEntity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -151,6 +153,7 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
 @Composable
 fun ProfilePage(
     facts: Map<String, String>,
+    semanticFacts: List<MemoryFact> = emptyList(),
     episodes: List<EpisodeEntity>,
     isLoading: Boolean,
     isExtracting: Boolean,
@@ -158,6 +161,9 @@ fun ProfilePage(
     onBack: () -> Unit,
     onRefreshExtraction: () -> Unit,
     onSetFact: (key: String, value: String) -> Unit = { _, _ -> },
+    onPinMemory: (key: String, pinned: Boolean) -> Unit = { _, _ -> },
+    onEnableMemory: (key: String, enabled: Boolean) -> Unit = { _, _ -> },
+    onDeleteMemory: (key: String) -> Unit = {},
     personalitySummary: String = "",
     personalitySummaryLoading: Boolean = false,
     onGenerateSummary: () -> Unit = {},
@@ -251,7 +257,15 @@ fun ProfilePage(
                 }
                 ProfileSection.MEMORY -> {
                     item(key = "memory_spacer") { Spacer(Modifier.height(4.dp)) }
-                    item(key = "memory_browser") { MemoryBrowserCard(facts) }
+                    item(key = "memory_browser") {
+                        MemoryBrowserCard(
+                            facts = facts,
+                            semanticFacts = semanticFacts,
+                            onPin = onPinMemory,
+                            onEnable = onEnableMemory,
+                            onDelete = onDeleteMemory,
+                        )
+                    }
                 }
                 ProfileSection.HISTORY -> {
                     if (episodes.isEmpty()) {
@@ -1093,10 +1107,21 @@ private fun DimensionsListSection(
 // ── Memory Browser (MEMORY section) ──────────────────────────────────────────
 
 @Composable
-private fun MemoryBrowserCard(facts: Map<String, String>) {
+private fun MemoryBrowserCard(
+    facts: Map<String, String>,
+    semanticFacts: List<MemoryFact>,
+    onPin: (key: String, pinned: Boolean) -> Unit,
+    onEnable: (key: String, enabled: Boolean) -> Unit,
+    onDelete: (key: String) -> Unit,
+) {
     val c = LocalClawColors.current
+    val displayFacts = remember(facts, semanticFacts) {
+        semanticFacts.ifEmpty {
+            facts.map { (key, value) -> MemoryFact(key = key, value = value) }
+        }
+    }
 
-    if (facts.isEmpty()) {
+    if (displayFacts.isEmpty()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Column(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.card).padding(28.dp),
@@ -1118,8 +1143,22 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
         return
     }
 
-    val groupLabels = mapOf("profile" to stringResource(R.string.profile_d0a47e), "user" to stringResource(R.string.profile_4fe012), "app" to stringResource(R.string.profile_f3c144), "device" to stringResource(R.string.profile_b967fd))
-    val grouped = facts.entries.sortedBy { it.key }.groupBy { it.key.substringBefore(".", it.key) }
+    val groupLabels = mapOf(
+        "profile" to stringResource(R.string.profile_d0a47e),
+        "preference" to "偏好",
+        "rule" to "规则",
+        "correction" to "纠错",
+        "failure" to "失败经验",
+        "lesson" to "经验",
+        "project" to "项目",
+        "tool" to "工具策略",
+        "user" to stringResource(R.string.profile_4fe012),
+        "app" to stringResource(R.string.profile_f3c144),
+        "device" to stringResource(R.string.profile_b967fd),
+    )
+    val grouped = displayFacts
+        .sortedWith(compareByDescending<MemoryFact> { it.pinned }.thenBy { !it.enabled }.thenBy { it.key })
+        .groupBy { it.key.substringBefore(".", it.key) }
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1134,13 +1173,25 @@ private fun MemoryBrowserCard(facts: Map<String, String>) {
             modifier = Modifier.padding(bottom = 2.dp),
         )
         grouped.forEach { (prefix, entries) ->
-            MemoryGroup(label = groupLabels[prefix] ?: prefix, entries = entries)
+            MemoryGroup(
+                label = groupLabels[prefix] ?: prefix,
+                entries = entries,
+                onPin = onPin,
+                onEnable = onEnable,
+                onDelete = onDelete,
+            )
         }
     }
 }
 
 @Composable
-private fun MemoryGroup(label: String, entries: List<Map.Entry<String, String>>) {
+private fun MemoryGroup(
+    label: String,
+    entries: List<MemoryFact>,
+    onPin: (key: String, pinned: Boolean) -> Unit,
+    onEnable: (key: String, enabled: Boolean) -> Unit,
+    onDelete: (key: String) -> Unit,
+) {
     val c = LocalClawColors.current
     var expanded by remember { mutableStateOf(true) }
 
@@ -1164,15 +1215,76 @@ private fun MemoryGroup(label: String, entries: List<Map.Entry<String, String>>)
             ) {
                 HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Spacer(Modifier.height(4.dp))
-                entries.forEach { (key, value) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
-                            .background(c.cardAlt).padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Text(key.substringAfterLast(".").replace("_", " "), color = c.subtext, fontSize = 11.sp, modifier = Modifier.width(90.dp))
-                        Text(value, color = c.text, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f))
+                entries.forEach { fact ->
+                    MemoryFactRow(
+                        fact = fact,
+                        onPin = { onPin(fact.key, !fact.pinned) },
+                        onEnable = { onEnable(fact.key, !fact.enabled) },
+                        onDelete = { onDelete(fact.key) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryFactRow(
+    fact: MemoryFact,
+    onPin: () -> Unit,
+    onEnable: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    var expanded by remember { mutableStateOf(false) }
+    val alpha = if (fact.enabled) 1f else 0.45f
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (fact.pinned) c.accent.copy(alpha = 0.08f) else c.cardAlt)
+            .border(0.5.dp, if (fact.pinned) c.accent.copy(alpha = 0.22f) else c.border.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .clickable { expanded = !expanded }
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (fact.pinned) {
+                        Text("PIN", color = c.accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (!fact.enabled) {
+                        Text("OFF", color = c.subtext, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        fact.key.substringAfterLast(".").replace("_", " "),
+                        color = c.text.copy(alpha = alpha),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+                Text(fact.value, color = c.text.copy(alpha = alpha), fontSize = 11.sp, lineHeight = 15.sp, maxLines = if (expanded) Int.MAX_VALUE else 2)
+            }
+            Text(fact.type, color = c.subtext.copy(alpha = 0.65f), fontSize = 10.sp)
+        }
+        AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "key=${fact.key}\nsource=${fact.source.ifBlank { "unknown" }}  scope=${fact.scope}  confidence=${"%.2f".format(fact.confidence)}  used=${fact.useCount}",
+                    color = c.subtext,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onPin, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Text(if (fact.pinned) "取消置顶" else "置顶", fontSize = 11.sp)
+                    }
+                    TextButton(onClick = onEnable, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Text(if (fact.enabled) "禁用" else "启用", fontSize = 11.sp)
+                    }
+                    TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                        Text("删除", fontSize = 11.sp, color = c.red)
                     }
                 }
             }

@@ -2,6 +2,7 @@ package com.mobileclaw.memory.db
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
@@ -12,7 +13,13 @@ data class GroupMessageGroupCount(
     val latestAt: Long?,
 )
 
-@Entity(tableName = "group_messages")
+@Entity(
+    tableName = "group_messages",
+    indices = [
+        Index(value = ["groupId", "createdAt", "id"]),
+        Index(value = ["createdAt"]),
+    ],
+)
 data class GroupMessageEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val groupId: String,

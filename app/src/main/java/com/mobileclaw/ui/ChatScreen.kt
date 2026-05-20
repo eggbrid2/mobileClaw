@@ -83,6 +83,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.skill.SkillAttachment
 import kotlinx.coroutines.Dispatchers
@@ -944,7 +945,7 @@ private fun ChatMessage.senderDisplayRole(
     return fallback.copy(
         id = senderRoleId.ifBlank { fallback.id },
         name = senderRoleName.ifBlank { fallback.name },
-        avatar = senderRoleAvatar.ifBlank { fallback.avatar },
+        avatar = normalizeRoleAvatar(senderRoleId.ifBlank { fallback.id }, senderRoleAvatar.ifBlank { fallback.avatar }),
     )
 }
 
@@ -965,7 +966,7 @@ private fun AgentMessageHeader(
         modifier = Modifier.padding(bottom = 6.dp),
     ) {
         GradientAvatar(
-            emoji = role.avatar,
+            avatar = role.avatar,
             size = 34.dp,
             color = c.accent,
             modifier = Modifier.clickable { onSwitchRole() },
@@ -1284,7 +1285,7 @@ private fun ActiveTaskBubble(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 6.dp),
         ) {
-            GradientAvatar(emoji = currentRole.avatar, size = 34.dp, color = c.accent)
+            GradientAvatar(avatar = currentRole.avatar, size = 34.dp, color = c.accent)
             Spacer(Modifier.width(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(currentRole.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text)

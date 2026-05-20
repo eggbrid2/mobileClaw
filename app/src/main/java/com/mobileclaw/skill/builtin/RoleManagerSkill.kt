@@ -6,9 +6,11 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChatBubbleDecoration
 import com.mobileclaw.agent.TaskType
+import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
@@ -31,14 +33,15 @@ class RoleManagerSkill(
         id = "role_manager",
         name = "Role Manager",
         description = "Create, list, update, delete, and activate agent roles (personas). " +
-            "Each role has an avatar emoji, name, description, optional system prompt addendum, " +
+            "Each role has an avatar image/icon key, name, description, optional system prompt addendum, " +
             "scheduler keywords, preferred task types, forced skill IDs, optional model override, and open group chat bubble theme DSL. " +
+            "Use an image path/content URI/data URI, or a role icon key like role:custom. To generate a custom avatar, call generate_icon with apply_to_role. " +
             "Actions: list, create, update, delete, activate.",
         parameters = listOf(
             SkillParam("action", "string", "Action: list | create | update | delete | activate"),
             SkillParam("id", "string", "Role ID (snake_case). Required for update/delete/activate. Auto-generated for create.", required = false),
             SkillParam("name", "string", "Display name of the role", required = false),
-            SkillParam("avatar", "string", "Emoji avatar for the role", required = false),
+            SkillParam("avatar", "string", "Image path/content URI/data URI or role icon key.", required = false),
             SkillParam("description", "string", "Short description of the role's purpose", required = false),
             SkillParam("system_prompt", "string", "Additional system prompt text injected when this role is active", required = false),
             SkillParam("preferred_task_types", "string", "Comma-separated TaskType names this role fits, e.g. WEB_RESEARCH,CODE_EXECUTION", required = false),
@@ -97,7 +100,7 @@ class RoleManagerSkill(
                 val roles = roleManager.all()
                 val sb = StringBuilder("Roles (${roles.size}):\n")
                 roles.forEach { r ->
-                    sb.append("• ${r.avatar} ${r.id}: ${r.name}${if (r.isBuiltin) " [builtin]" else ""}")
+                    sb.append("• ${r.id}: ${r.name}${if (r.isBuiltin) " [builtin]" else ""}")
                     if (r.forcedSkillIds.isNotEmpty()) sb.append(" | forced: ${r.forcedSkillIds.joinToString(",")}")
                     if (r.modelOverride != null) sb.append(" | model: ${r.modelOverride}")
                     if (r.preferredTaskTypes.isNotEmpty()) sb.append(" | tasks: ${r.preferredTaskTypes.joinToString(",")}")
@@ -132,7 +135,7 @@ class RoleManagerSkill(
                     id = id,
                     name = name,
                     description = params["description"] as? String ?: "",
-                    avatar = params["avatar"] as? String ?: "🤖",
+                    avatar = normalizeRoleAvatar(id, params["avatar"] as? String ?: RoleAvatarDefaults.CUSTOM),
                     systemPromptAddendum = params["system_prompt"] as? String ?: "",
                     forcedSkillIds = forcedSkills,
                     modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() },
@@ -143,7 +146,7 @@ class RoleManagerSkill(
                     chatBubbleStyle = bubbleStyleFromParams(params, ChatBubbleStyle()),
                 )
                 roleManager.save(role)
-                SkillResult(true, "Role '${role.avatar} ${role.name}' created with id='$id'. Use action=activate to switch to it.")
+                SkillResult(true, "Role '${role.name}' created with id='$id'. Use action=activate to switch to it.")
             }
 
             "update" -> {
@@ -170,7 +173,7 @@ class RoleManagerSkill(
                     existing.copy(
                         name = params["name"] as? String ?: existing.name,
                         description = params["description"] as? String ?: existing.description,
-                        avatar = params["avatar"] as? String ?: existing.avatar,
+                        avatar = normalizeRoleAvatar(id, params["avatar"] as? String ?: existing.avatar),
                         systemPromptAddendum = params["system_prompt"] as? String ?: existing.systemPromptAddendum,
                         forcedSkillIds = forcedSkills,
                         modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() } ?: existing.modelOverride,

@@ -8,7 +8,7 @@ data class Role(
     val id: String,
     val name: String,
     val description: String,
-    val avatar: String,                         // emoji
+    val avatar: String,                         // image URI/path or role icon key, never emoji
     val systemPromptAddendum: String = "",
     val forcedSkillIds: List<String> = emptyList(),
     val modelOverride: String? = null,
@@ -23,7 +23,7 @@ data class Role(
             id = "general",
             name = "通用助手",
             description = "按用户任务自动进入对应模式，不额外强制注入工具",
-            avatar = "🦀",
+            avatar = RoleAvatarDefaults.GENERAL,
             systemPromptAddendum = "Follow the current Task Mode strictly. Do not request or use tools outside the task's allowed skill set.",
             preferredTaskTypes = listOf(TaskType.CHAT, TaskType.GENERAL),
             keywords = listOf("聊天", "问答", "通用", "chat", "general"),
@@ -36,7 +36,7 @@ data class Role(
                 id = "coder",
                 name = "代码专家",
                 description = "专注于编程、调试、脚本和自动化任务",
-                avatar = "👨‍💻",
+                avatar = RoleAvatarDefaults.CODER,
                 systemPromptAddendum = "You are an expert software engineer. For code tasks, use only CODE_EXECUTION or FILE_CREATE tools allowed by the current Task Mode. Keep changes scoped, verify with builds/tests when possible, and report command results clearly. Do not operate the phone UI unless the task is classified as PHONE_CONTROL.",
                 preferredTaskTypes = listOf(TaskType.CODE_EXECUTION, TaskType.FILE_CREATE),
                 keywords = listOf("代码", "编程", "脚本", "调试", "编译", "bug", "shell", "python", "gradle"),
@@ -46,7 +46,7 @@ data class Role(
                 id = "web_agent",
                 name = "网络助手",
                 description = "专注于网络搜索、信息抓取和网页浏览",
-                avatar = "🌐",
+                avatar = RoleAvatarDefaults.WEB,
                 systemPromptAddendum = "You specialize in WEB_RESEARCH tasks. Use search/fetch/browse tools only when the current Task Mode allows them. Prefer source-backed answers, avoid phone UI control, and summarize findings concisely.",
                 preferredTaskTypes = listOf(TaskType.WEB_RESEARCH),
                 keywords = listOf("搜索", "查询", "网页", "资料", "新闻", "最新", "research", "search", "browse"),
@@ -56,7 +56,7 @@ data class Role(
                 id = "phone_operator",
                 name = "手机操控",
                 description = "专注于控制 Android 界面、点击、滑动和应用操作",
-                avatar = "📱",
+                avatar = RoleAvatarDefaults.PHONE,
                 systemPromptAddendum = "You specialize in VLM phone-control tasks. Use the observe -> act -> verify loop. Start with see_screen, use screenshot only when markers are unusable, then take a concrete action before observing again. Coordinates from see_screen/screenshot are image pixels; tap/scroll/long_click map them to device pixels. Verify target app state with foreground package/activity from tool results or phone_status.",
                 preferredTaskTypes = listOf(TaskType.PHONE_CONTROL),
                 keywords = listOf("手机", "打开", "点击", "滑动", "输入", "长按", "屏幕", "app", "android"),
@@ -66,7 +66,7 @@ data class Role(
                 id = "creator",
                 name = "创意助手",
                 description = "专注于原生页面、MiniAPP 程序、图片生成和内容创作",
-                avatar = "🎨",
+                avatar = RoleAvatarDefaults.CREATOR,
                 systemPromptAddendum = "You specialize in IMAGE_GENERATION, APP_BUILD, and FILE_CREATE tasks. Respect conversation context before creating anything: follow-up messages like continue/change/optimize usually modify the current artifact, and questions or feedback should be answered directly. For explicit page/dashboard/form/panel/screen creation or update requests, prefer ui_builder to create or update an AI Native Page. Use app_manager only for explicit app/mini-app/program/game or custom HTML/JS/Python/SQLite runtime needs. Never return raw code or HTML when a creation tool can create the artifact. For PPT/PPTX, Word/DOCX, Excel/XLSX, and PDF, always use generate_document and provide structured JSON content; never hand-write office files with create_file or Python libraries. Produce complete usable outputs instead of long raw content in chat.",
                 preferredTaskTypes = listOf(TaskType.IMAGE_GENERATION, TaskType.APP_BUILD, TaskType.FILE_CREATE),
                 keywords = listOf("图片", "画图", "图标", "视频", "页面", "原生页面", "ai页面", "仪表盘", "应用", "miniapp", "html", "文档", "文件", "生成"),
@@ -76,7 +76,7 @@ data class Role(
                 id = "skill_admin",
                 name = "技能管理员",
                 description = "专注于检查、创建、安装和整理 skill",
-                avatar = "🧩",
+                avatar = RoleAvatarDefaults.SKILL,
                 systemPromptAddendum = "You specialize in SKILL_MANAGEMENT tasks. Inspect the current skill inventory before changing it. Keep new skills disabled or on-demand unless the user explicitly promotes them. Do not use phone, web, or code execution tools unless the current Task Mode allows them.",
                 preferredTaskTypes = listOf(TaskType.SKILL_MANAGEMENT),
                 keywords = listOf("skill", "技能", "能力", "安装", "创建技能", "技能市场"),
@@ -86,7 +86,7 @@ data class Role(
                 id = "vpn_operator",
                 name = "VPN 管理员",
                 description = "专注于 VPN 开关、节点选择、订阅和连接状态诊断",
-                avatar = "🔐",
+                avatar = RoleAvatarDefaults.VPN,
                 systemPromptAddendum = "You specialize in VPN_CONTROL tasks. Use vpn_control for start, stop, status, subscription, and proxy selection work. Do not operate the phone UI unless VPN permission or setup requires visible user action.",
                 preferredTaskTypes = listOf(TaskType.VPN_CONTROL),
                 keywords = listOf("vpn", "代理", "节点", "订阅", "全局", "连接", "mihomo", "clash"),
@@ -95,6 +95,47 @@ data class Role(
         )
     }
 }
+
+object RoleAvatarDefaults {
+    const val GENERAL = "role:general"
+    const val CODER = "role:coder"
+    const val WEB = "role:web"
+    const val PHONE = "role:phone"
+    const val CREATOR = "role:creator"
+    const val SKILL = "role:skill"
+    const val VPN = "role:vpn"
+    const val CUSTOM = "role:custom"
+
+    fun forRoleId(roleId: String): String = when (roleId) {
+        "general" -> GENERAL
+        "coder" -> CODER
+        "web_agent" -> WEB
+        "phone_operator" -> PHONE
+        "creator" -> CREATOR
+        "skill_admin" -> SKILL
+        "vpn_operator" -> VPN
+        else -> CUSTOM
+    }
+}
+
+fun normalizeRoleAvatar(roleId: String, avatar: String?): String {
+    val value = avatar.orEmpty().trim()
+    if (value.isBlank()) return RoleAvatarDefaults.forRoleId(roleId)
+    if (isRoleImageAvatar(value)) return value
+    if (value.startsWith("role:")) return value
+    if (value.equals("file", ignoreCase = true)) return RoleAvatarDefaults.forRoleId(roleId)
+    if (looksLikeEmojiAvatar(value)) return RoleAvatarDefaults.forRoleId(roleId)
+    return value.takeIf { it.length <= 40 } ?: RoleAvatarDefaults.forRoleId(roleId)
+}
+
+fun isRoleImageAvatar(value: String): Boolean =
+    value.startsWith("content://") ||
+        value.startsWith("file://") ||
+        value.startsWith("data:") ||
+        value.startsWith("/")
+
+private fun looksLikeEmojiAvatar(value: String): Boolean =
+    value.any { Character.getType(it) == Character.SURROGATE.toInt() || Character.getType(it) == Character.OTHER_SYMBOL.toInt() }
 
 data class ChatBubbleStyle(
     val preset: String = "minimal",

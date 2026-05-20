@@ -1,5 +1,7 @@
 package com.mobileclaw.skill.builtin
 
+import com.mobileclaw.config.UserConfig
+import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
@@ -14,7 +16,10 @@ private const val PROFILE_PREFIX = "profile."
  * Profile facts are stored with the "profile." key prefix in SemanticMemory.
  * Not auto-injected — the AI pulls them on demand and updates as new facts emerge.
  */
-class UserProfileSkill(private val memory: SemanticMemory) : Skill {
+class UserProfileSkill(
+    private val memory: SemanticMemory,
+    private val userConfig: UserConfig? = null,
+) : Skill {
 
     override val meta = SkillMeta(
         id = "user_profile",
@@ -57,7 +62,8 @@ class UserProfileSkill(private val memory: SemanticMemory) : Skill {
                 val value = params["value"] as? String
                     ?: return SkillResult(false, "value is required for update")
                 val storageKey = if (key.startsWith(PROFILE_PREFIX)) key else "$PROFILE_PREFIX$key"
-                memory.set(storageKey, value)
+                memory.set(key = storageKey, value = value, source = "user_profile_skill")
+                userConfig?.let { MemoryWriter(memory, it).syncUserConfig("user.${storageKey.removePrefix(PROFILE_PREFIX)}", value, "由用户画像同步") }
                 SkillResult(true, "Profile updated: $key = $value")
             }
             "delete" -> {
@@ -65,6 +71,7 @@ class UserProfileSkill(private val memory: SemanticMemory) : Skill {
                     ?: return SkillResult(false, "key is required for delete")
                 val storageKey = if (key.startsWith(PROFILE_PREFIX)) key else "$PROFILE_PREFIX$key"
                 memory.delete(storageKey)
+                userConfig?.let { MemoryWriter(memory, it).deleteUserConfig("user.${storageKey.removePrefix(PROFILE_PREFIX)}") }
                 SkillResult(true, "Profile fact deleted: $key")
             }
             else -> SkillResult(false, "Unknown action '$action'. Use: get_all, update, delete")

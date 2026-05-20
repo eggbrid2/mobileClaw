@@ -17,7 +17,7 @@ class SwitchRoleSkill(
         id = "switch_role",
         name = "Switch Role / Persona",
         description = "Switches the active agent role, changing the system persona, forced skills, and optional model. " +
-            "Available roles: general (🦀), coder (👨‍💻), web_agent (🌐), phone_operator (📱), creator (🎨), plus any custom roles.",
+            "Available roles: general, coder, web_agent, phone_operator, creator, plus any custom roles.",
         parameters = listOf(
             SkillParam("role_id", "string", "Role ID to switch to. Use 'list' to see all available roles."),
         ),
@@ -34,7 +34,7 @@ class SwitchRoleSkill(
 
         if (roleId == "list") {
             val roles = roleManager.all()
-            val list = roles.joinToString("\n") { r -> "• ${r.id}: ${r.avatar} ${r.name} — ${r.description}" }
+            val list = roles.joinToString("\n") { r -> "• ${r.id}: ${r.name} — ${r.description}" }
             return SkillResult(true, "Available roles:\n$list")
         }
 
@@ -42,6 +42,6 @@ class SwitchRoleSkill(
             ?: return SkillResult(false, "Role not found: $roleId. Use role_id='list' to see available roles.")
 
         roleRequests.emit(roleId)
-        return SkillResult(true, "Switched to role: ${role.avatar} ${role.name}. ${role.description}")
+        return SkillResult(true, "Switched to role: ${role.name}. ${role.description}")
     }
 }

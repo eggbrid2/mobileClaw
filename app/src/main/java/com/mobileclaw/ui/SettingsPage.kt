@@ -266,7 +266,7 @@ fun SettingsPage(
                 onCheckPrivServer = onCheckPrivServer,
             )
             SettingsSub.CACHE -> CacheSubPage(c = c, onBack = { subPage = null })
-            null -> {}
+            else -> Unit
         }
     }
 }
