@@ -12,8 +12,13 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillRegistry
 import com.mobileclaw.skill.SkillResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlin.coroutines.coroutineContext
 import java.util.UUID
 
 /**
@@ -69,7 +74,8 @@ class AgentRuntime(
             .filter { it.isNotBlank() }
             .distinct()
             .joinToString("\n\n")
-        val taskPlan = if (preferFastLocalVision) {
+        val useFastPhoneLoop = taskType == TaskType.PHONE_CONTROL
+        val taskPlan = if (preferFastLocalVision || useFastPhoneLoop) {
             TaskPlanner.fallback(goal, taskType)
         } else {
             TaskPlanner.plan(
@@ -95,10 +101,79 @@ class AgentRuntime(
 
         var completedSegments = 0
         var lastReviewActionCount = 0
+        var pendingReview: Deferred<String>? = null
+        suspend fun finish(result: AgentResult): AgentResult {
+            pendingReview?.cancelAndJoin()
+            pendingReview = null
+            return result
+        }
         while (completedSegments < MAX_SEGMENTS) {
             val segmentActionStart = actionStepCount(ctx.steps)
 
             while (actionStepCount(ctx.steps) - segmentActionStart < ctx.maxSteps) {
+                val readyReview = pendingReview?.takeIf { it.isCompleted }
+                if (readyReview != null) {
+                    val review = runCatching { readyReview.await() }.getOrDefault("")
+                        .ifBlank {
+                            "5-step review: compare the latest tool results with the user goal, avoid repeating failed actions, and choose the next concrete action that closes the remaining gap."
+                        }
+                    val reviewStep = AgentStep(
+                        index = ctx.steps.size,
+                        thought = "5-step execution review",
+                        toolCallId = null,
+                        skillId = null,
+                        skillParams = null,
+                        observation = review,
+                    )
+                    ctx.steps.add(reviewStep)
+                    workingMemory.push(reviewStep)
+                    pendingReview = null
+                    emit(AgentEvent.ThinkingComplete("后台复盘已完成，已更新下一步执行上下文。"))
+                }
+
+                val deterministicPhoneLaunch = deterministicPhoneLaunchCall(taskType, goal, ctx.steps)
+                if (deterministicPhoneLaunch != null) {
+                    val (skillId, params, finalAfterSuccess) = deterministicPhoneLaunch
+                    emit(AgentEvent.SkillCalling(skillId, params))
+                    val skillResult = registry.get(skillId)
+                        ?.let { skill ->
+                            runCatching { skill.execute(params) }
+                                .getOrElse { e -> SkillResult(false, "Error executing $skillId: ${e.message}") }
+                        }
+                        ?: SkillResult(false, "Error: skill '$skillId' not found.")
+                    emit(AgentEvent.Observation(
+                        text = skillResult.output,
+                        imageBase64 = skillResult.imageBase64,
+                        attachment = skillResult.data as? SkillAttachment,
+                    ))
+                    val step = AgentStep(
+                        index = ctx.steps.size,
+                        thought = "Deterministic phone app launch",
+                        toolCallId = "deterministic-phone-${ctx.steps.size}",
+                        skillId = skillId,
+                        skillParams = params,
+                        observation = skillResult.output.let {
+                            if (it.length > 4000) it.take(4000) + "\n…[truncated ${it.length - 4000} chars]" else it
+                        },
+                        isError = !skillResult.success,
+                        imageBase64 = skillResult.imageBase64,
+                    )
+                    ctx.steps.add(step)
+                    workingMemory.push(step)
+                    if (finalAfterSuccess && skillResult.success) {
+                        val appName = extractRequestedAppName(goal).orEmpty()
+                        val summary = if (appName.isNotBlank()) "已打开$appName。" else "已打开目标应用。"
+                        emit(AgentEvent.Completed(summary))
+                        return finish(AgentResult(success = true, summary = summary, context = ctx))
+                    }
+                    if (!skillResult.success && skillResult.data is SkillAttachment.AccessibilityRequest) {
+                        val summary = "需要先开启无障碍服务，才能执行打开应用和手机操作。"
+                        emit(AgentEvent.Completed(summary))
+                        return finish(AgentResult(success = false, summary = summary, context = ctx))
+                    }
+                    continue
+                }
+
                 if (loopGuard.check(ctx.steps)) {
                     val reflectionStep = AgentStep(
                         index = ctx.steps.size,
@@ -133,14 +208,14 @@ class AgentRuntime(
                 }.getOrElse { e ->
                     val msg = "LLM error: ${e.message}"
                     emit(AgentEvent.Error(msg))
-                    return AgentResult(success = false, summary = msg, context = ctx)
+                    return finish(AgentResult(success = false, summary = msg, context = ctx))
                 }
 
                 // No tool call → task complete
                 if (response.toolCall == null) {
                     val summary = response.content ?: "Task completed."
                     emit(AgentEvent.Completed(summary))
-                    return AgentResult(success = true, summary = summary, context = ctx)
+                    return finish(AgentResult(success = true, summary = summary, context = ctx))
                 }
 
                 // Emit the thought text so the UI can display it before the action
@@ -188,36 +263,35 @@ class AgentRuntime(
                     actionCount > 0 &&
                     actionCount % REVIEW_INTERVAL_STEPS == 0 &&
                     actionCount != lastReviewActionCount &&
-                    segmentActionCount < ctx.maxSteps
+                    segmentActionCount < ctx.maxSteps &&
+                    pendingReview == null
                 ) {
                     lastReviewActionCount = actionCount
-                    val review = if (preferFastLocalVision) {
-                        "5-step review: compare the latest observation with the user goal, avoid repeated screen reading, and choose the next concrete phone action or final answer."
+                    val reviewJob = if (preferFastLocalVision) {
+                        CoroutineScope(coroutineContext).async {
+                            "5-step review: compare the latest observation with the user goal, avoid repeated screen reading, and choose the next concrete phone action or final answer."
+                        }
                     } else {
-                        createFiveStepReview(
-                            systemPrompt = systemPrompt,
-                            ctx = ctx,
-                            workingMemory = workingMemory,
-                        )
+                        val reviewSystemPrompt = systemPrompt
+                        val reviewContext = ctx.copySnapshot()
+                        val reviewMemory = workingMemory.copySnapshot()
+                        CoroutineScope(coroutineContext).async {
+                            createFiveStepReview(
+                                systemPrompt = reviewSystemPrompt,
+                                ctx = reviewContext,
+                                workingMemory = reviewMemory,
+                            )
+                        }
                     }
-                    val reviewStep = AgentStep(
-                        index = ctx.steps.size,
-                        thought = "5-step execution review",
-                        toolCallId = null,
-                        skillId = null,
-                        skillParams = null,
-                        observation = review,
-                    )
-                    ctx.steps.add(reviewStep)
-                    workingMemory.push(reviewStep)
-                    emit(AgentEvent.ThinkingComplete("已完成 5 步复盘，检查目标满足度并调整下一步。"))
+                    pendingReview = reviewJob
+                    emit(AgentEvent.ThinkingComplete("已启动后台复盘，当前手机操作继续执行。"))
                 }
             }
 
             completedSegments += 1
             if (completedSegments < MAX_SEGMENTS) {
-                val checkpoint = if (preferFastLocalVision) {
-                    "20-step checkpoint: continue from the latest phone state. Do not restart; choose the next concrete action or finish if complete."
+                val checkpoint = if (preferFastLocalVision || useFastPhoneLoop) {
+                    "20-step phone checkpoint: continue from the latest phone state without another planning request. Do not restart; choose the next concrete action or finish if complete."
                 } else {
                     createContinuationCheckpoint(
                         systemPrompt = systemPrompt,
@@ -240,6 +314,7 @@ class AgentRuntime(
         }
 
         val finalSummary = runCatching {
+            pendingReview?.cancelAndJoin()
             llm.chat(ChatRequest(
                 messages = ctx.toMessages(
                     systemPrompt + "\n\nYou have reached the internal action budget. Do not call tools. Summarize the useful progress and current state for the user, and say what remains only if it is genuinely unresolved.",
@@ -251,7 +326,7 @@ class AgentRuntime(
         }.getOrDefault("")
             .ifBlank { "已完成当前可执行步骤。" }
         emit(AgentEvent.Completed(finalSummary))
-        return AgentResult(success = true, summary = finalSummary, context = ctx)
+        return finish(AgentResult(success = true, summary = finalSummary, context = ctx))
     }
 
     private suspend fun emit(event: AgentEvent) = _events.emit(event)
@@ -309,6 +384,78 @@ This note is for your own next step, so be direct and operational.
     }
 
     private fun actionStepCount(steps: List<AgentStep>): Int = steps.count { it.skillId != null }
+
+    private fun AgentContext.copySnapshot(): AgentContext =
+        copy(steps = steps.map { it.copy() }.toMutableList())
+
+    private fun WorkingMemory.copySnapshot(): WorkingMemory =
+        WorkingMemory().also { copy ->
+            steps().forEach { copy.push(it.copy()) }
+        }
+
+    private data class DeterministicToolCall(
+        val skillId: String,
+        val params: Map<String, Any>,
+        val finalAfterSuccess: Boolean = false,
+    )
+
+    private fun deterministicPhoneLaunchCall(
+        taskType: TaskType,
+        goal: String,
+        steps: List<AgentStep>,
+    ): DeterministicToolCall? {
+        if (taskType != TaskType.PHONE_CONTROL) return null
+        val requestedApp = extractRequestedAppName(goal) ?: return null
+        if (steps.none { it.skillId == "list_apps" }) {
+            return DeterministicToolCall("list_apps", emptyMap())
+        }
+        if (steps.any { it.skillId == "navigate" && !it.isError }) return null
+        val appList = steps.lastOrNull { it.skillId == "list_apps" && !it.isError }?.observation.orEmpty()
+        val packageName = resolvePackageNameFromListApps(appList, requestedApp) ?: return null
+        return DeterministicToolCall(
+            skillId = "navigate",
+            params = mapOf("action" to "launch", "package_name" to packageName, "foreground" to true),
+            finalAfterSuccess = true,
+        )
+    }
+
+    private fun extractRequestedAppName(goal: String): String? {
+        val text = goal.lineSequence().firstOrNull().orEmpty().trim()
+        val match = Regex("""(?:帮我)?(?:打开|启动|开启|进入)\s*([^，。,.!?！？\n]+)""").find(text) ?: return null
+        val appName = match.groupValues.getOrNull(1)
+            ?.replace(Regex("""\s*(app|APP|应用|软件)$"""), "")
+            ?.trim()
+            .orEmpty()
+        if (appName.isBlank()) return null
+        if (appName.contains("网页") || appName.contains("链接") || appName.contains("文件")) return null
+        return appName.take(40)
+    }
+
+    private fun resolvePackageNameFromListApps(appList: String, requestedApp: String): String? {
+        val normalizedRequest = requestedApp.normalizeAppNameForMatch()
+        val candidates = appList.lineSequence().mapNotNull { line ->
+            val appName = line.substringBefore(':', "").trim()
+            val packageName = line.substringAfter(':', "").trim()
+            if (appName.isBlank() || packageName.isBlank()) return@mapNotNull null
+            val normalizedApp = appName.normalizeAppNameForMatch()
+            val score = when {
+                normalizedApp == normalizedRequest -> 100
+                normalizedApp.contains(normalizedRequest) -> 80
+                normalizedRequest.contains(normalizedApp) -> 70
+                appName.contains(requestedApp, ignoreCase = true) -> 60
+                else -> 0
+            }
+            if (score <= 0) null else score to packageName
+        }.toList()
+        return candidates.maxByOrNull { it.first }?.second
+    }
+
+    private fun String.normalizeAppNameForMatch(): String =
+        lowercase()
+            .replace(Regex("""[\s·._-]+"""), "")
+            .removeSuffix("app")
+            .removeSuffix("应用")
+            .removeSuffix("软件")
 
     private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
         if (skillId !in perceptionSkillIds) return null

@@ -41,9 +41,24 @@ object PhoneScreenState {
         )
     }
 
+    fun screenToImage(x: Float, y: Float): Pair<Float, Float>? {
+        val s = latest ?: return null
+        if (s.screenWidth <= 0 || s.screenHeight <= 0) return null
+        return (x * s.imageWidth / s.screenWidth) to (y * s.imageHeight / s.screenHeight)
+    }
+
+    fun imageToScreen(x: Float, y: Float): Pair<Float, Float>? {
+        val s = latest ?: return null
+        if (s.imageWidth <= 0 || s.imageHeight <= 0) return null
+        return (x * s.screenWidth / s.imageWidth) to (y * s.screenHeight / s.imageHeight)
+    }
+
     fun describe(): String {
         val s = latest ?: return "No screenshot coordinate space recorded yet."
-        return "Image coordinate space: ${s.imageWidth}x${s.imageHeight}; device screen: ${s.screenWidth}x${s.screenHeight}. " +
+        val displayNote = if (s.displayWidth > 0 && s.displayHeight > 0) {
+            "; physical display: ${s.displayWidth}x${s.displayHeight}"
+        } else ""
+        return "Image coordinate space: ${s.imageWidth}x${s.imageHeight}; raw screenshot: ${s.rawScreenshotWidth}x${s.rawScreenshotHeight}; device action space: ${s.screenWidth}x${s.screenHeight}$displayNote. " +
             "Use the image coordinates from the latest phone observation. tap/scroll/long_click will map them to device pixels."
     }
 }
@@ -53,6 +68,10 @@ data class ScreenCoordinateSpace(
     val imageHeight: Int,
     val screenWidth: Int,
     val screenHeight: Int,
+    val rawScreenshotWidth: Int = screenWidth,
+    val rawScreenshotHeight: Int = screenHeight,
+    val displayWidth: Int = 0,
+    val displayHeight: Int = 0,
 )
 
 data class MappedPoint(

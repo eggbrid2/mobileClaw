@@ -300,15 +300,15 @@ object TaskToolPolicy {
             "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click", "navigate", "list_apps",
             "phone_status", "check_permissions", "vpn_control",
         )
-        TaskType.WEB_RESEARCH -> listOf("web_search", "fetch_url", "web_browse", "web_content", "web_js", "vpn_control")
-        TaskType.FILE_CREATE -> listOf("generate_document", "create_file", "read_file", "list_files", "create_html")
-        TaskType.APP_BUILD -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
-        TaskType.IMAGE_GENERATION -> listOf("generate_image", "generate_icon", "generate_video", "create_file")
+        TaskType.WEB_RESEARCH -> listOf("web_search", "fetch_url", "web_browse", "web_content", "web_js", "vpn_control", "switch_role")
+        TaskType.FILE_CREATE -> listOf("generate_document", "create_file", "read_file", "list_files", "create_html", "switch_role")
+        TaskType.APP_BUILD -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files", "switch_role")
+        TaskType.IMAGE_GENERATION -> listOf("generate_image", "generate_icon", "generate_video", "create_file", "switch_role")
         TaskType.VPN_CONTROL -> listOf("vpn_control")
         TaskType.SKILL_MANAGEMENT -> listOf("skill_check", "quick_skill", "skill_market", "create_skill", "skill_notes", "role_manager", "switch_role", "generate_icon")
-        TaskType.CODE_EXECUTION -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files")
+        TaskType.CODE_EXECUTION -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files", "switch_role")
         TaskType.CHAT -> listOf("sticker_bqb")
-        TaskType.GENERAL -> listOf("memory", "user_profile", "user_config", "sticker_bqb")
+        TaskType.GENERAL -> listOf("memory", "user_profile", "user_config", "sticker_bqb", "switch_role")
     }
 
     private fun applyMemoryToolPolicy(

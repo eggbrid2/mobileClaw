@@ -23,7 +23,9 @@ import android.accessibilityservice.AccessibilityService.ScreenshotResult
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Point
 import android.view.Display
+import android.view.WindowManager
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -97,8 +99,11 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
                                         ?: throw RuntimeException("Failed to wrap hardware buffer")
                                     val nodeMap = getNodeMap() ?: emptyMap()
                                     val vision = scaleForVision(bmp)
-                                    val marked = drawSomMarkings(vision.bitmap, nodeMap, vision.scale)
-                                    cont.resume(encodeBitmap(marked, bmp.width, bmp.height))
+                                    val actionSpace = resolveActionSpace(bmp.width, bmp.height)
+                                    val scaleX = vision.bitmap.width.toFloat() / actionSpace.actionWidth.toFloat()
+                                    val scaleY = vision.bitmap.height.toFloat() / actionSpace.actionHeight.toFloat()
+                                    val marked = drawSomMarkings(vision.bitmap, nodeMap, scaleX, scaleY)
+                                    cont.resume(encodeBitmap(marked, bmp.width, bmp.height, actionSpace))
                                 } catch (e: Exception) { cont.resumeWithException(e) }
                             }
                         }
@@ -140,7 +145,7 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
 
     private fun encodeForVision(bmp: Bitmap): ScreenshotData {
         val vision = scaleForVision(bmp)
-        return encodeBitmap(vision.bitmap, bmp.width, bmp.height)
+        return encodeBitmap(vision.bitmap, bmp.width, bmp.height, resolveActionSpace(bmp.width, bmp.height))
     }
 
     private fun scaleForVision(bmp: Bitmap): VisionBitmap {
@@ -159,18 +164,61 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         return VisionBitmap(out, scale)
     }
 
-    private fun encodeBitmap(bmp: Bitmap, screenWidth: Int, screenHeight: Int): ScreenshotData {
+    private fun encodeBitmap(
+        bmp: Bitmap,
+        rawScreenshotWidth: Int,
+        rawScreenshotHeight: Int,
+        actionSpace: ActionCoordinateSpace,
+    ): ScreenshotData {
         val out = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, 50, out)
         val b64 = Base64.encodeToString(out.toByteArray(), Base64.DEFAULT)
         val space = ScreenCoordinateSpace(
             imageWidth = bmp.width,
             imageHeight = bmp.height,
-            screenWidth = screenWidth,
-            screenHeight = screenHeight,
+            screenWidth = actionSpace.actionWidth,
+            screenHeight = actionSpace.actionHeight,
+            rawScreenshotWidth = rawScreenshotWidth,
+            rawScreenshotHeight = rawScreenshotHeight,
+            displayWidth = actionSpace.displayWidth,
+            displayHeight = actionSpace.displayHeight,
         )
         return ScreenshotData(imageBase64 = "data:image/jpeg;base64,$b64", coordinateSpace = space)
     }
+
+    private fun resolveActionSpace(rawScreenshotWidth: Int, rawScreenshotHeight: Int): ActionCoordinateSpace {
+        val displaySize = realDisplaySize()
+        val displayW = displaySize?.x ?: 0
+        val displayH = displaySize?.y ?: 0
+        val actionW: Int
+        val actionH: Int
+
+        if (displayW > 0 && displayH > 0 && sameOrientation(displayW, displayH, rawScreenshotWidth, rawScreenshotHeight)) {
+            actionW = displayW
+            actionH = displayH
+        } else {
+            actionW = rawScreenshotWidth
+            actionH = rawScreenshotHeight
+        }
+        return ActionCoordinateSpace(
+            actionWidth = max(1, actionW),
+            actionHeight = max(1, actionH),
+            displayWidth = displayW,
+            displayHeight = displayH,
+        )
+    }
+
+    private fun realDisplaySize(): Point? = runCatching {
+        val point = Point()
+        @Suppress("DEPRECATION")
+        (service.getSystemService(WindowManager::class.java) as WindowManager)
+            .defaultDisplay
+            .getRealSize(point)
+        point.takeIf { it.x > 0 && it.y > 0 }
+    }.getOrNull()
+
+    private fun sameOrientation(w1: Int, h1: Int, w2: Int, h2: Int): Boolean =
+        (w1 >= h1) == (w2 >= h2)
 
     private fun buildNodeMap(root: AccessibilityNodeInfo): Map<String, UiNode> {
         val map = mutableMapOf<String, UiNode>()
@@ -251,7 +299,7 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         return writer.toString()
     }
 
-    private fun drawSomMarkings(bmp: Bitmap, nodes: Map<String, UiNode>, scale: Float): Bitmap {
+    private fun drawSomMarkings(bmp: Bitmap, nodes: Map<String, UiNode>, scaleX: Float, scaleY: Float): Bitmap {
         val out = bmp.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
         val rectPaint = Paint().apply { color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 4f }
@@ -261,10 +309,10 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
         val interactive = nodes.filter { it.value.isClickable || it.value.isEditable || it.value.isScrollable }
         for ((id, node) in interactive) {
             val b = node.bounds
-            val left = b.left * scale
-            val top = b.top * scale
-            val right = b.right * scale
-            val bottom = b.bottom * scale
+            val left = b.left * scaleX
+            val top = b.top * scaleY
+            val right = b.right * scaleX
+            val bottom = b.bottom * scaleY
             canvas.drawRect(left, top, right, bottom, rectPaint)
             val tw = textPaint.measureText(id)
             canvas.drawRoundRect(RectF(left, top, left + tw + 10, top + 44f), 4f, 4f, bgPaint)
@@ -275,6 +323,13 @@ class ScreenshotController(private val service: ClawAccessibilityService) {
 }
 
 private data class VisionBitmap(val bitmap: Bitmap, val scale: Float)
+
+private data class ActionCoordinateSpace(
+    val actionWidth: Int,
+    val actionHeight: Int,
+    val displayWidth: Int,
+    val displayHeight: Int,
+)
 
 data class ScreenshotData(
     val imageBase64: String,

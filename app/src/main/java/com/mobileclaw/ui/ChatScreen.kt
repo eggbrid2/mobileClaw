@@ -313,6 +313,7 @@ fun ChatScreen(
                                         attachments = msg.attachments,
                                         onOpenHtmlViewer = onOpenHtmlViewer,
                                         onOpenBrowser = onOpenBrowser,
+                                        onSendGoal = onSendGoal,
                                         onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                     )
                                 }
@@ -337,6 +338,7 @@ fun ChatScreen(
                                             attachments = msg.attachments,
                                             onOpenHtmlViewer = onOpenHtmlViewer,
                                             onOpenBrowser = onOpenBrowser,
+                                            onSendGoal = onSendGoal,
                                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                         )
                                     }
@@ -1129,6 +1131,7 @@ private fun AgentBubble(
                         is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
                         is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
                         is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
+                        is SkillAttachment.ActionCard           -> ActionCardAttachment(attachment, onSendGoal)
                         is SkillAttachment.FileList             -> FileListCard(attachment, context)
                     }
                 }
@@ -1232,6 +1235,7 @@ private fun AttachmentBubble(
     attachments: List<SkillAttachment>,
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
     onOpenBrowser: (String) -> Unit = {},
+    onSendGoal: (String) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -1247,6 +1251,7 @@ private fun AttachmentBubble(
                 is SkillAttachment.WebPage              -> WebPageCard(attachment, onOpenBrowser)
                 is SkillAttachment.SearchResults        -> SearchResultsCard(attachment, onOpenBrowser)
                 is SkillAttachment.AccessibilityRequest -> AccessibilityCard(attachment, onOpenAccessibilitySettings)
+                is SkillAttachment.ActionCard           -> ActionCardAttachment(attachment, onSendGoal)
                 is SkillAttachment.FileList             -> FileListCard(attachment, context)
             }
         }
@@ -2368,6 +2373,103 @@ private fun SearchResultsCard(
                     tint = c.subtext,
                     modifier = Modifier.size(14.dp),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionCardAttachment(
+    attachment: SkillAttachment.ActionCard,
+    onSendGoal: (String) -> Unit = {},
+) {
+    val c = LocalClawColors.current
+    val accent = when (attachment.tone) {
+        "phone" -> Color(0xFF56D6BA)
+        "role" -> Color(0xFFC7F43A)
+        "warning" -> Color(0xFFFFB020)
+        else -> c.accent
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(0.7.dp, if (c.isDark) c.border.copy(alpha = 0.9f) else Color(0xFFE7E7E2), RoundedCornerShape(18.dp))
+            .background(if (c.isDark) Color(0xFF111111) else Color.White)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(accent.copy(alpha = if (c.isDark) 0.18f else 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                ClawSymbolIcon(
+                    when (attachment.tone) {
+                        "phone" -> "phone"
+                        "role" -> "role"
+                        "warning" -> "permission"
+                        else -> "spark"
+                    },
+                    tint = accent,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    attachment.title,
+                    color = c.text,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (attachment.body.isNotBlank()) {
+                    Text(
+                        attachment.body,
+                        color = c.subtext,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                }
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            attachment.actions.forEach { action ->
+                val primary = action.style == "primary"
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (primary) c.text else Color.Transparent)
+                        .border(
+                            0.8.dp,
+                            if (primary) c.text else c.border.copy(alpha = 0.9f),
+                            RoundedCornerShape(999.dp),
+                        )
+                        .clickable { onSendGoal(action.message) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        action.label,
+                        color = if (primary) c.bg else c.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

@@ -8,6 +8,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import kotlin.math.hypot
 
 /** Returns an AccessibilityRequest failure result when the accessibility service is not running. */
 private fun accessibilityNotAvailable(skillName: String) = SkillResult(
@@ -29,6 +30,76 @@ private fun mapPhonePoint(params: Map<String, Any>, x: Float, y: Float) =
         inputWidth = (params["coord_width"] as? Number)?.toFloat(),
         inputHeight = (params["coord_height"] as? Number)?.toFloat(),
     )
+
+private fun mapPhonePointWithNodeSnap(params: Map<String, Any>, x: Float, y: Float): TapTarget {
+    val mapped = mapPhonePoint(params, x, y)
+    val allInteractiveNodes = runCatching { ClawAccessibilityService.getNodeMap().orEmpty() }.getOrDefault(emptyMap())
+        .values
+        .filter { it.isClickable || it.isEditable || it.isScrollable }
+    val nodes = allInteractiveNodes.filter { it.isClickable || it.isEditable }
+        .ifEmpty { allInteractiveNodes }
+    if (nodes.isEmpty()) return TapTarget(mapped.x, mapped.y, mapped.note, snapped = false)
+
+    val space = PhoneScreenState.latest()
+        ?: return TapTarget(mapped.x, mapped.y, mapped.note, snapped = false)
+    val inputWidth = (params["coord_width"] as? Number)?.toFloat()?.takeIf { it > 0f } ?: space.imageWidth.toFloat()
+    val inputHeight = (params["coord_height"] as? Number)?.toFloat()?.takeIf { it > 0f } ?: space.imageHeight.toFloat()
+    val normalizedX = (x * space.imageWidth / inputWidth)
+    val normalizedY = (y * space.imageHeight / inputHeight)
+
+    val nearest = nodes.mapNotNull { node ->
+        val imgBounds = node.bounds.toImageBounds() ?: return@mapNotNull null
+        val centerX = (imgBounds.left + imgBounds.right) / 2f
+        val centerY = (imgBounds.top + imgBounds.bottom) / 2f
+        val area = maxOf(1f, (imgBounds.right - imgBounds.left) * (imgBounds.bottom - imgBounds.top))
+        val inside = normalizedX >= imgBounds.left - 10f &&
+            normalizedX <= imgBounds.right + 10f &&
+            normalizedY >= imgBounds.top - 10f &&
+            normalizedY <= imgBounds.bottom + 10f
+        val distance = if (inside) 0f else hypot(normalizedX - centerX, normalizedY - centerY)
+        NodeSnapCandidate(node, distance, area)
+    }.minWithOrNull(compareBy<NodeSnapCandidate> { it.distance }.thenBy { it.area })
+        ?: return TapTarget(mapped.x, mapped.y, mapped.note, snapped = false)
+
+    val node = nearest.node
+    val distance = nearest.distance
+    val snapRadius = maxOf(48f, minOf(space.imageWidth, space.imageHeight) * 0.045f)
+    if (distance > snapRadius) return TapTarget(mapped.x, mapped.y, mapped.note, snapped = false)
+
+    val cx = ((node.bounds.left + node.bounds.right) / 2f)
+    val cy = ((node.bounds.top + node.bounds.bottom) / 2f)
+    val label = node.text?.take(24)
+        ?: node.contentDesc?.take(24)
+        ?: node.className?.substringAfterLast('.')
+        ?: "node"
+    return TapTarget(
+        x = cx,
+        y = cy,
+        note = "${mapped.note}; snapped to ${label} center",
+        snapped = true,
+    )
+}
+
+private fun android.graphics.Rect.toImageBounds(): ImageBounds? {
+    val topLeft = PhoneScreenState.screenToImage(left.toFloat(), top.toFloat()) ?: return null
+    val bottomRight = PhoneScreenState.screenToImage(right.toFloat(), bottom.toFloat()) ?: return null
+    return ImageBounds(topLeft.first, topLeft.second, bottomRight.first, bottomRight.second)
+}
+
+private data class ImageBounds(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+private data class NodeSnapCandidate(
+    val node: com.mobileclaw.perception.UiNode,
+    val distance: Float,
+    val area: Float,
+)
+
+private data class TapTarget(
+    val x: Float,
+    val y: Float,
+    val note: String,
+    val snapped: Boolean,
+)
 
 class ScreenshotSkill : Skill {
     override val meta = SkillMeta(
@@ -166,9 +237,10 @@ class TapSkill : Skill {
 
         return when {
             x != null && y != null -> {
-                val p = mapPhonePoint(params, x, y)
+                val p = mapPhonePointWithNodeSnap(params, x, y)
                 ClawAccessibilityService.clickCoordinate(p.x, p.y)
-                SkillResult(true, "Tapped image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()}) [${p.note}].\n${foregroundStatus()}")
+                val snapNote = if (p.snapped) " (auto-snapped to nearest interactive target)" else ""
+                SkillResult(true, "Tapped image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()})$snapNote [${p.note}].\n${foregroundStatus()}")
             }
             nodeId != null -> {
                 // Resolve node to center coordinates and gesture-tap (works for all apps).
@@ -381,9 +453,10 @@ class LongClickSkill : Skill {
 
         return when {
             x != null && y != null -> {
-                val p = mapPhonePoint(params, x, y)
+                val p = mapPhonePointWithNodeSnap(params, x, y)
                 ClawAccessibilityService.longClickCoordinate(p.x, p.y)
-                SkillResult(true, "Long-pressed image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()}) [${p.note}].\n${foregroundStatus()}")
+                val snapNote = if (p.snapped) " (auto-snapped to nearest interactive target)" else ""
+                SkillResult(true, "Long-pressed image (${x.toInt()}, ${y.toInt()}) as device (${p.x.toInt()}, ${p.y.toInt()})$snapNote [${p.note}].\n${foregroundStatus()}")
             }
             nodeId != null -> {
                 val node = ClawAccessibilityService.getNodeMap()?.get(nodeId)

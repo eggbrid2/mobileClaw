@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Path
-import android.graphics.Rect
+import android.graphics.Point
 import android.os.Bundle
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
@@ -23,11 +23,18 @@ import kotlin.coroutines.resumeWithException
  */
 class ActionController(private val service: ClawAccessibilityService) {
 
-    private val screenBounds: Rect by lazy {
-        service.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+    private fun screenSize(): Point {
+        val point = Point()
+        @Suppress("DEPRECATION")
+        service.getSystemService(WindowManager::class.java).defaultDisplay.getRealSize(point)
+        if (point.x <= 0 || point.y <= 0) {
+            val bounds = service.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+            point.set(bounds.width(), bounds.height())
+        }
+        return point
     }
-    private val screenW get() = screenBounds.width().toFloat()
-    private val screenH get() = screenBounds.height().toFloat()
+    private val screenW get() = screenSize().x.toFloat()
+    private val screenH get() = screenSize().y.toFloat()
 
     suspend fun clickNode(nodeId: String) {
         val node = requireNode(nodeId)
@@ -119,7 +126,10 @@ class ActionController(private val service: ClawAccessibilityService) {
     }
 
     private suspend fun gestureClick(x: Float, y: Float, duration: Long) {
-        val path = Path().apply { moveTo(x, y); lineTo(x + 1f, y + 1f) }
+        val size = screenSize()
+        val sx = x.coerceIn(0f, maxOf(1, size.x - 1).toFloat())
+        val sy = y.coerceIn(0f, maxOf(1, size.y - 1).toFloat())
+        val path = Path().apply { moveTo(sx, sy); lineTo(sx + 1f, sy + 1f) }
         dispatchGesture(path, duration)
     }
 

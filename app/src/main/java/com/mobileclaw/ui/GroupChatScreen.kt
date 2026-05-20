@@ -1954,6 +1954,7 @@ private fun GroupAttachmentCard(
         is SkillAttachment.AccessibilityRequest -> GroupAttachmentTextCard(str(R.string.group_attachment_permission, attachment.skillName), c, action = str(R.string.perm_open)) {
             onOpenAccessibilitySettings()
         }
+        is SkillAttachment.ActionCard -> GroupAttachmentTextCard(attachment.title.ifBlank { "操作确认" }, c)
     }
 }
 
@@ -2254,6 +2255,7 @@ private fun groupAttachmentLabel(attachment: SkillAttachment): String = when (at
     is SkillAttachment.SearchResults -> str(R.string.group_label_search)
     is SkillAttachment.FileList -> str(R.string.group_label_file_list)
     is SkillAttachment.AccessibilityRequest -> str(R.string.group_label_permission)
+    is SkillAttachment.ActionCard -> attachment.title.ifBlank { "操作确认" }
 }
 
 // ── Member chip ───────────────────────────────────────────────────────────────

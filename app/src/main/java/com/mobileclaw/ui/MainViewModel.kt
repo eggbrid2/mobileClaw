@@ -633,7 +633,52 @@ class MainViewModel : ViewModel() {
 
     // ── Task Execution ───────────────────────────────────────────────────────
 
-    fun runTask(goal: String) = runTaskInternal(goal)
+    fun runTask(goal: String) {
+        val trimmed = goal.trim()
+        when {
+            trimmed.startsWith(CONFIRM_TASK_PREFIX) -> {
+                runTaskInternal(trimmed.removePrefix(CONFIRM_TASK_PREFIX).trim())
+                return
+            }
+            trimmed == CANCEL_CONFIRMATION_TEXT -> {
+                appendConfirmationResolution("已取消。")
+                return
+            }
+            trimmed.startsWith(CONFIRM_ROLE_PREFIX) -> {
+                val roleId = trimmed.removePrefix(CONFIRM_ROLE_PREFIX).trim()
+                val role = roleManager.get(roleId)
+                if (role != null) {
+                    setActiveRole(role)
+                    appendConfirmationResolution("已切换到 ${role.name}。")
+                } else {
+                    appendConfirmationResolution("没有找到这个角色：$roleId")
+                }
+                return
+            }
+        }
+
+        val roleSwitchTarget = inferExplicitRoleSwitchTarget(trimmed)
+        if (roleSwitchTarget != null) {
+            requestRoleSwitchConfirmation(trimmed, roleSwitchTarget)
+            return
+        }
+
+        val contextualIntent = resolveContextualTaskIntent(trimmed, _uiState.value.inputImageBase64 != null, _uiState.value.inputFileAttachment != null)
+        val classifiedTaskType = TaskClassifier.classify(
+            goal = contextualIntent.classificationGoal.ifBlank { trimmed },
+            hasImage = _uiState.value.inputImageBase64 != null,
+            hasFile = _uiState.value.inputFileAttachment != null,
+        )
+        val taskType = inferFollowUpTaskType(trimmed, classifiedTaskType)
+            ?: contextualIntent.taskTypeOverride
+            ?: classifiedTaskType
+        if (requiresUserExecutionConfirmation(taskType, trimmed)) {
+            requestTaskExecutionConfirmation(trimmed, taskType)
+            return
+        }
+
+        runTaskInternal(goal)
+    }
 
     private fun runTaskInternal(
         goal: String,
@@ -657,7 +702,8 @@ class MainViewModel : ViewModel() {
             hasImage = attachedImage != null,
             hasFile = attachedFile != null,
         )
-        val taskType = contextualIntent.taskTypeOverride
+        val taskType = inferFollowUpTaskType(goal, classifiedTaskType)
+            ?: contextualIntent.taskTypeOverride
             ?: if (inferredAiPageTarget != null && attachedImage == null && attachedFile == null) TaskType.APP_BUILD else classifiedTaskType
         val stickerAwareChat = attachedImage == null &&
             attachedFile == null &&
@@ -666,11 +712,24 @@ class MainViewModel : ViewModel() {
             shouldUseStickerAwareChat(goal)
         val executionTaskType = if (stickerAwareChat) TaskType.CHAT else taskType
         val contextualGoal = applyContextualTaskConstraints(effectiveGoal, contextualIntent, taskType)
-        val directPriorContext = buildPriorContext(goal, executionTaskType, contextualIntent, includeMemory = true)
+        val directPriorContext = buildPriorContext(
+            goal = goal,
+            taskType = executionTaskType,
+            intent = contextualIntent,
+            includeMemory = true,
+            includeRecentMessages = false,
+        )
         val agentPriorContext = buildPriorContext(goal, executionTaskType, contextualIntent, includeMemory = false)
         val isPhoneControlTask = executionTaskType == TaskType.PHONE_CONTROL
         val currentRole = _uiState.value.currentRole
-        val schedulingGoal = listOf(contextualGoal, directPriorContext.take(1200)).filter { it.isNotBlank() }.joinToString("\n\n")
+        val schedulingContext = buildPriorContext(
+            goal = goal,
+            taskType = executionTaskType,
+            intent = contextualIntent,
+            includeMemory = true,
+            includeRecentMessages = true,
+        )
+        val schedulingGoal = listOf(contextualGoal, schedulingContext.take(1200)).filter { it.isNotBlank() }.joinToString("\n\n")
         val scheduleDecision = RoleScheduler.schedule(
             taskType = taskType,
             goal = schedulingGoal,
@@ -728,7 +787,7 @@ class MainViewModel : ViewModel() {
 
         overlay.show(visibleGoalLabel)
         if (isPhoneControlTask) {
-            auroraOverlay.flash()
+            auroraOverlay.beginTask()
         }
 
         consoleServer.broadcast("task_started", visibleGoalLabel)
@@ -901,6 +960,7 @@ class MainViewModel : ViewModel() {
             runtimeEventJob.cancel()
             if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) {
                 overlay.hide()
+                if (isPhoneControlTask) auroraOverlay.endTask()
                 updateSession(resolvedSessionId) { s ->
                     s.copy(
                         isRunning = false,
@@ -918,6 +978,7 @@ class MainViewModel : ViewModel() {
             }
 
             overlay.hide()
+            if (isPhoneControlTask) auroraOverlay.endTask()
 
             val summary = result.getOrNull()?.summary ?: result.exceptionOrNull()?.message ?: "Task failed."
             consoleServer.broadcast("task_completed", summary)
@@ -1022,7 +1083,7 @@ class MainViewModel : ViewModel() {
             val roleSection = if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
                 "\n## Your Persona\n${currentRole.systemPromptAddendum.trim()}\n"
             } else ""
-            val contextSection = if (priorContext.isNotBlank()) "\n## Recent Conversation\n$priorContext\n" else ""
+            val contextSection = if (priorContext.isNotBlank()) "\n## Stable Memory And Active Artifacts\n$priorContext\n" else ""
             val localChatMode = config.snapshot().localNativeOnly || config.snapshot().localModelEnabled
             val imageInstruction = if (imageBase64 != null) {
                 if (config.language == "en") {
@@ -1040,7 +1101,7 @@ class MainViewModel : ViewModel() {
                         appendLine("Persona: ${currentRole.systemPromptAddendum.trim().take(180)}")
                     }
                     if (priorContext.isNotBlank()) {
-                        appendLine("Recent context:")
+                        appendLine("Stable memory and active artifacts:")
                         appendLine(priorContext.take(1200))
                     }
                     appendLine("Answer directly. Short follow-ups refer to the recent context. Do not create pages, apps, files, or UI blocks unless the latest user message explicitly asks.")
@@ -1061,12 +1122,16 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             }
 
             val llm = app.createLlmGateway()
+            val chatMessages = buildStructuredDirectChatMessages(
+                sessionId = resolvedSessionId,
+                systemPrompt = systemPrompt,
+                currentGoal = goal,
+                imageBase64 = imageBase64,
+            )
+
             val result = runCatching {
                 llm.chat(ChatRequest(
-                    messages = listOf(
-                        Message(role = "system", content = systemPrompt),
-                        Message(role = "user", content = goal, imageBase64 = imageBase64),
-                    ),
+                    messages = chatMessages,
                     tools = emptyList(),
                     stream = true,
                     onToken = { token ->
@@ -1165,6 +1230,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         taskJobs.remove(sessionId)
         runtimes.remove(sessionId)
         overlay.hide()
+        auroraOverlay.hide()
         consoleServer.broadcast("task_stopped", "")
         val runState = _uiState.value.sessionStates[sessionId] ?: SessionRunState()
         updateSession(sessionId) { state ->
@@ -1483,8 +1549,8 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 ?.index ?: return@synchronized null
             pendingGroupTurns.removeAt(index)
         }
-    private val GROUP_CHAT_INITIAL_MAX = 1
-    private val GROUP_CHAT_ORGANIC_MAX = 1
+    private val GROUP_CHAT_INITIAL_MAX = 2
+    private val GROUP_CHAT_ORGANIC_MAX = 2
     private val GROUP_MESSAGE_PAGE_SIZE = 20
 
     fun loadGroups() {
@@ -1522,6 +1588,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 is SkillAttachment.SearchResults -> str(R.string.group_label_search)
                 is SkillAttachment.FileList -> str(R.string.group_label_file_list)
                 is SkillAttachment.AccessibilityRequest -> str(R.string.group_label_permission)
+                is SkillAttachment.ActionCard -> attachment.title.ifBlank { "操作确认" }
             }
         }.orEmpty()
     }
@@ -1611,6 +1678,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     fun openGroupChat(group: com.mobileclaw.agent.Group) {
         viewModelScope.launch(Dispatchers.IO) {
+            groupChatStopped = false
             val pageSize = GROUP_MESSAGE_PAGE_SIZE
             val total = runCatching { database.groupMessageDao().countForGroup(group.id) }.getOrDefault(0)
             val entities = database.groupMessageDao().forGroupPaged(group.id, pageSize, 0).reversed()
@@ -1800,7 +1868,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     1    -> (1500L..3000L).random()
                     else -> (3000L..5500L).random()
                 }
-                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = if (idx == 0) 2 else 1, triggerText = userText, requireResponse = idx == 0)
+                launchGroupAgentTurn(group, role, allMembers, delayMs = delayMs, chainDepth = if (idx == 0) 4 else 2, triggerText = userText, requireResponse = idx == 0)
             }
         }
     }
@@ -1880,7 +1948,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 }
                 if (phoneTask) {
                     overlay.showCompact("${role.name}: ${triggerText.take(40)}")
-                    auroraOverlay.flash()
+                    auroraOverlay.beginTask()
                 }
                 val history = _uiState.value.groupMessages
                 val memoryPrompt = buildUserMemoryContextForPrompt(triggerText, taskType)
@@ -1971,16 +2039,17 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                             }}
                                 .forEach { launchGroupAgentTurn(group, it, allMembers, chainDepth = chainDepth, triggerText = cleanResponse) }
 
-                        // Organic reactions: allow at most one relevant follow-up. Most
-                        // messages should stop after the primary answer unless the text
-                        // explicitly invites group discussion.
+                        // Organic reactions: allow a short natural thread. The depth and
+                        // low-value filter prevent noisy pile-ons, but idle members still
+                        // get room to keep the room alive when nobody is speaking.
                         if (chainDepth > 0) {
                             val reactionProb = when (chainDepth) {
-                                5 -> 0.36f
-                                4 -> 0.30f
-                                3 -> 0.24f
-                                2 -> 0.16f
-                                else -> 0.08f
+                                6 -> 0.82f
+                                5 -> 0.72f
+                                4 -> 0.60f
+                                3 -> 0.42f
+                                2 -> 0.28f
+                                else -> 0.14f
                             }
                             allMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
@@ -1993,9 +2062,9 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
                                     val shouldContinue = shouldContinueGroupThread(cleanResponse)
                                     val effectiveProb = when {
-                                        shouldContinue && index == 0 -> 0.72f
+                                        shouldContinue && index == 0 -> 0.92f
                                         nameHit -> minOf(reactionProb + 0.28f, 1.0f)
-                                        shouldContinue -> minOf(reactionProb + 0.14f, 1.0f)
+                                        shouldContinue -> minOf(reactionProb + 0.20f, 1.0f)
                                         else -> reactionProb
                                     }
                                     if (kotlin.random.Random.nextFloat() < effectiveProb) {
@@ -2014,12 +2083,16 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             } finally {
                 groupAgentJobs.remove(role.id)
                 _uiState.update { it.copy(groupTypingAgents = it.groupTypingAgents - role.id, groupWorkingAgents = it.groupWorkingAgents - role.id) }
+                if (TaskClassifier.classify(triggerText.ifBlank { "" }) == TaskType.PHONE_CONTROL) {
+                    auroraOverlay.endTask()
+                }
                 if (TaskClassifier.classify(triggerText.ifBlank { "" }) == TaskType.PHONE_CONTROL && groupAgentJobs.none { (_, job) -> job.isActive }) {
                     overlay.hide()
                 }
 
                 drainPendingGroupTurns(group, allMembers)
                 if (groupAgentJobs.isEmpty() && pendingGroupTurnsIsEmpty()) {
+                    auroraOverlay.hide()
                     overlay.hide()
                     _uiState.update { it.copy(groupRunning = false, groupPendingMessages = emptyList(), groupTypingAgents = emptySet(), groupWorkingAgents = emptySet()) }
                 }
@@ -2061,11 +2134,23 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     private fun buildGroupTurnInstruction(roleName: String, triggerText: String, requireResponse: Boolean): String {
         val trigger = triggerText.trim().take(500)
+        val organicChat = isOrganicGroupTrigger(trigger)
         return if (requireResponse) {
             "[系统]: 用户刚在群里问/说：${trigger.ifBlank { "请你开启一个自然话题" }}\n轮到你了，$roleName。你是本轮主回应者，必须给出一条自然、有内容的群聊回复。不要输出 [PASS]，不要只发表情，也不要用“我补充一句/我也来说两句/接一下”这种尴尬开场。"
+        } else if (organicChat) {
+            "[系统]: 最新群聊内容：${trigger.ifBlank { "群聊冷启动" }}\n轮到你了，$roleName。现在是自然闲聊，不是考试答题。你可以接住上一句、抛一个新角度、轻微吐槽、开个小话题或点名别人。优先发一条有性格的短回复；只有确实重复、没话说或会打断任务时才输出 [PASS]。禁止“我补充一句/我也觉得/确实/哈哈/有道理”这种空话。"
         } else {
             "[系统]: 最新触发内容：${trigger.ifBlank { "群聊冷启动" }}\n轮到你了，$roleName。你不是主回应者。只有在你能提供明显不同的新信息、专业角度、被点名、或这句话明确邀请大家讨论时才回复；否则输出 [PASS]。禁止只说“我补充一句/我也觉得/确实/哈哈/有道理”。"
         }
+    }
+
+    private fun isOrganicGroupTrigger(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isBlank()) return true
+        if (clean.contains("群聊冷启动")) return true
+        if (TaskClassifier.classify(clean) !in listOf(TaskType.CHAT, TaskType.GENERAL)) return false
+        if (clean.length in 8..220 && !isLowValueGroupReply(clean, emptyList())) return true
+        return clean.contains("？") || clean.contains("?")
     }
 
     private fun shouldInviteMultipleGroupVoices(text: String): Boolean {
@@ -2082,6 +2167,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         if (clean.isBlank()) return false
         val lowered = clean.lowercase()
         if (isLowValueGroupReply(clean, emptyList())) return false
+        if (isOrganicGroupTrigger(clean)) return true
         return listOf(
             "怎么看", "你们觉得", "大家觉得", "谁来", "有没有", "可以聊",
             "展开讲", "换个角度", "还有谁", "还有没有", "大家说说",
@@ -2127,7 +2213,17 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             if (allMembers.isEmpty()) return@launch
             groupChatStopped = false
             _uiState.update { it.copy(groupRunning = true) }
-            launchGroupAgentTurn(group, allMembers.random(), allMembers, chainDepth = 5, triggerText = "群聊冷启动", requireResponse = true)
+            allMembers.shuffled().take(minOf(2, allMembers.size)).forEachIndexed { index, role ->
+                launchGroupAgentTurn(
+                    group = group,
+                    role = role,
+                    allMembers = allMembers,
+                    delayMs = if (index == 0) 0L else (1200L..2600L).random(),
+                    chainDepth = if (index == 0) 6 else 4,
+                    triggerText = "群聊冷启动",
+                    requireResponse = true,
+                )
+            }
         }
     }
 
@@ -2386,9 +2482,9 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         appendLine(str(R.string.vm_e1d388))
         appendLine(str(R.string.vm_abc7c8))
         appendLine(str(R.string.vm_8f6718))
-        appendLine("• 群聊不是抢答。没有被点名、没有新信息、没有明显不同角度时，直接输出 [PASS]。")
-        appendLine("• 不要为了存在感补一句。禁止只说“我补充一句/我也觉得/确实/有道理/哈哈/不错/接一下”。")
-        appendLine("• 如果前面的人已经回答完整，你应该安静；只有能推进任务、纠错、补关键事实、提出清晰问题时才发言。")
+        appendLine("• 群聊不是抢答，但也不是客服单轮回答。自然闲聊时可以接话、抛梗、转话题、点名别人，让群有生命力。")
+        appendLine("• 不要为了存在感补空话。禁止只说“我补充一句/我也觉得/确实/有道理/哈哈/不错/接一下”。")
+        appendLine("• 任务型问题如果已经回答完整，你应该安静；闲聊场景则可以用自己的性格继续推进话题。")
         appendLine("• 如果你使用工具生成了图片、文件、网页或搜索结果，可以把这些结果作为附件发到群里。")
         appendLine("• 表情包是你的群聊表达方式之一，不是只有用户明确要求才用。发言前先判断：你的这句话是否有明确情绪、梗、反应或斗图价值。")
         appendLine("• 当你的回复明显适合表情包强化时，可以调用 sticker_bqb(action=\"search\", query=\"简短情绪词\")，例如 哈哈、笑死、牛、离谱、尴尬、无语、摸鱼、生气、谢谢、安慰、庆祝。")
@@ -2420,6 +2516,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         is SkillAttachment.SearchResults -> str(R.string.group_prompt_search, attachment.query, attachment.pages.size)
         is SkillAttachment.FileList -> str(R.string.group_prompt_file_list, attachment.files.size)
         is SkillAttachment.AccessibilityRequest -> str(R.string.group_prompt_permission, attachment.skillName)
+        is SkillAttachment.ActionCard -> "操作确认卡片：${attachment.title}"
     }
 
     private fun GroupMessage.toEntity() = com.mobileclaw.memory.db.GroupMessageEntity(
@@ -2822,8 +2919,125 @@ $foundationalMemory
         val explicitRoleMention = text.contains(scheduledRole.id.lowercase()) ||
             scheduledRole.name.isNotBlank() && text.contains(scheduledRole.name.lowercase())
         if (explicitRoleMention) return true
-        if (taskType == TaskType.CHAT || taskType == TaskType.GENERAL) return false
-        return currentRole.id == Role.DEFAULT.id
+        return false
+    }
+
+    private fun requiresUserExecutionConfirmation(taskType: TaskType, goal: String): Boolean {
+        if (goal.startsWith(CONFIRM_TASK_PREFIX)) return false
+        return taskType in setOf(TaskType.PHONE_CONTROL, TaskType.VPN_CONTROL)
+    }
+
+    private fun requestTaskExecutionConfirmation(goal: String, taskType: TaskType) {
+        val title = when (taskType) {
+            TaskType.PHONE_CONTROL -> "这需要操作你的手机界面。"
+            TaskType.VPN_CONTROL -> "这需要修改 VPN/代理状态。"
+            else -> "这需要执行敏感操作。"
+        }
+        val card = SkillAttachment.ActionCard(
+            title = title,
+            body = "请确认是否继续执行完整流程。确认后，AI 会在本次任务内自行选择合适角色和工具，不再为同一流程反复弹确认。\n\n$goal",
+            tone = if (taskType == TaskType.PHONE_CONTROL) "phone" else "warning",
+            actions = listOf(
+                SkillAttachment.ActionCard.Action("确认执行", "$CONFIRM_TASK_PREFIX$goal", "primary"),
+                SkillAttachment.ActionCard.Action("取消", CANCEL_CONFIRMATION_TEXT, "secondary"),
+            ),
+        )
+        appendConfirmationExchange(goal, card)
+    }
+
+    private fun requestRoleSwitchConfirmation(goal: String, role: Role) {
+        val card = SkillAttachment.ActionCard(
+            title = "切换到 ${role.name}",
+            body = "切换后会改变当前 AI 的人格、模型或可用能力。请确认是否切换。",
+            tone = "role",
+            actions = listOf(
+                SkillAttachment.ActionCard.Action("确认切换", "$CONFIRM_ROLE_PREFIX${role.id}", "primary"),
+                SkillAttachment.ActionCard.Action("取消", CANCEL_CONFIRMATION_TEXT, "secondary"),
+            ),
+        )
+        appendConfirmationExchange(goal, card)
+    }
+
+    private fun appendConfirmationExchange(userText: String, card: SkillAttachment.ActionCard) {
+        viewModelScope.launch {
+            var sessionId = _uiState.value.currentSessionId
+            if (sessionId.isBlank()) {
+                withContext(Dispatchers.IO) { createNewSessionInternal() }
+                sessionId = _uiState.value.currentSessionId
+            }
+            val userMessage = ChatMessage(MessageRole.USER, userText)
+            val agentMessage = ChatMessage(
+                role = MessageRole.AGENT,
+                text = "",
+                attachments = listOf(card),
+                senderRoleId = _uiState.value.currentRole.id,
+                senderRoleName = _uiState.value.currentRole.name,
+                senderRoleAvatar = _uiState.value.currentRole.avatar,
+            )
+            updateSession(sessionId) { s -> s.copy(messages = s.messages + userMessage + agentMessage) }
+            if (sessionId.isNotBlank()) {
+                launch(Dispatchers.IO) { persistMessages(sessionId, userMessage, listOf(agentMessage)) }
+            }
+        }
+    }
+
+    private fun appendConfirmationResolution(text: String) {
+        viewModelScope.launch {
+            var sessionId = _uiState.value.currentSessionId
+            if (sessionId.isBlank()) {
+                withContext(Dispatchers.IO) { createNewSessionInternal() }
+                sessionId = _uiState.value.currentSessionId
+            }
+            val agentMessage = ChatMessage(
+                role = MessageRole.AGENT,
+                text = text,
+                senderRoleId = _uiState.value.currentRole.id,
+                senderRoleName = _uiState.value.currentRole.name,
+                senderRoleAvatar = _uiState.value.currentRole.avatar,
+            )
+            updateSession(sessionId) { s -> s.copy(messages = s.messages + agentMessage) }
+            if (sessionId.isNotBlank()) {
+                launch(Dispatchers.IO) {
+                    database.sessionMessageDao().insert(
+                        SessionMessageEntity(
+                            sessionId = sessionId,
+                            role = "agent",
+                            text = agentMessage.text,
+                            senderRoleId = agentMessage.senderRoleId,
+                            senderRoleName = agentMessage.senderRoleName,
+                            senderRoleAvatar = agentMessage.senderRoleAvatar,
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun inferExplicitRoleSwitchTarget(goal: String): Role? {
+        val text = goal.lowercase()
+        if (!text.anyContainsLocal("切换角色", "换角色", "切到", "切换到", "switch role")) return null
+        val roles = _uiState.value.availableRoles + Role.BUILTINS
+        return roles.distinctBy { it.id }.firstOrNull { role ->
+            text.contains(role.id.lowercase()) ||
+                (role.name.isNotBlank() && text.contains(role.name.lowercase()))
+        }
+    }
+
+    private fun inferFollowUpTaskType(goal: String, classifiedTaskType: TaskType): TaskType? {
+        if (classifiedTaskType != TaskType.GENERAL) return null
+        if (!isContextualFollowUp(goal)) return null
+        val recent = _uiState.value.currentRunState.messages.takeLast(6)
+        if (recent.any { msg ->
+                msg.senderRoleId == "phone_operator" ||
+                    msg.logLines.any { it.skillId in PHONE_CONTROL_SKILLS || it.text.contains("VLM_PHONE_CONTROL") } ||
+                    msg.text.contains("手机操控") ||
+                    msg.text.contains("打开 App") ||
+                    msg.text.contains("看屏幕") ||
+                    msg.text.contains("点击")
+            }) {
+            return TaskType.PHONE_CONTROL
+        }
+        return null
     }
 
     private data class ContextualTaskIntent(
@@ -2909,11 +3123,14 @@ $foundationalMemory
         taskType: TaskType = TaskType.GENERAL,
         intent: ContextualTaskIntent = ContextualTaskIntent(goal),
         includeMemory: Boolean = true,
+        includeRecentMessages: Boolean = true,
     ): String {
         val msgs = _uiState.value.currentRunState.messages
         val userMemoryContext = if (includeMemory) buildUserMemoryContextForPrompt(goal, taskType) else ""
         val artifactContext = buildArtifactContext(intent)
-        if (msgs.isEmpty()) return listOf(userMemoryContext, artifactContext).filter { it.isNotBlank() }.joinToString("\n\n")
+        if (!includeRecentMessages || msgs.isEmpty()) {
+            return listOf(userMemoryContext, artifactContext).filter { it.isNotBlank() }.joinToString("\n\n")
+        }
         val recent = msgs.takeLast(10)
         val lines = recent.map { msg ->
             val attachmentSummary = summarizeAttachmentsForContext(msg.attachments)
@@ -2940,6 +3157,48 @@ $foundationalMemory
             "## Relevant Chat Records Before Current User Message\n$capped\n\nCurrent user request: ${goal.take(220)}"
         } else ""
         return listOf(userMemoryContext, artifactContext, recentContext).filter { it.isNotBlank() }.joinToString("\n\n")
+    }
+
+    private fun buildStructuredDirectChatMessages(
+        sessionId: String,
+        systemPrompt: String,
+        currentGoal: String,
+        imageBase64: String? = null,
+    ): List<Message> {
+        val history = _uiState.value.sessionStates[sessionId]
+            ?.messages
+            .orEmpty()
+            .dropLast(1)
+            .filter { it.text.isNotBlank() || it.imageBase64 != null || it.attachments.isNotEmpty() }
+            .takeLast(12)
+            .mapNotNull { msg ->
+                val text = buildDirectChatHistoryText(msg)
+                if (text.isBlank() && msg.imageBase64.isNullOrBlank()) return@mapNotNull null
+                Message(
+                    role = if (msg.role == MessageRole.USER) "user" else "assistant",
+                    content = text.ifBlank { null },
+                    imageBase64 = msg.imageBase64,
+                )
+            }
+        return listOf(Message(role = "system", content = systemPrompt)) +
+            history +
+            Message(role = "user", content = currentGoal, imageBase64 = imageBase64)
+    }
+
+    private fun buildDirectChatHistoryText(msg: ChatMessage): String {
+        val base = msg.text
+            .replace(Regex("```[\\s\\S]*?```"), "[code/file content omitted]")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+        val rolePrefix = if (msg.role == MessageRole.AGENT && msg.senderRoleName.isNotBlank()) {
+            "[role=${msg.senderRoleName}] "
+        } else ""
+        val attachmentSummary = summarizeAttachmentsForContext(msg.attachments)
+            .takeIf { it.isNotBlank() }
+            ?.let { "\n[attachments: $it]" }
+            .orEmpty()
+        val text = "$rolePrefix$base$attachmentSummary".trim()
+        return if (text.length > 900) text.take(900) + "…" else text
     }
 
     private fun buildUserMemoryContextForPrompt(goal: String, taskType: TaskType): String =
@@ -3018,6 +3277,7 @@ $foundationalMemory
                 is SkillAttachment.WebPage -> "webpage(title=${attachment.title}, url=${attachment.url})"
                 is SkillAttachment.SearchResults -> "search_results(query=${attachment.query}, count=${attachment.pages.size})"
                 is SkillAttachment.AccessibilityRequest -> "accessibility_request(${attachment.skillName})"
+                is SkillAttachment.ActionCard -> "action_card(title=${attachment.title}, actions=${attachment.actions.size})"
                 is SkillAttachment.FileList -> "file_list(directory=${attachment.directory}, count=${attachment.files.size})"
             }
         }
@@ -3027,6 +3287,7 @@ $foundationalMemory
         val pages = app.aiPageStore.getAll()
         if (pages.isEmpty()) return null
         val text = goal.lowercase()
+        if (isMobileClawInternalChatTopic(text)) return null
         val explicit = pages.firstOrNull { page ->
             text.contains(page.id.lowercase()) ||
                 page.title.isNotBlank() && text.contains(page.title.lowercase())
@@ -3068,6 +3329,7 @@ $foundationalMemory
         val apps = runCatching { app.miniAppStore.all() }.getOrDefault(emptyList())
         if (apps.isEmpty()) return null
         val text = goal.lowercase()
+        if (isMobileClawInternalChatTopic(text)) return null
         val explicit = apps.firstOrNull { mini ->
             (mini.id.isNotBlank() && text.contains(mini.id.lowercase())) ||
                 (mini.title.isNotBlank() && text.contains(mini.title.lowercase()))
@@ -3082,6 +3344,7 @@ $foundationalMemory
 
     private fun inferRecentFileContextTarget(goal: String): SkillAttachment? {
         val text = goal.lowercase()
+        if (isMobileClawInternalChatTopic(text)) return null
         if (!isContextualFollowUp(text)) return null
         val fileIntent = text.anyContainsLocal(
             "文件", "文档", "附件", "这个", "它", "上面", "刚才", "继续", "修改", "改下", "改一下",
@@ -3137,7 +3400,23 @@ $foundationalMemory
         )
     }
 
+    private fun isMobileClawInternalChatTopic(text: String): Boolean =
+        text.anyContainsLocal(
+            "聊天", "chat", "群聊", "单聊", "对话", "上下文", "乱切", "角色", "记忆",
+            "vlm", "执行链路", "工具", "模型", "本地模型", "云端模型", "bug", "闪退",
+        )
+
     private fun String.anyContainsLocal(vararg needles: String): Boolean = needles.any { contains(it) }
+
+    private companion object {
+        const val CONFIRM_TASK_PREFIX = "确认执行:"
+        const val CONFIRM_ROLE_PREFIX = "确认切换角色:"
+        const val CANCEL_CONFIRMATION_TEXT = "取消"
+        val PHONE_CONTROL_SKILLS = setOf(
+            "see_screen", "screenshot", "tap", "scroll", "input_text", "long_click",
+            "navigate", "list_apps", "phone_status", "check_permissions",
+        )
+    }
 
     private fun registerBuiltinSkills() {
         listOf(
@@ -3355,6 +3634,22 @@ $foundationalMemory
                         } ?: emptyList()
                         SkillAttachment.FileList(files, o["directory"]?.asString ?: "")
                     }
+                    "action_card" -> {
+                        val actions = o["actions"]?.asJsonArray?.mapNotNull { ae ->
+                            val a = ae.asJsonObject
+                            SkillAttachment.ActionCard.Action(
+                                label = a["label"]?.asString ?: return@mapNotNull null,
+                                message = a["message"]?.asString ?: return@mapNotNull null,
+                                style = a["style"]?.asString ?: "secondary",
+                            )
+                        }.orEmpty()
+                        SkillAttachment.ActionCard(
+                            title = o["title"]?.asString ?: "",
+                            body = o["body"]?.asString ?: "",
+                            actions = actions,
+                            tone = o["tone"]?.asString ?: "default",
+                        )
+                    }
                     else -> null
                 }
             }
@@ -3375,6 +3670,15 @@ $foundationalMemory
                     "pages" to att.pages.map { p -> mapOf("url" to p.url, "title" to p.title, "excerpt" to p.excerpt) },
                 )
                 is SkillAttachment.AccessibilityRequest -> null
+                is SkillAttachment.ActionCard -> mapOf(
+                    "type" to "action_card",
+                    "title" to att.title,
+                    "body" to att.body,
+                    "tone" to att.tone,
+                    "actions" to att.actions.map { action ->
+                        mapOf("label" to action.label, "message" to action.message, "style" to action.style)
+                    },
+                )
                 is SkillAttachment.FileList -> mapOf(
                     "type" to "file_list",
                     "directory" to att.directory,
