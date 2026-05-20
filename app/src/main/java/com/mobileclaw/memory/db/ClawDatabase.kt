@@ -1,6 +1,7 @@
 package com.mobileclaw.memory.db
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Index
@@ -32,15 +33,24 @@ data class SemanticFactEntity(
     @PrimaryKey val key: String,
     val value: String,
     val confidence: Float = 1.0f,
+    @ColumnInfo(defaultValue = "'fact'")
     val type: String = "fact",
+    @ColumnInfo(defaultValue = "'global'")
     val scope: String = "global",
+    @ColumnInfo(defaultValue = "'unknown'")
     val source: String = "unknown",
+    @ColumnInfo(defaultValue = "''")
     val sourceRef: String = "",
+    @ColumnInfo(defaultValue = "0")
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "0")
     val lastUsedAt: Long = 0L,
+    @ColumnInfo(defaultValue = "0")
     val useCount: Int = 0,
+    @ColumnInfo(defaultValue = "0")
     val pinned: Boolean = false,
+    @ColumnInfo(defaultValue = "1")
     val enabled: Boolean = true,
 )
 
@@ -110,20 +120,30 @@ private val MIGRATION_8_9 = object : Migration(8, 9) {
 
 private val MIGRATION_9_10 = object : Migration(9, 10) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN type TEXT NOT NULL DEFAULT 'fact'")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN sourceRef TEXT NOT NULL DEFAULT ''")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN lastUsedAt INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN useCount INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE semantic_facts ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+        db.addColumnIfMissing("semantic_facts", "type", "TEXT NOT NULL DEFAULT 'fact'")
+        db.addColumnIfMissing("semantic_facts", "scope", "TEXT NOT NULL DEFAULT 'global'")
+        db.addColumnIfMissing("semantic_facts", "source", "TEXT NOT NULL DEFAULT 'unknown'")
+        db.addColumnIfMissing("semantic_facts", "sourceRef", "TEXT NOT NULL DEFAULT ''")
+        db.addColumnIfMissing("semantic_facts", "createdAt", "INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("semantic_facts", "lastUsedAt", "INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("semantic_facts", "useCount", "INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("semantic_facts", "pinned", "INTEGER NOT NULL DEFAULT 0")
+        db.addColumnIfMissing("semantic_facts", "enabled", "INTEGER NOT NULL DEFAULT 1")
         db.execSQL("UPDATE semantic_facts SET createdAt = updatedAt WHERE createdAt = 0")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_type ON semantic_facts(type)")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_scope ON semantic_facts(scope)")
         db.execSQL("CREATE INDEX IF NOT EXISTS index_semantic_facts_enabled_updatedAt ON semantic_facts(enabled, updatedAt)")
     }
+}
+
+private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, definition: String) {
+    query("PRAGMA table_info(`$table`)").use { cursor ->
+        val nameIndex = cursor.getColumnIndex("name")
+        while (cursor.moveToNext()) {
+            if (nameIndex >= 0 && cursor.getString(nameIndex) == column) return
+        }
+    }
+    execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $definition")
 }
 
 private val MIGRATION_3_4 = object : Migration(3, 4) {
