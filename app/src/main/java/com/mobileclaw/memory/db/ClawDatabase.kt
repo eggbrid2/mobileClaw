@@ -28,7 +28,14 @@ data class EpisodeEntity(
     val createdAt: Long,
 )
 
-@Entity(tableName = "semantic_facts")
+@Entity(
+    tableName = "semantic_facts",
+    indices = [
+        Index(value = ["type"]),
+        Index(value = ["scope"]),
+        Index(value = ["enabled", "updatedAt"]),
+    ],
+)
 data class SemanticFactEntity(
     @PrimaryKey val key: String,
     val value: String,
