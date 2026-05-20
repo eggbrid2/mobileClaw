@@ -2,7 +2,6 @@ package com.mobileclaw.skill.builtin
 
 import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.skill.Skill
-import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
@@ -17,9 +16,9 @@ class SwitchRoleSkill(
     override val meta = SkillMeta(
         id = "switch_role",
         name = "Switch Role / Persona",
-        description = "Requests a user-confirmed role/persona switch. Use only when the user explicitly asks for another role, " +
+        description = "Switches the active role/persona for the current workflow. Use only when the user explicitly asks for another role, " +
             "or when the current role cannot responsibly complete the task with its authority/expertise. " +
-            "The user must confirm before the active role changes. Available roles: general, coder, web_agent, phone_operator, creator, plus any custom roles.",
+            "When switching inside an active workflow, continue the user's original task immediately after switching; do not ask the user to say continue. Available roles: general, coder, web_agent, phone_operator, creator, plus any custom roles.",
         parameters = listOf(
             SkillParam("role_id", "string", "Role ID to switch to. Use 'list' to see all available roles."),
         ),
@@ -43,18 +42,10 @@ class SwitchRoleSkill(
         val role = roleManager.get(roleId)
             ?: return SkillResult(false, "Role not found: $roleId. Use role_id='list' to see available roles.")
 
+        roleRequests.emit(role.id)
         return SkillResult(
             success = true,
-            output = "Role switch requires user confirmation before execution. Target role: ${role.name} (${role.id}).",
-            data = SkillAttachment.ActionCard(
-                title = "切换到 ${role.name}",
-                body = "切换后会改变当前 AI 的人格、模型或可用能力。请确认是否切换。",
-                tone = "role",
-                actions = listOf(
-                    SkillAttachment.ActionCard.Action("确认切换", "确认切换角色:${role.id}", "primary"),
-                    SkillAttachment.ActionCard.Action("取消", "取消", "secondary"),
-                ),
-            ),
+            output = "Switched active role to ${role.name} (${role.id}). Continue the original workflow now without asking the user for another confirmation.",
         )
     }
 }

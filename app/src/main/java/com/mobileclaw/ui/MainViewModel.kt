@@ -130,6 +130,7 @@ class MainViewModel : ViewModel() {
     private val switchRoleSkill = SwitchRoleSkill(roleManager, roleRequests)
     private val recentGroupStickerPaths = ArrayDeque<String>()
     private var pendingAccessibilityTaskGoal: String? = null
+    private var pendingRoleSwitchTaskGoal: String? = null
 
     // Mini-app open requests emitted by AppManagerSkill
     private val appOpenRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -668,6 +669,7 @@ class MainViewModel : ViewModel() {
             }
             trimmed == CANCEL_CONFIRMATION_TEXT -> {
                 pendingAccessibilityTaskGoal = null
+                pendingRoleSwitchTaskGoal = null
                 appendConfirmationResolution("已取消。")
                 return
             }
@@ -675,10 +677,12 @@ class MainViewModel : ViewModel() {
                 val payload = trimmed.removePrefix(CONFIRM_ROLE_PREFIX).trim()
                 val roleId = payload.substringBefore("::", payload).trim()
                 val originalGoal = payload.substringAfter("::", "").trim()
+                    .ifBlank { pendingRoleSwitchTaskGoal.orEmpty() }
                 val role = roleManager.get(roleId)
                 if (role != null) {
                     setActiveRole(role)
                     if (originalGoal.isNotBlank()) {
+                        pendingRoleSwitchTaskGoal = null
                         runTaskInternal(originalGoal)
                     } else {
                         appendConfirmationResolution("已切换到 ${role.name}。")
@@ -703,7 +707,8 @@ class MainViewModel : ViewModel() {
 
         val roleSwitchTarget = inferExplicitRoleSwitchTarget(trimmed)
         if (roleSwitchTarget != null) {
-            requestRoleSwitchConfirmation(trimmed, roleSwitchTarget)
+            setActiveRole(roleSwitchTarget)
+            appendConfirmationResolution("已切换到 ${roleSwitchTarget.name}。")
             return
         }
 
@@ -916,6 +921,9 @@ class MainViewModel : ViewModel() {
                         }
                         is AgentEvent.Observation -> {
                             overlay.onObservation(event.text)
+                            if (event.attachment is SkillAttachment.ActionCard && event.attachment.tone == "role") {
+                                pendingRoleSwitchTaskGoal = contextualGoal
+                            }
                             val lineDetails = buildList {
                                 if (event.text.isNotBlank()) {
                                     add("完整结果 (${event.text.length} 字符):")
@@ -2959,6 +2967,7 @@ $foundationalMemory
         scheduledRole: Role,
     ): Boolean {
         if (scheduledRole.id == currentRole.id) return true
+        if (taskType !in listOf(TaskType.CHAT, TaskType.GENERAL)) return true
         val text = goal.lowercase()
         val explicitRoleMention = text.contains(scheduledRole.id.lowercase()) ||
             scheduledRole.name.isNotBlank() && text.contains(scheduledRole.name.lowercase())
@@ -3005,6 +3014,7 @@ $foundationalMemory
     }
 
     private fun requestRoleSwitchConfirmation(goal: String, role: Role) {
+        pendingRoleSwitchTaskGoal = goal
         val card = SkillAttachment.ActionCard(
             title = "切换到 ${role.name}",
             body = "切换后会改变当前 AI 的人格、模型或可用能力。请确认是否切换。",
@@ -3094,6 +3104,9 @@ $foundationalMemory
         if (classifiedTaskType != TaskType.GENERAL) return null
         if (!isContextualFollowUp(goal)) return null
         val recent = effectiveContextMessages(limit = 6)
+        if (_uiState.value.currentRole.id == "phone_operator" && isPhoneContinuationContext(recent)) {
+            return TaskType.PHONE_CONTROL
+        }
         if (recent.any { msg ->
                 msg.senderRoleId == "phone_operator" ||
                     msg.logLines.any { it.skillId in PHONE_CONTROL_SKILLS || it.text.contains("VLM_PHONE_CONTROL") } ||
@@ -3106,6 +3119,16 @@ $foundationalMemory
         }
         return null
     }
+
+    private fun isPhoneContinuationContext(messages: List<ChatMessage>): Boolean =
+        messages.any { msg ->
+            msg.senderRoleId == "phone_operator" ||
+                msg.logLines.any { it.skillId in PHONE_CONTROL_SKILLS || it.text.contains("VLM_PHONE_CONTROL") } ||
+                msg.text.contains("手机操控") ||
+                msg.text.contains("美团") ||
+                msg.text.contains("筛选") ||
+                msg.text.contains("附近")
+        }
 
     private data class ContextualTaskIntent(
         val classificationGoal: String,
@@ -3502,14 +3525,18 @@ $foundationalMemory
             "它", "这个", "这页", "这个页面", "这个ui", "这个应用", "这个app", "这个文件", "这个文档",
             "刚才", "上面", "上一版", "前面", "继续", "接着", "然后", "改下", "改一下", "修改",
             "调整", "优化", "美化", "完善", "更新", "换成", "改成", "别这样", "不是这样", "不对",
-            "重做", "再来", "继续做", "接着做", "沿用", "基于",
+            "重做", "再来", "继续做", "接着做", "沿用", "基于", "好", "可以", "行", "就这样", "就这个",
+            "按这个", "照这个", "没问题", "嗯", "嗯嗯", "ok", "okay",
             "it", "this", "that", "previous", "continue", "change it", "update it", "optimize", "not this",
         )
     }
 
     private fun isGenericContinueOnly(text: String): Boolean {
         val normalized = text.trim().lowercase()
-        return normalized in setOf("继续", "继续啊", "接着", "接着啊", "继续做", "继续执行", "continue", "go on")
+        return normalized in setOf(
+            "继续", "继续啊", "接着", "接着啊", "继续做", "继续执行", "好", "可以", "行",
+            "就这样", "就这个", "按这个", "照这个", "ok", "okay", "continue", "go on",
+        )
     }
 
     private fun recentEffectiveUserMessageBeforeCurrent(): String? =
