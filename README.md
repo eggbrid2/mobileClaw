@@ -36,6 +36,16 @@ Captured from a Xiaomi device running the debug build. These are real agent runs
   <img src="docs/media/mobileclaw_fun_gallery.jpg" alt="MobileClaw real capabilities on device" width="820" />
 </p>
 
+## Community
+
+Join the WeChat group to discuss MobileClaw usage, Android agent development, local models, skills, ROM compatibility, and real-device bugs.
+
+<p align="center">
+  <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="260" />
+</p>
+
+This WeChat group QR code is valid until **May 28, 2026**. If it expires, open the latest README or ask for an updated invite.
+
 ## Why This Exists
 
 Most mobile AI apps are chat surfaces. MobileClaw is closer to a small operating layer for agents.
