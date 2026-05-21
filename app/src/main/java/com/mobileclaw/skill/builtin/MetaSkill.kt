@@ -10,6 +10,8 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
+import com.mobileclaw.skill.SkillToolTaxonomy
 
 /**
  * Meta-Skill: allows the Agent to generate and persist new Skills at runtime.
@@ -34,6 +36,7 @@ class MetaSkill(
             SkillParam("description", "string", "English description (shown to LLM)"),
             SkillParam("description_zh", "string", "Chinese description (中文描述)", required = false),
             SkillParam("tags", "string", "Comma-separated category tags, e.g. '网络,工具' (optional)", required = false),
+            SkillParam("categories", "string", "Comma-separated channel categories: CHAT,MEMORY,SKILL,SELF_EVOLUTION,ARTIFACT,PHONE,WEB,MEDIA,VPN,CODE,SYSTEM. Optional; inferred when omitted.", required = false),
             SkillParam("type", "string", "'http' or 'python'"),
             SkillParam("script", "string", "Python script (required for type=python)", required = false),
             SkillParam("http_url", "string", "HTTP endpoint URL (required for type=http)", required = false),
@@ -44,6 +47,7 @@ class MetaSkill(
         injectionLevel = 1,
         nameZh = "创建技能",
         descriptionZh = "创建新的 JSON 格式 AI 技能。",
+        categories = listOf(SkillToolCategory.SKILL, SkillToolCategory.SELF_EVOLUTION),
         tags = listOf("技能"),
     )
 
@@ -77,7 +81,7 @@ class MetaSkill(
             ?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
             ?: emptyList()
 
-        val skillMeta = SkillMeta(
+        val baseMeta = SkillMeta(
             id = id,
             name = name,
             description = description,
@@ -88,6 +92,10 @@ class MetaSkill(
             nameZh = nameZh,
             descriptionZh = descriptionZh,
             tags = tags,
+        )
+        val explicitCategories = parseCategories(params["categories"] as? String)
+        val skillMeta = baseMeta.copy(
+            categories = explicitCategories.ifEmpty { SkillToolTaxonomy.categoriesFor(baseMeta).toList() },
         )
 
         val def = when (type) {
@@ -118,4 +126,22 @@ class MetaSkill(
             SkillResult(success = false, output = "Failed to save skill: ${it.message}")
         }
     }
+
+    private fun parseCategories(raw: String?): List<SkillToolCategory> =
+        raw.orEmpty()
+            .split(",", "，", "|", "/", " ")
+            .map { it.trim().uppercase() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { value ->
+                val normalized = when (value) {
+                    "SELF", "EVOLUTION", "SELF_EVOLUTION", "SELF-EVOLUTION" -> "SELF_EVOLUTION"
+                    "FILE", "FILES", "DOCUMENT", "DOCUMENTS", "APP", "PAGE", "PAGES" -> "ARTIFACT"
+                    "IMAGE", "VIDEO", "ICON", "STICKER" -> "MEDIA"
+                    "PHONE_CONTROL", "VLM" -> "PHONE"
+                    "TOOLS", "TOOL" -> "SKILL"
+                    else -> value
+                }
+                runCatching { SkillToolCategory.valueOf(normalized) }.getOrNull()
+            }
+            .distinct()
 }

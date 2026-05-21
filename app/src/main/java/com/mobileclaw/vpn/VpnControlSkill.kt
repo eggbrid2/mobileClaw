@@ -4,6 +4,7 @@ import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.skill.SkillType
 
 class VpnControlSkill(
@@ -26,6 +27,7 @@ class VpnControlSkill(
         nameZh = "VPN 控制",
         descriptionZh = "开启、关闭或检查全局 VPN。需要用户先在 VPN 页面授权一次系统 VPN 权限。",
         tags = listOf("系统"),
+        categories = listOf(SkillToolCategory.VPN, SkillToolCategory.SYSTEM),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {

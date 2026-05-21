@@ -39,11 +39,14 @@ class AgentRuntime(
         taskType: TaskType = TaskType.GENERAL,
         priorContext: String = "",
         episodicContext: String = "",
+        executionContext: String = "",
         language: String = "auto",
         imageBase64: String? = null,
         role: Role? = null,
         userProfileContext: String = "",
+        allowedToolIds: List<String> = emptyList(),
         preferFastLocalVision: Boolean = false,
+        preferFastPlan: Boolean = false,
         onToken: ((String) -> Unit)? = null,
         onThinkToken: ((String) -> Unit)? = null,
     ): AgentResult {
@@ -64,7 +67,22 @@ class AgentRuntime(
         val injectedSkills = if (preferFastLocalVision && taskType in setOf(TaskType.CHAT, TaskType.GENERAL)) {
             emptyList()
         } else {
-            TaskToolPolicy.select(registry, taskType, role?.forcedSkillIds.orEmpty(), foundationalMemoryContext)
+            TaskToolPolicy.select(
+                registry = registry,
+                taskType = taskType,
+                goal = goal,
+                forcedSkillIds = role?.forcedSkillIds.orEmpty(),
+                memoryContext = foundationalMemoryContext,
+            ).let { skills ->
+                val allowed = allowedToolIds.toSet()
+                val forced = role?.forcedSkillIds.orEmpty().toSet()
+                if (allowed.isEmpty()) {
+                    skills
+                } else {
+                    skills.filter { it.id in allowed || it.id in forced || !it.isBuiltin }
+                        .ifEmpty { skills }
+                }
+            }
         }
         val tools = injectedSkills.toToolDefinitions()
         val semanticContext = foundationalMemoryContext.ifBlank {
@@ -75,7 +93,7 @@ class AgentRuntime(
             .distinct()
             .joinToString("\n\n")
         val useFastPhoneLoop = taskType == TaskType.PHONE_CONTROL
-        val taskPlan = if (preferFastLocalVision || useFastPhoneLoop) {
+        val taskPlan = if (preferFastPlan || preferFastLocalVision || useFastPhoneLoop) {
             TaskPlanner.fallback(goal, taskType)
         } else {
             TaskPlanner.plan(
@@ -92,6 +110,7 @@ class AgentRuntime(
             priorContext = runtimePriorContext,
             episodicContext = episodicContext,
             semanticContext = semanticContext,
+            executionContext = executionContext,
             language = language,
             role = role,
             userProfileContext = userProfileContext,
@@ -415,20 +434,42 @@ This note is for your own next step, so be direct and operational.
         return DeterministicToolCall(
             skillId = "navigate",
             params = mapOf("action" to "launch", "package_name" to packageName, "foreground" to true),
-            finalAfterSuccess = true,
+            finalAfterSuccess = isLaunchOnlyPhoneGoal(goal),
         )
     }
 
     private fun extractRequestedAppName(goal: String): String? {
         val text = goal.lineSequence().firstOrNull().orEmpty().trim()
         val match = Regex("""(?:帮我)?(?:打开|启动|开启|进入)\s*([^，。,.!?！？\n]+)""").find(text) ?: return null
-        val appName = match.groupValues.getOrNull(1)
+        val rawName = match.groupValues.getOrNull(1)
+            ?: return null
+        val normalizedName = rawName
             ?.replace(Regex("""\s*(app|APP|应用|软件)$"""), "")
             ?.trim()
             .orEmpty()
+        val appName = normalizedName.substringBeforeAny(
+            "然后", "并且", "并", "之后", "以后", "后",
+            "搜索", "查找", "点击", "点", "选择", "输入", "下单", "购买", "发", "看",
+        ).trim()
         if (appName.isBlank()) return null
         if (appName.contains("网页") || appName.contains("链接") || appName.contains("文件")) return null
         return appName.take(40)
+    }
+
+    private fun isLaunchOnlyPhoneGoal(goal: String): Boolean {
+        val text = goal.lineSequence().firstOrNull().orEmpty().trim()
+        val afterLaunchVerb = Regex("""(?:帮我)?(?:打开|启动|开启|进入)\s*([^，。,.!?！？\n]+)""")
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            .orEmpty()
+        if (afterLaunchVerb.isBlank()) return false
+        val continuationSignals = listOf(
+            "然后", "并且", "并", "之后", "以后", "后",
+            "搜索", "查找", "点击", "点", "选择", "输入", "下单", "购买", "发", "看",
+            "帮我", "操作", "滑动", "进入", "筛选",
+        )
+        return continuationSignals.none { afterLaunchVerb.contains(it) }
     }
 
     private fun resolvePackageNameFromListApps(appList: String, requestedApp: String): String? {
@@ -456,6 +497,14 @@ This note is for your own next step, so be direct and operational.
             .removeSuffix("app")
             .removeSuffix("应用")
             .removeSuffix("软件")
+
+    private fun String.substringBeforeAny(vararg delimiters: String): String {
+        val firstIndex = delimiters
+            .mapNotNull { delimiter -> indexOf(delimiter).takeIf { it >= 0 } }
+            .minOrNull()
+            ?: return this
+        return substring(0, firstIndex)
+    }
 
     private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
         if (skillId !in perceptionSkillIds) return null

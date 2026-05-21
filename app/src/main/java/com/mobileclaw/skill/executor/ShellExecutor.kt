@@ -5,6 +5,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
 import com.mobileclaw.skill.SkillParam
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -50,6 +51,7 @@ class ShellSkill(private val executor: ShellExecutor = ShellExecutor()) : Skill 
         injectionLevel = 1,
         nameZh = "Shell 命令",
         descriptionZh = "执行任意 Shell 命令，支持管道和重定向。注意：没有系统 Python/pip，Python 需通过 python skill 或 Claw.pip() 使用，超时 30 秒。",
+        categories = listOf(SkillToolCategory.CODE),
         tags = listOf("系统"),
     )
 

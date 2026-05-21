@@ -7,6 +7,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.util.UUID
 
@@ -68,6 +69,7 @@ class AppManagerSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.ARTIFACT, SkillToolCategory.SKILL),
         tags = listOf("应用"),
     )
 

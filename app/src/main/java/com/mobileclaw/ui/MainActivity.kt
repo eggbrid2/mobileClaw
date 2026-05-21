@@ -1,10 +1,12 @@
 package com.mobileclaw.ui
 
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -50,31 +52,44 @@ import com.mobileclaw.str
 
 class MainActivity : ComponentActivity() {
 
-    private var resumeTick by mutableIntStateOf(0)
-
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* onResume fires after dialog closes and will re-check */ }
+    ) { }
+    private var debugPageRequest by mutableStateOf<String?>(null)
+    private var debugGoalRequest by mutableStateOf<String?>(null)
 
     override fun attachBaseContext(newBase: Context) {
         val language = ClawApplication.instance.agentConfig.language
         super.attachBaseContext(wrapLocale(newBase, language))
     }
 
-    override fun onResume() {
-        super.onResume()
-        resumeTick++
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        readDebugIntent(intent)
 
         val permissionManager = ClawApplication.instance.permissionManager
 
         setContent {
             val vm: MainViewModel = viewModel()
             val uiState by vm.uiState.collectAsState()
+
+            LaunchedEffect(debugPageRequest) {
+                debugPageRequest?.let { pageName ->
+                    runCatching { AppPage.valueOf(pageName.uppercase(Locale.ROOT)) }
+                        .getOrNull()
+                        ?.let { vm.navigate(it) }
+                    debugPageRequest = null
+                }
+            }
+
+            LaunchedEffect(debugGoalRequest) {
+                debugGoalRequest?.let { goal ->
+                    vm.navigate(AppPage.CHAT)
+                    vm.runTask(goal)
+                    debugGoalRequest = null
+                }
+            }
 
             val initialConfig = remember { ClawApplication.instance.agentConfig.snapshot() }
             val configSnapshot by uiState.config.collectAsState(initial = initialConfig)
@@ -644,12 +659,14 @@ class MainActivity : ComponentActivity() {
                                         group = group,
                                         messages = uiState.groupMessages,
                                         availableRoles = uiState.availableRoles,
+                                        userAvatarUri = uiState.userAvatarUri,
                                         isRunning = uiState.groupRunning,
                                         typingAgentIds = uiState.groupTypingAgents,
                                         workingAgentIds = uiState.groupWorkingAgents,
                                         historyHasMore = uiState.groupHistoryHasMore,
                                         historyLoading = uiState.groupHistoryLoading,
                                         onLoadMoreHistory = { vm.loadOlderGroupMessages() },
+                                        onUpdateGroupMembers = { vm.updateGroupMembers(group.id, it) },
                                         onSend = { text, attachments -> vm.sendGroupMessage(text, attachments) },
                                         onStop = { vm.stopGroupChat() },
                                         onBack = { vm.closeGroupChat() },
@@ -728,7 +745,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readDebugIntent(intent)
+    }
+
+    private fun readDebugIntent(intent: Intent?) {
+        debugPageRequest = intent?.getStringExtra(DEBUG_PAGE_EXTRA)?.trim()?.takeIf { it.isNotBlank() }
+        debugGoalRequest = intent?.getStringExtra(DEBUG_GOAL_B64_EXTRA)
+            ?.let { encoded ->
+                runCatching {
+                    String(Base64.decode(encoded, Base64.NO_WRAP), Charsets.UTF_8)
+                }.getOrNull()
+            }
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: intent?.getStringExtra(DEBUG_GOAL_EXTRA)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
     companion object {
+        private const val DEBUG_PAGE_EXTRA = "mobileclaw.debug.page"
+        private const val DEBUG_GOAL_EXTRA = "mobileclaw.debug.goal"
+        private const val DEBUG_GOAL_B64_EXTRA = "mobileclaw.debug.goal.b64"
+
         fun wrapLocale(context: Context, language: String): Context {
             if (language == "auto" || language.isBlank()) return context
             val locale = Locale.forLanguageTag(language)

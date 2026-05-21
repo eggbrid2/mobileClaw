@@ -16,6 +16,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
 import java.util.UUID
 
@@ -88,6 +89,7 @@ class RoleManagerSkill(
         injectionLevel = 1,
         nameZh = "角色管理",
         descriptionZh = "创建、更新和删除 AI 角色。",
+        categories = listOf(SkillToolCategory.SELF_EVOLUTION),
         tags = listOf("角色"),
     )
 
@@ -437,7 +439,7 @@ class RoleManagerSkill(
             preset = enum(style.preset, BUBBLE_PRESETS, "minimal"),
             renderer = enum(style.renderer, setOf("native", "html"), "native"),
             htmlTemplate = if (style.renderer.lowercase().trim() == "html") style.htmlTemplate.take(MAX_HTML_TEMPLATE_LENGTH) else "",
-            htmlHeightDp = style.htmlHeightDp.coerceIn(80, 420),
+            htmlHeightDp = style.htmlHeightDp.coerceIn(80, 1800),
             htmlAllowJs = style.htmlAllowJs,
             htmlAllowNetwork = style.htmlAllowNetwork,
             htmlTransparent = style.htmlTransparent,

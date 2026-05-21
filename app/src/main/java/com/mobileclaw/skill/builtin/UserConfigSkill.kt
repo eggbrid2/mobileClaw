@@ -8,6 +8,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -32,6 +33,7 @@ class UserConfigSkill(
         injectionLevel = 1,
         nameZh = "用户配置",
         descriptionZh = "读写用户配置项（键值对）。",
+        categories = listOf(SkillToolCategory.MEMORY),
         tags = listOf("用户"),
     )
 

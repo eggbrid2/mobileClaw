@@ -17,6 +17,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -69,6 +70,8 @@ class OverlayState {
     var lastObservation by mutableStateOf("")
     var isError         by mutableStateOf(false)
     var compact         by mutableStateOf(false)
+    var completed       by mutableStateOf(false)
+    var completionSummary by mutableStateOf("")
 }
 
 // ── Manager ───────────────────────────────────────────────────────────────────
@@ -107,11 +110,20 @@ class AgentOverlayManager(private val context: Context) {
             state.task = task; state.stepCount = 0; state.currentSkill = ""
             state.streamingThought = ""; state.lastObservation = ""; state.isError = false
             state.compact = compact
+            state.completed = false; state.completionSummary = ""
+            val frame = hostFrame
+            val params = hostParams
+            if (compact && frame != null && params != null) {
+                frame.post { snapCompactToNearestEdge(frame, params) }
+            } else if (!compact && frame != null && params != null) {
+                frame.post { keepWindowInsideVisibleArea(frame, params) }
+            }
             return
         }
         state.task = task; state.stepCount = 0; state.currentSkill = ""
         state.streamingThought = ""; state.isError = false
         state.compact = compact
+        state.completed = false; state.completionSummary = ""
 
         val params = buildLayoutParams().also { hostParams = it }
         val owner  = OverlayLifecycleOwner().also { it.start(); lifecycleOwner = it }
@@ -122,14 +134,29 @@ class AgentOverlayManager(private val context: Context) {
                 ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
             )
             setContent {
-                CapsuleOverlay(
-                    state  = state,
-                    onDrag = { dx, dy ->
+                    CapsuleOverlay(
+                        state  = state,
+                        onReturnToApp = { openMobileClaw() },
+                        onMinimize = {
+                            state.compact = true
+                            frame.post { snapCompactToNearestEdge(frame, params) }
+                        },
+                        onClose = { hide() },
+                        onExpand = {
+                            state.compact = false
+                            frame.post { keepWindowInsideVisibleArea(frame, params) }
+                        },
+                        onDragEnd = {
+                            if (state.compact) snapCompactToNearestEdge(frame, params)
+                        },
+                        onDrag = { dx, dy ->
                         // Gravity.TOP | Gravity.CENTER_HORIZONTAL: x unused, y = top offset
-                        params.y = (params.y + dy.toInt()).coerceAtLeast(0)
                         // Allow horizontal drift by switching to absolute gravity
                         params.gravity = Gravity.TOP or Gravity.START
-                        params.x = (params.x + dx.toInt()).coerceIn(0, 2400)
+                        val bounds = screenBounds()
+                        val bubbleSize = compactBubbleSizePx()
+                        params.x = (params.x + dx.toInt()).coerceIn(-bubbleSize, bounds.first)
+                        params.y = (params.y + dy.toInt()).coerceIn(0, bounds.second - bubbleSize)
                         runCatching { wm.updateViewLayout(frame, params) }
                     },
                 )
@@ -142,7 +169,10 @@ class AgentOverlayManager(private val context: Context) {
         frame.addView(cv)
 
         runCatching { wm.addView(frame, params) }
-        hostFrame = frame
+            .onSuccess {
+                hostFrame = frame
+                if (compact) frame.post { snapCompactToNearestEdge(frame, params) }
+            }
     }
 
     fun onSkillCalling(skillId: String, params: Map<String, Any>) {
@@ -163,6 +193,27 @@ class AgentOverlayManager(private val context: Context) {
 
     fun onError(message: String) { runOnMain { state.isError = true; state.lastObservation = message.take(100) } }
 
+    fun showCompleted(summary: String) {
+        runOnMain {
+            if (hostFrame == null) {
+                showInternal("任务已完成", compact = false)
+            }
+            state.completed = true
+            state.compact = false
+            state.task = "任务已完成"
+            state.currentSkill = ""
+            state.streamingThought = ""
+            state.lastObservation = ""
+            state.isError = false
+            state.completionSummary = summary.take(180)
+            val frame = hostFrame
+            val params = hostParams
+            if (frame != null && params != null) {
+                frame.post { keepWindowInsideVisibleArea(frame, params) }
+            }
+        }
+    }
+
     fun hide() {
         runOnMain {
             runCatching { hostFrame?.let { wm.removeView(it) } }
@@ -172,9 +223,69 @@ class AgentOverlayManager(private val context: Context) {
         }
     }
 
+    fun hideCompleted() {
+        runOnMain {
+            if (state.completed) hide()
+        }
+    }
+
     private fun runOnMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post(block)
     }
+
+    private fun openMobileClaw() {
+        runCatching {
+            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: android.content.Intent(context, MainActivity::class.java)
+            intent.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+            context.startActivity(intent)
+        }
+    }
+
+    private fun snapCompactToNearestEdge(frame: FrameLayout, params: WindowManager.LayoutParams) {
+        val (screenWidth, screenHeight) = screenBounds()
+        val bubbleSizePx = compactBubbleSizePx()
+        val leftX = -(bubbleSizePx / 2)
+        val rightX = screenWidth - (bubbleSizePx / 2)
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = if (params.x + bubbleSizePx / 2 < screenWidth / 2) leftX else rightX
+        params.y = params.y.coerceIn(0, screenHeight - bubbleSizePx)
+        runCatching { wm.updateViewLayout(frame, params) }
+    }
+
+    private fun keepWindowInsideVisibleArea(frame: FrameLayout, params: WindowManager.LayoutParams) {
+        val (screenWidth, screenHeight) = screenBounds()
+        val width = frame.width.takeIf { it > 0 } ?: (320f * context.resources.displayMetrics.density).toInt()
+        val height = frame.height.takeIf { it > 0 } ?: (120f * context.resources.displayMetrics.density).toInt()
+        val wasCentered = params.gravity and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.CENTER_HORIZONTAL
+        val desiredX = if (wasCentered && params.x == 0) {
+            ((screenWidth - width) / 2).coerceAtLeast(12)
+        } else {
+            params.x
+        }
+        params.gravity = Gravity.TOP or Gravity.START
+        params.x = desiredX.coerceIn(12, (screenWidth - width - 12).coerceAtLeast(12))
+        params.y = params.y.coerceIn(12, (screenHeight - height - 12).coerceAtLeast(12))
+        runCatching { wm.updateViewLayout(frame, params) }
+    }
+
+    private fun screenBounds(): Pair<Int, Int> = runCatching {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            bounds.width() to bounds.height()
+        } else {
+            @Suppress("DEPRECATION")
+            android.graphics.Point().also { wm.defaultDisplay.getSize(it) }.let { it.x to it.y }
+        }
+    }.getOrDefault(context.resources.displayMetrics.widthPixels to context.resources.displayMetrics.heightPixels)
+
+    private fun compactBubbleSizePx(): Int =
+        (52f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
@@ -224,6 +335,11 @@ class AgentOverlayManager(private val context: Context) {
 @Composable
 private fun CapsuleOverlay(
     state: OverlayState,
+    onReturnToApp: () -> Unit,
+    onMinimize: () -> Unit,
+    onClose: () -> Unit,
+    onExpand: () -> Unit,
+    onDragEnd: () -> Unit,
     onDrag: (Float, Float) -> Unit,
 ) {
     // Status dot color
@@ -256,8 +372,12 @@ private fun CapsuleOverlay(
         Box(
             modifier = Modifier
                 .pointerInput(Unit) {
-                    detectDragGestures { _, dragAmount -> onDrag(dragAmount.x, dragAmount.y) }
+                    detectDragGestures(
+                        onDragEnd = onDragEnd,
+                        onDragCancel = onDragEnd,
+                    ) { _, dragAmount -> onDrag(dragAmount.x, dragAmount.y) }
                 }
+                .clickable(enabled = state.completed) { onExpand() }
                 .size(52.dp)
                 .clip(CircleShape)
                 .background(
@@ -278,6 +398,17 @@ private fun CapsuleOverlay(
             )
             ClawSymbolIcon("profile", tint = CapsuleText, modifier = Modifier.size(23.dp))
         }
+        return
+    }
+
+    if (state.completed) {
+        CompletionOverlayCard(
+            summary = state.completionSummary,
+            onDrag = onDrag,
+            onReturnToApp = onReturnToApp,
+            onMinimize = onMinimize,
+            onClose = onClose,
+        )
         return
     }
 
@@ -375,5 +506,72 @@ private fun CapsuleOverlay(
                 fontStyle  = if (state.streamingThought.isNotBlank()) FontStyle.Italic else FontStyle.Normal,
             )
         }
+    }
+}
+
+@Composable
+private fun CompletionOverlayCard(
+    summary: String,
+    onDrag: (Float, Float) -> Unit,
+    onReturnToApp: () -> Unit,
+    onMinimize: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .pointerInput(Unit) {
+                detectDragGestures { _, dragAmount -> onDrag(dragAmount.x, dragAmount.y) }
+            }
+            .widthIn(min = 250.dp, max = 320.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xF0050505))
+            .border(0.8.dp, Color(0x44FFFFFF), RoundedCornerShape(24.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(DotGreen))
+            Text("执行完成", color = CapsuleText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(
+            text = summary.ifBlank { "内容已经执行完毕，可以回到 MobileClaw 查看结果。" },
+            color = CapsuleText.copy(alpha = 0.76f),
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OverlayActionButton("回到APP", primary = true, modifier = Modifier.weight(1.18f), onClick = onReturnToApp)
+            OverlayActionButton("缩小", primary = false, modifier = Modifier.weight(0.82f), onClick = onMinimize)
+            OverlayActionButton("关闭", primary = false, modifier = Modifier.weight(0.82f), onClick = onClose)
+        }
+    }
+}
+
+@Composable
+private fun OverlayActionButton(
+    label: String,
+    primary: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (primary) CapsuleText else Color.Transparent)
+            .border(0.7.dp, if (primary) CapsuleText else CapsuleBorder, RoundedCornerShape(999.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (primary) Color(0xFF050505) else CapsuleText,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

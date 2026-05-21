@@ -16,6 +16,7 @@ data class SkillMeta(
     val nameZh: String? = null,
     val descriptionZh: String? = null,
     val tags: List<String> = emptyList(),
+    val categories: List<SkillToolCategory> = emptyList(),
 )
 
 data class SkillParam(

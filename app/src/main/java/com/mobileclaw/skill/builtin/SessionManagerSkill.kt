@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
@@ -40,6 +41,7 @@ class SessionManagerSkill(
         injectionLevel = 1,
         nameZh = "会话管理",
         descriptionZh = "创建、切换和删除对话会话。",
+        categories = listOf(SkillToolCategory.MEMORY, SkillToolCategory.CHAT),
         tags = listOf("会话"),
     )
 

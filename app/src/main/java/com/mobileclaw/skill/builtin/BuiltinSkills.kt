@@ -8,6 +8,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlin.math.hypot
 
 /** Returns an AccessibilityRequest failure result when the accessibility service is not running. */
@@ -112,6 +113,7 @@ class ScreenshotSkill : Skill {
         injectionLevel = 0,
         nameZh = "截图",
         descriptionZh = "屏幕感知兜底工具。XML/无障碍节点不可用，或视觉标注不可用时截图供分析。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -135,6 +137,7 @@ class ReadScreenSkill : Skill {
         injectionLevel = 2,
         nameZh = "读取屏幕（XML）",
         descriptionZh = "以 XML 格式读取屏幕 UI 结构（无障碍旧版）。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -168,6 +171,7 @@ class SeeScreenSkill : Skill {
         injectionLevel = 0,
         nameZh = "看屏幕（视觉）",
         descriptionZh = "截图后由视觉模型描述屏幕内容。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -227,6 +231,7 @@ class TapSkill : Skill {
         injectionLevel = 0,
         nameZh = "点击",
         descriptionZh = "点击屏幕上的指定坐标或元素。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -284,6 +289,7 @@ class InputTextSkill : Skill {
         injectionLevel = 0,
         nameZh = "输入文字",
         descriptionZh = "在当前焦点输入框中输入文本。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -320,6 +326,7 @@ class NavigateSkill(
         injectionLevel = 0,
         nameZh = "导航",
         descriptionZh = "通过包名或 URL 跳转到指定页面或应用。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
@@ -375,6 +382,7 @@ class ScrollSkill : Skill {
         injectionLevel = 0,
         nameZh = "滚动 / 滑动",
         descriptionZh = "在屏幕上执行滚动或滑动操作。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
 
@@ -442,6 +450,7 @@ class LongClickSkill : Skill {
         injectionLevel = 0,
         nameZh = "长按",
         descriptionZh = "长按屏幕上的指定坐标。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
 
@@ -493,6 +502,7 @@ class PhoneStatusSkill : Skill {
         injectionLevel = 0,
         nameZh = "手机状态",
         descriptionZh = "返回当前前台 App 包名/Activity，以及最近一次截图坐标映射。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
 
@@ -511,6 +521,7 @@ class ListAppsSkill : Skill {
         injectionLevel = 1,
         nameZh = "查看已安装应用",
         descriptionZh = "列出设备上已安装的所有应用。",
+        categories = listOf(SkillToolCategory.PHONE, SkillToolCategory.SYSTEM),
         tags = listOf("控制"),
     )
 

@@ -91,6 +91,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -116,6 +117,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.mobileclaw.str
+import kotlin.math.ceil
 
 // ── Color palette assigned to agents by index in group ───────────────────────
 
@@ -152,12 +154,14 @@ fun GroupChatScreen(
     group: Group,
     messages: List<GroupMessage>,
     availableRoles: List<Role>,
+    userAvatarUri: String?,
     isRunning: Boolean,
     typingAgentIds: Set<String>,
     workingAgentIds: Set<String>,
     historyHasMore: Boolean,
     historyLoading: Boolean,
     onLoadMoreHistory: () -> Unit,
+    onUpdateGroupMembers: (List<String>) -> Unit,
     onSend: (String, List<SkillAttachment>) -> Unit,
     onStop: () -> Unit,
     onBack: () -> Unit,
@@ -174,6 +178,7 @@ fun GroupChatScreen(
     var showStickerSearch by remember { mutableStateOf(false) }
     var showPlusPanel by remember { mutableStateOf(false) }
     var showMemberDrawer by remember { mutableStateOf(false) }
+    var memberEditMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
@@ -250,7 +255,9 @@ fun GroupChatScreen(
         }
     }
 
-    BackHandler(enabled = showMemberDrawer) { showMemberDrawer = false }
+    BackHandler(enabled = showMemberDrawer) {
+        if (memberEditMode) memberEditMode = false else showMemberDrawer = false
+    }
     BackHandler(enabled = !showMemberDrawer) { onBack() }
 
     // Root Box: consumes all touches so nothing passes through to ChatScreen below
@@ -299,6 +306,8 @@ fun GroupChatScreen(
                 }
                 GroupMemberIconButton(
                     totalMembers = totalMembers,
+                    userAvatarUri = userAvatarUri,
+                    memberRoles = memberRoles,
                     c = c,
                     onClick = { showMemberDrawer = true },
                 )
@@ -367,6 +376,8 @@ fun GroupChatScreen(
                 GroupMessageBubble(
                     message = msg,
                     isUser = isUser,
+                    displaySenderName = if (isUser) msg.senderName else senderRole?.name ?: msg.senderName,
+                    displaySenderAvatar = if (isUser) userAvatarUri.orEmpty() else senderRole?.avatar ?: msg.senderAvatar,
                     accentColor = agentColor,
                     bubbleStyle = senderRole?.chatBubbleStyle,
                     memberRoles = memberRoles,
@@ -539,7 +550,10 @@ fun GroupChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .clickable { showMemberDrawer = false },
+                    .clickable {
+                        memberEditMode = false
+                        showMemberDrawer = false
+                    },
             )
         }
         androidx.compose.animation.AnimatedVisibility(
@@ -551,7 +565,7 @@ fun GroupChatScreen(
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(212.dp)
+                    .width(252.dp)
                     .background(c.surface)
                     .statusBarsPadding()
                     .navigationBarsPadding(),
@@ -565,14 +579,35 @@ fun GroupChatScreen(
                         color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = { showMemberDrawer = false }, modifier = Modifier.size(32.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (memberEditMode) c.text else c.cardAlt)
+                            .border(0.6.dp, if (memberEditMode) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+                            .clickable { memberEditMode = !memberEditMode }
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (memberEditMode) str(R.string.app_launcher_done) else str(R.string.dimension_edit),
+                            color = if (memberEditMode) c.bg else c.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                    IconButton(onClick = {
+                        memberEditMode = false
+                        showMemberDrawer = false
+                    }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(18.dp))
                     }
                 }
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
                 // User row
-                MemberDrawerRow(avatar = "user", name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
+                MemberDrawerRow(avatar = userAvatarUri.orEmpty(), name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
                 HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
 
                 // Agent rows
@@ -584,10 +619,53 @@ fun GroupChatScreen(
                         description = role.description.take(60),
                         isTyping = role.id in typingAgentIds,
                         isWorking = role.id in workingAgentIds,
+                        trailing = if (memberEditMode && memberRoles.size > 1) {
+                            {
+                                MemberEditPill(
+                                    label = str(R.string.sticker_unfavorite_action),
+                                    primary = false,
+                                    c = c,
+                                    onClick = { onUpdateGroupMembers(group.memberRoleIds.filterNot { it == role.id }) },
+                                )
+                            }
+                        } else null,
                         c = c,
                     )
                     if (i < memberRoles.lastIndex) {
                         HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    }
+                }
+                if (memberEditMode) {
+                    val addableRoles = availableRoles.filter { role -> role.id !in group.memberRoleIds }
+                    if (addableRoles.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            str(R.string.group_members_addable),
+                            color = c.subtext,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                        addableRoles.forEachIndexed { index, role ->
+                            MemberDrawerRow(
+                                avatar = role.avatar,
+                                name = role.name,
+                                color = c.subtext,
+                                description = role.description.take(48),
+                                trailing = {
+                                    MemberEditPill(
+                                        label = str(R.string.user_config_add),
+                                        primary = true,
+                                        c = c,
+                                        onClick = { onUpdateGroupMembers(group.memberRoleIds + role.id) },
+                                    )
+                                },
+                                c = c,
+                            )
+                            if (index < addableRoles.lastIndex) {
+                                HorizontalDivider(color = c.border.copy(alpha = 0.32f), thickness = 0.5.dp)
+                            }
+                        }
                     }
                 }
             }
@@ -598,35 +676,43 @@ fun GroupChatScreen(
 @Composable
 private fun GroupMemberIconButton(
     totalMembers: Int,
+    userAvatarUri: String?,
+    memberRoles: List<Role>,
     c: ClawColors,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .size(width = 48.dp, height = 32.dp)
+            .size(width = 58.dp, height = 34.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(c.bg)
             .border(1.dp, c.border, RoundedCornerShape(999.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.Default.Group,
-            contentDescription = str(R.string.group_field_members),
-            tint = c.text,
-            modifier = Modifier.size(18.dp),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy((-7).dp),
+        ) {
+            GradientAvatar(avatar = userAvatarUri.orEmpty(), size = 22.dp, color = c.green)
+            memberRoles.take(2).forEachIndexed { index, role ->
+                GradientAvatar(avatar = role.avatar, size = 22.dp, color = agentColor(index))
+            }
+            if (memberRoles.isEmpty()) {
+                ClawSymbolIcon("group", tint = c.text, modifier = Modifier.size(18.dp))
+            }
+        }
         if (totalMembers > 3) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(x = (-3).dp, y = (-3).dp)
-                    .size(10.dp)
+                    .offset(x = (-2).dp, y = (-2).dp)
+                    .size(14.dp)
                     .clip(CircleShape)
                     .background(c.text),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("+", color = c.bg, fontSize = 8.sp, lineHeight = 8.sp, fontWeight = FontWeight.Bold)
+                Text("+${(totalMembers - 3).coerceAtLeast(1)}", color = c.bg, fontSize = 7.sp, lineHeight = 8.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -640,6 +726,7 @@ private fun MemberDrawerRow(
     description: String,
     isTyping: Boolean = false,
     isWorking: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
     c: ClawColors,
 ) {
     Row(
@@ -659,6 +746,34 @@ private fun MemberDrawerRow(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, lineHeight = 14.sp)
             }
         }
+        trailing?.invoke()
+    }
+}
+
+@Composable
+private fun MemberEditPill(
+    label: String,
+    primary: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .height(28.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (primary) c.text else c.cardAlt)
+            .border(0.6.dp, if (primary) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (primary) c.bg else c.subtext,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
 
@@ -668,6 +783,8 @@ private fun MemberDrawerRow(
 private fun GroupMessageBubble(
     message: GroupMessage,
     isUser: Boolean,
+    displaySenderName: String,
+    displaySenderAvatar: String,
     accentColor: Color,
     bubbleStyle: ChatBubbleStyle?,
     memberRoles: List<Role>,
@@ -735,7 +852,7 @@ private fun GroupMessageBubble(
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         if (!isUser) {
-            GradientAvatar(avatar = message.senderAvatar, size = 30.dp, color = accentColor)
+            GradientAvatar(avatar = displaySenderAvatar, size = 30.dp, color = accentColor)
             Spacer(Modifier.size(6.dp))
         }
 
@@ -749,7 +866,7 @@ private fun GroupMessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    message.senderName,
+                    displaySenderName,
                     color = visual.accentColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -773,6 +890,7 @@ private fun GroupMessageBubble(
             } else if (useHtmlBubble) {
                 GroupHtmlMessageBubble(
                     message = message,
+                    displaySenderName = displaySenderName,
                     htmlTemplate = bubbleStyle?.htmlTemplate.orEmpty(),
                     visual = visual,
                     pulse = pulse,
@@ -1114,16 +1232,58 @@ private fun textAnimationModifier(
 @Composable
 private fun GroupHtmlMessageBubble(
     message: GroupMessage,
+    displaySenderName: String,
     htmlTemplate: String,
     visual: GroupBubbleVisual,
     pulse: Float,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
+    val minHeightDp = visual.htmlHeightDp.coerceIn(80, GroupHtmlBubbleMaxHeightDp)
+    val maxHeightDp = GroupHtmlBubbleMaxHeightDp
+    var measuredHeightDp by remember(htmlTemplate, message.text, minHeightDp) { mutableStateOf(minHeightDp) }
+    fun WebView.measureHtmlBubbleHeight() {
+        evaluateJavascript(
+            """
+            (function(){
+              var body=document.body, html=document.documentElement;
+              var root=document.querySelector('.mc-html-root');
+              var maxBottom=0, minTop=0, maxScrollBottom=0;
+              var nodes=document.body ? document.body.querySelectorAll('*') : [];
+              for (var i=0;i<nodes.length;i++) {
+                var r=nodes[i].getBoundingClientRect();
+                if (!r || (!r.width && !r.height)) continue;
+                minTop=Math.min(minTop, r.top);
+                maxBottom=Math.max(maxBottom, r.bottom);
+                maxScrollBottom=Math.max(maxScrollBottom, r.top + (nodes[i].scrollHeight || 0));
+              }
+              function h(el){
+                if(!el) return 0;
+                var r=el.getBoundingClientRect ? el.getBoundingClientRect() : {height:0,bottom:0,top:0};
+                return Math.max(el.scrollHeight||0, el.offsetHeight||0, el.clientHeight||0, r.height||0, r.bottom-r.top||0);
+              }
+              return Math.max(
+                h(root),
+                h(body),
+                h(html),
+                maxBottom - minTop,
+                maxScrollBottom - minTop
+              );
+            })();
+            """.trimIndent()
+        ) { raw ->
+            val cssPx = raw?.trim('"')?.toFloatOrNull() ?: return@evaluateJavascript
+            val nativeDp = with(density) { ceil((contentHeight * scale).toDp().value).toInt() }
+            val cssDp = ceil(cssPx).toInt()
+            val nextDp = maxOf(cssDp, nativeDp) + 14
+            measuredHeightDp = nextDp.coerceIn(minHeightDp, maxHeightDp)
+        }
+    }
     val html = remember(htmlTemplate, message.text, visual.textColor, visual.accentColor) {
         buildGroupBubbleHtml(
             template = htmlTemplate,
             messageText = message.text,
-            senderName = message.senderName,
+            senderName = displaySenderName,
             textColor = visual.textColor,
             accentColor = visual.accentColor,
         )
@@ -1141,9 +1301,13 @@ private fun GroupHtmlMessageBubble(
                 WebView(context).apply {
                     setBackgroundColor(if (visual.htmlTransparent) android.graphics.Color.TRANSPARENT else android.graphics.Color.WHITE)
                     isHorizontalScrollBarEnabled = false
-                    isVerticalScrollBarEnabled = true
-                    overScrollMode = WebView.OVER_SCROLL_IF_CONTENT_SCROLLS
+                    isVerticalScrollBarEnabled = false
+                    overScrollMode = WebView.OVER_SCROLL_NEVER
                     webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            view?.post { view.measureHtmlBubbleHeight() }
+                        }
+
                         @Deprecated("Deprecated in Java")
                         override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean = !visual.htmlAllowNetwork
                     }
@@ -1154,6 +1318,7 @@ private fun GroupHtmlMessageBubble(
                     settings.loadsImagesAutomatically = visual.htmlAllowNetwork
                     settings.blockNetworkImage = !visual.htmlAllowNetwork
                     settings.defaultTextEncodingName = "utf-8"
+                    settings.textZoom = 100
                 }
             },
             update = { webView ->
@@ -1164,14 +1329,20 @@ private fun GroupHtmlMessageBubble(
                     "utf-8",
                     null,
                 )
+                webView.postDelayed({ webView.measureHtmlBubbleHeight() }, 80)
+                webView.postDelayed({ webView.measureHtmlBubbleHeight() }, 260)
+                webView.postDelayed({ webView.measureHtmlBubbleHeight() }, 700)
+                webView.postDelayed({ webView.measureHtmlBubbleHeight() }, 1400)
             },
             modifier = Modifier
                 .padding(visual.glowPaddingDp.dp)
-                .height(visual.htmlHeightDp.dp)
+                .height(measuredHeightDp.dp)
                 .clip(visual.shape),
         )
     }
 }
+
+private const val GroupHtmlBubbleMaxHeightDp = 1800
 
 private fun buildGroupBubbleHtml(
     template: String,
@@ -1182,7 +1353,8 @@ private fun buildGroupBubbleHtml(
 ): String {
     val safeMessage = htmlEscape(messageText).replace("\n", "<br>")
     val safeSender = htmlEscape(senderName)
-    val body = template
+    val normalizedTemplate = normalizeGroupBubbleHtmlTemplate(template)
+    val body = normalizedTemplate
         .replace("{{message}}", safeMessage)
         .replace("{{text}}", safeMessage)
         .replace("{{sender}}", safeSender)
@@ -1194,15 +1366,44 @@ private fun buildGroupBubbleHtml(
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
-html,body{margin:0;padding:0;background:transparent;color:${textColor.toCssHex()};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
-*{box-sizing:border-box;max-width:100%;word-break:break-word;}
+html,body{margin:0!important;padding:0!important;background:transparent!important;color:${textColor.toCssHex()};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:visible!important;height:auto!important;min-height:0!important;}
+body{display:block!important;width:100%!important;min-height:max-content!important;}
+*{box-sizing:border-box;max-width:100%;overflow-wrap:anywhere;word-break:break-word;}
+.mc-html-root{display:block!important;position:relative!important;width:100%!important;height:auto!important;min-height:max-content!important;max-height:none!important;overflow:visible!important;padding:0!important;margin:0!important;}
+.mc-html-root>*{max-width:100%!important;max-height:none!important;overflow:visible!important;}
+.mc-html-root .mc-bubble,.mc-html-root [data-mc-bubble]{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;}
+.mc-html-root p,.mc-html-root div,.mc-html-root span{white-space:normal;overflow-wrap:anywhere;word-break:break-word;}
 .mc-bubble{padding:10px 12px;border-radius:18px;background:rgba(250,250,247,.96);border:1px solid rgba(0,0,0,.08);}
 @media (prefers-color-scheme: dark){.mc-bubble{background:rgba(20,20,20,.96);border-color:rgba(255,255,255,.14);}}
 </style>
 </head>
-<body>$body</body>
+<body><div class="mc-html-root">$body</div></body>
 </html>
 """.trimIndent()
+}
+
+private fun normalizeGroupBubbleHtmlTemplate(template: String): String {
+    val headStyle = Regex("<head[^>]*>(.*?)</head>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .find(template)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.let { head ->
+            Regex("<style[^>]*>(.*?)</style>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .findAll(head)
+                .joinToString("\n") { it.value }
+        }
+        .orEmpty()
+    val body = Regex("<body[^>]*>(.*?)</body>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .find(template)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: template
+    val stripped = body
+        .replace(Regex("<!doctype[^>]*>", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("</?html[^>]*>", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("</?head[^>]*>", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("</?body[^>]*>", RegexOption.IGNORE_CASE), "")
+    return (headStyle + "\n" + stripped).trim()
 }
 
 private fun htmlEscape(raw: String): String = raw
@@ -1397,7 +1598,7 @@ private fun resolveGroupBubbleVisual(
         },
         shadowOffsetXDp = (style?.shadowOffsetXDp ?: 0).coerceIn(-12, 12),
         shadowOffsetYDp = (style?.shadowOffsetYDp ?: 0).coerceIn(-12, 12),
-        htmlHeightDp = (style?.htmlHeightDp ?: 160).coerceIn(80, 420),
+        htmlHeightDp = (style?.htmlHeightDp ?: 160).coerceIn(80, GroupHtmlBubbleMaxHeightDp),
         htmlAllowJs = style?.htmlAllowJs ?: false,
         htmlAllowNetwork = style?.htmlAllowNetwork ?: true,
         htmlTransparent = style?.htmlTransparent ?: true,

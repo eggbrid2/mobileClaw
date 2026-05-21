@@ -23,6 +23,9 @@ class SkillRegistry {
 
     fun all(): List<Skill> = skills.values.toList()
 
+    fun allMetasWithTaxonomy(): List<SkillMeta> =
+        skills.values.map { skill -> skill.meta.withEffectiveTaxonomy(levelOverrides[skill.meta.id]) }
+
     fun setLevelOverride(skillId: String, level: Int) {
         levelOverrides[skillId] = level
     }
@@ -39,7 +42,7 @@ class SkillRegistry {
     /** Returns all SkillMeta with the effective injection level applied. */
     fun allWithEffectiveLevel(): List<SkillMeta> = skills.values.map { skill ->
         val override = levelOverrides[skill.meta.id]
-        if (override != null) skill.meta.copy(injectionLevel = override) else skill.meta
+        skill.meta.withEffectiveTaxonomy(override)
     }
 
     /** Returns skills eligible for injection at the given level and below (respects overrides). */
@@ -48,8 +51,15 @@ class SkillRegistry {
             .filter { (levelOverrides[it.meta.id] ?: it.meta.injectionLevel) <= maxLevel }
             .map { skill ->
                 val override = levelOverrides[skill.meta.id]
-                if (override != null) skill.meta.copy(injectionLevel = override) else skill.meta
+                skill.meta.withEffectiveTaxonomy(override)
             }
 
     fun contains(id: String) = skills.containsKey(id)
+
+    private fun SkillMeta.withEffectiveTaxonomy(levelOverride: Int?): SkillMeta =
+        copy(
+            injectionLevel = levelOverride ?: injectionLevel,
+            categories = categories.ifEmpty { SkillToolTaxonomy.categoriesFor(this).toList() },
+            tags = (tags + SkillToolTaxonomy.categoriesFor(this).map { it.name.lowercase() }).distinct(),
+        )
 }

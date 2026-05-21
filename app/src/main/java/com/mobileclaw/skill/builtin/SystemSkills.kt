@@ -18,6 +18,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -37,6 +38,7 @@ class ClipboardSkill : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.SYSTEM, SkillToolCategory.CHAT),
         tags = listOf("系统"),
     )
 
@@ -79,6 +81,7 @@ class ShowToastSkill : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.SYSTEM, SkillToolCategory.CHAT),
         tags = listOf("系统"),
     )
 
@@ -105,6 +108,7 @@ class DeviceInfoSkill : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.SYSTEM),
         tags = listOf("系统"),
     )
 

@@ -10,6 +10,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.ui.aipage.AiPageDef
 import com.mobileclaw.ui.aipage.AiPageStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -36,6 +37,7 @@ class TaskRecipeSkill(
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.MEMORY, SkillToolCategory.SKILL, SkillToolCategory.ARTIFACT),
         tags = listOf("任务", "回放", "配方", "自动化"),
     )
 

@@ -1,0 +1,68 @@
+name: ROM compatibility report / ROM 兼容性报告
+description: Report how MobileClaw behaves on a specific Android device or ROM. / 报告 MobileClaw 在特定 Android 设备或 ROM 上的表现。
+title: "[ROM]: "
+labels: ["compatibility", "android-rom"]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device model / 设备型号
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version / Android 版本
+    validations:
+      required: true
+  - type: input
+    id: rom
+    attributes:
+      label: ROM name and version / ROM 名称和版本
+      placeholder: MIUI / HyperOS / ColorOS / One UI / Pixel / LineageOS ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MobileClaw version or commit / MobileClaw 版本或 commit
+    validations:
+      required: true
+  - type: checkboxes
+    id: permissions
+    attributes:
+      label: Permissions and helpers / 权限和 helper
+      options:
+        - label: AccessibilityService enabled / 已启用无障碍服务
+        - label: Screenshot permission granted / 已授予截图权限
+        - label: Notification permission granted / 已授予通知权限
+        - label: Overlay permission granted / 已授予悬浮窗权限
+        - label: Battery optimization disabled / 已关闭电池优化
+        - label: VPN permission granted / 已授予 VPN 权限
+        - label: Root available / Root 可用
+        - label: Shizuku available / Shizuku 可用
+        - label: ADB helper used / 使用了 ADB helper
+  - type: checkboxes
+    id: features
+    attributes:
+      label: Feature results / 功能结果
+      options:
+        - label: Screen XML reading works / 屏幕 XML 读取可用
+        - label: Screenshot capture works / 截图捕获可用
+        - label: Tap gesture works / 点击手势可用
+        - label: Scroll gesture works / 滑动手势可用
+        - label: Text input works / 文本输入可用
+        - label: App launch works / App 启动可用
+        - label: Virtual display launch works / 虚拟屏启动可用
+        - label: Background screenshot works / 后台截图可用
+        - label: VPN start/stop works / VPN 启停可用
+        - label: WebView mini app works / WebView mini app 可用
+        - label: AI Page rendering works / AI Page 渲染可用
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and reproduction / 备注和复现信息
+      description: Include task prompts, expected behavior, actual behavior, and logs with private data removed. / 请包含任务提示词、预期行为、实际行为，以及已移除隐私信息的日志。
+    validations:
+      required: true
+

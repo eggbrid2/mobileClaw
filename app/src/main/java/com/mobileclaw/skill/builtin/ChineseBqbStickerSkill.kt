@@ -7,6 +7,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
@@ -31,6 +32,7 @@ class ChineseBqbStickerSkill(private val app: ClawApplication) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.CHAT, SkillToolCategory.MEDIA),
         tags = listOf("表情包", "群聊", "中文"),
     )
 

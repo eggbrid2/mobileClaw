@@ -23,6 +23,19 @@ The idea is simple: a mobile agent should not just chat about your device. It sh
 
 ---
 
+## Real Device Demo
+
+Captured from a Xiaomi device running the debug build. These are real agent runs, not mockups: MobileClaw created and opened a WebView MiniAPP, created a native AI Page, kept a multi-agent group chat with stickers, manages on-device models with vision packs, and exposes its skill/VPN/runtime surfaces.
+
+<p align="center">
+  <img src="docs/media/mobileclaw_pocket_synth.gif" alt="MobileClaw creates and runs an interactive Pocket Synth MiniAPP" width="360" />
+  <img src="docs/media/mobileclaw_real_ai_page.gif" alt="MobileClaw real chat to native AI Page flow" width="360" />
+</p>
+
+<p align="center">
+  <img src="docs/media/mobileclaw_fun_gallery.jpg" alt="MobileClaw real capabilities on device" width="820" />
+</p>
+
 ## Why This Exists
 
 Most mobile AI apps are chat surfaces. MobileClaw is closer to a small operating layer for agents.
@@ -243,6 +256,18 @@ app/build/outputs/apk/debug/app-debug.apk
 
 The app uses Kotlin 2.2, Jetpack Compose, Room, DataStore, WebView, OkHttp, Gson, Jsoup, SnakeYAML, Chaquopy Python 3.11, LiteRT-LM, mihomo, and hev-socks5-tunnel.
 
+## Project Docs
+
+- [Quickstart](docs/quickstart.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Roadmap](ROADMAP.md)
+- [Privacy notes](PRIVACY.md)
+- [Security policy](SECURITY.md)
+- Recipes:
+  - [Phone control smoke test](docs/recipes/phone-control.md)
+  - [Small skill contribution](docs/recipes/skill-authoring.md)
+  - [ROM compatibility report](docs/recipes/rom-compatibility-report.md)
+
 ## Permissions And Device Notes
 
 MobileClaw works by turning user-authorized Android capabilities into explicit agent tools. Depending on the feature, it may ask for:
@@ -265,6 +290,8 @@ Root is not a baseline requirement. Some background-display features may still n
 - More reproducible VPN subscription and mihomo edge cases.
 - ROM compatibility reports for virtual display launch behavior.
 - Better docs, demos, and small role/skill presets.
+
+Before opening a PR, read [CONTRIBUTING.md](CONTRIBUTING.md). For device-specific behavior, use the ROM compatibility issue template and include the checklist from [docs/recipes/rom-compatibility-report.md](docs/recipes/rom-compatibility-report.md).
 
 ## Star History
 

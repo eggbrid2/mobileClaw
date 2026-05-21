@@ -3,7 +3,7 @@ package com.mobileclaw.agent
 /**
  * Classifies user messages as conversational chat vs. agentic tasks.
  *
- * Chat path: direct LLM call, no tools, minimal system prompt, fast.
+ * Chat path: direct LLM call for lightweight conversation.
  * Agent path: full ReAct loop with skills.
  *
  * Intentionally simple and cheap — no LLM call needed.
@@ -22,6 +22,8 @@ object ChatRouter {
         "操作手机", "控制手机", "看屏幕", "读屏幕", "see_screen",
         "查天气", "查股票", "查快递", "抓取网页", "爬取",
         "搜索新闻", "搜索资讯", "搜索最新",
+        "记住", "记忆", "偏好", "配置", "设置为默认", "保存为默认", "以后都", "忘掉",
+        "skill", "skills", "技能", "工具", "能力", "创建技能", "创建工具", "自我修复", "自我升级", "纠错", "升级", "改进", "优化",
         "帮我打开", "帮我发", "帮我安装", "帮我下载", "帮我操作",
         "open ", "launch ", "click ", "screenshot",
     )
@@ -36,7 +38,7 @@ object ChatRouter {
         "解释一下", "介绍一下", "讲一讲", "说说", "告诉我",
         "帮我翻译", "翻译一下", "translate",
         "写一首", "写首诗", "写个故事", "讲个笑话", "帮我起名",
-        "你是谁", "你叫什么", "你能做什么", "你有什么功能",
+        "你是谁", "你叫什么",
         "总结一下", "帮我总结", "帮我写", "帮我分析", "帮我解释",
         "请问", "我想知道", "能告诉我",
     )

@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 
 /**
  * Lets the agent fully customise the LAN console web page — the "千人千面" feature.
@@ -59,6 +60,7 @@ class ConsoleEditorSkill(private val server: ConsoleServer) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.SYSTEM, SkillToolCategory.ARTIFACT),
         tags = listOf("系统"),
     )
 

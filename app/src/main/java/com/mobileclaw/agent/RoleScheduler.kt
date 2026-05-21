@@ -26,14 +26,15 @@ object RoleScheduler {
         memoryContext: String = "",
     ): RoleScheduleDecision {
         val roles = (availableRoles + Role.BUILTINS).distinctBy { it.id }
+        val latestGoal = goal.substringBefore("\n\n").ifBlank { goal }
         val explicitRole = roles.firstOrNull { role ->
-            goal.contains(role.id, ignoreCase = true) ||
-                role.name.isNotBlank() && goal.contains(role.name, ignoreCase = true)
+            latestGoal.contains(role.id, ignoreCase = true) ||
+                role.name.isNotBlank() && latestGoal.contains(role.name, ignoreCase = true)
         }
         if (explicitRole != null) {
             return RoleScheduleDecision(
                 role = explicitRole,
-                reason = "TaskType=$taskType, explicit role mention, goal=${goal.take(80)}",
+                reason = "TaskType=$taskType, explicit role mention, goal=${latestGoal.take(80)}",
             )
         }
         if (shouldKeepCurrentRole(memoryContext, taskType, currentRole)) {

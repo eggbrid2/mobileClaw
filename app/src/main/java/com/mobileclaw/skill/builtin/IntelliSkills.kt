@@ -14,6 +14,8 @@ import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillRegistry
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
+import com.mobileclaw.skill.SkillToolTaxonomy
 import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -34,7 +36,7 @@ class SkillCheckSkill(private val registry: SkillRegistry) : Skill {
     override val meta = SkillMeta(
         id = "skill_check",
         name = "Check Skill Inventory",
-        description = "Returns the full list of available skills grouped by type and injection level. " +
+        description = "Returns the full list of available skills grouped by category, type, and injection level. " +
             "Call this before creating a new skill to check whether the capability already exists. " +
             "Also shows dynamic (user-generated) skills that may need to be promoted.",
         parameters = listOf(
@@ -44,34 +46,42 @@ class SkillCheckSkill(private val registry: SkillRegistry) : Skill {
         injectionLevel = 1,
         nameZh = "查看技能库",
         descriptionZh = "列出当前已有的技能及其状态。",
+        categories = listOf(SkillToolCategory.SKILL),
         tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         val task = params["task"] as? String ?: ""
-        val all = registry.all().sortedWith(compareBy({ it.meta.injectionLevel }, { it.meta.id }))
+        val all = registry.allMetasWithTaxonomy().sortedWith(compareBy({ it.injectionLevel }, { it.id }))
 
         val sb = StringBuilder()
         if (task.isNotBlank()) sb.appendLine("Task context: $task\n")
 
         sb.appendLine("## Skill Inventory (${all.size} total)\n")
 
-        val byLevel = all.groupBy { it.meta.injectionLevel }
+        val byLevel = all.groupBy { it.injectionLevel }
         val levelLabels = mapOf(0 to "Level 0 — Always injected", 1 to "Level 1 — Task-aware injection", 2 to "Level 2 — On-demand (not auto-injected)")
 
         levelLabels.forEach { (level, label) ->
             val skills = byLevel[level] ?: return@forEach
             sb.appendLine("### $label")
-            skills.forEach { skill ->
-                val tag = if (skill.meta.isBuiltin) "[builtin]" else "[dynamic/${skill.meta.type.name.lowercase()}]"
-                sb.appendLine("- **${skill.meta.id}** $tag: ${skill.meta.description.take(100)}")
-                if (skill.meta.parameters.isNotEmpty()) {
-                    val paramsStr = skill.meta.parameters.joinToString(", ") {
-                        "${it.name}(${if (it.required) "req" else "opt"})"
+            skills.groupBy { SkillToolTaxonomy.primaryCategory(it) }
+                .toSortedMap(compareBy { it.name })
+                .forEach { (category, grouped) ->
+                    sb.appendLine("#### ${SkillToolTaxonomy.label(category)}")
+                    grouped.sortedBy { it.id }.forEach { skill ->
+                        val tag = if (skill.isBuiltin) "[builtin]" else "[dynamic/${skill.type.name.lowercase()}]"
+                        val categories = skill.categories.ifEmpty { SkillToolTaxonomy.categoriesFor(skill).toList() }
+                            .joinToString(", ") { it.name.lowercase() }
+                        sb.appendLine("- **${skill.id}** $tag [$categories]: ${skill.description.take(100)}")
+                        if (skill.parameters.isNotEmpty()) {
+                            val paramsStr = skill.parameters.joinToString(", ") {
+                                "${it.name}(${if (it.required) "req" else "opt"})"
+                            }
+                            sb.appendLine("  params: $paramsStr")
+                        }
                     }
-                    sb.appendLine("  params: $paramsStr")
                 }
-            }
             sb.appendLine()
         }
 
@@ -95,6 +105,7 @@ JSON schema:
   "id": "snake_case_id",
   "name": "Human Readable Name",
   "description": "What this skill does (1-2 sentences, shown to the LLM agent)",
+  "categories": ["WEB"|"MEMORY"|"SKILL"|"SELF_EVOLUTION"|"ARTIFACT"|"PHONE"|"MEDIA"|"VPN"|"CODE"|"SYSTEM"],
   "type": "python" | "http",
   "parameters": [{"name": "param_name", "type": "string"|"number"|"boolean", "description": "...", "required": true|false}],
   "script": "Python 3 script (only for type=python). Use params dict for inputs. Print or return result as string. No subprocess/os/socket/ctypes/importlib/eval/exec/__import__.",
@@ -136,6 +147,7 @@ class QuickSkillSkill(
         injectionLevel = 1,
         nameZh = "快速生成技能",
         descriptionZh = "根据描述自动生成新技能。",
+        categories = listOf(SkillToolCategory.SKILL, SkillToolCategory.SELF_EVOLUTION),
         tags = listOf("技能"),
     )
 
@@ -173,8 +185,14 @@ class QuickSkillSkill(
                     required = o["required"]?.asBoolean ?: true,
                 )
             } ?: emptyList()
+            val generatedCategories = parsed["categories"]?.takeIf { it.isJsonArray }?.asJsonArray
+                ?.mapNotNull { el ->
+                    runCatching { SkillToolCategory.valueOf(el.asString.trim().uppercase()) }.getOrNull()
+                }
+                ?.distinct()
+                ?: emptyList()
 
-            val skillMeta = SkillMeta(
+            val baseMeta = SkillMeta(
                 id = parsed["id"]?.asString ?: return SkillResult(false, "Generated JSON missing 'id'"),
                 name = parsed["name"]?.asString ?: return SkillResult(false, "Generated JSON missing 'name'"),
                 description = parsed["description"]?.asString ?: description,
@@ -182,6 +200,9 @@ class QuickSkillSkill(
                 type = SkillType.valueOf(skillType.uppercase()),
                 injectionLevel = 2,
                 isBuiltin = false,
+            )
+            val skillMeta = baseMeta.copy(
+                categories = generatedCategories.ifEmpty { SkillToolTaxonomy.categoriesFor(baseMeta).toList() },
             )
 
             val def = when (skillType.lowercase()) {
@@ -259,6 +280,7 @@ class SkillMarketSkill(
         injectionLevel = 1,
         nameZh = "技能市场",
         descriptionZh = "从 ClawHub、SkillsMP 等真实技能市场搜索并安装技能。",
+        categories = listOf(SkillToolCategory.SKILL),
         tags = listOf("技能"),
     )
 
@@ -336,8 +358,7 @@ class SkillMarketSkill(
         val contentEscaped = content.replace("\\", "\\\\").replace("\"\"\"", "\\\"\\\"\\\"")
         val script = "print(\"\"\"$contentEscaped\"\"\")"
 
-        val def = SkillDefinition(
-            meta = SkillMeta(
+        val baseMeta = SkillMeta(
                 id = "ch_$skillId".take(64),
                 name = firstLine.take(60),
                 description = "ClawHub: $slug\n$desc",
@@ -346,7 +367,9 @@ class SkillMarketSkill(
                 isBuiltin = false,
                 nameZh = firstLine.take(60),
                 tags = listOf("技能"),
-            ),
+        )
+        val def = SkillDefinition(
+            meta = baseMeta.copy(categories = SkillToolTaxonomy.categoriesFor(baseMeta).toList()),
             script = script,
         )
         runCatching { loader.persist(def) }.getOrElse {

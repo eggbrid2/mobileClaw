@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 
 class SwitchModelSkill(private val config: AgentConfig) : Skill {
 
@@ -24,6 +25,7 @@ class SwitchModelSkill(private val config: AgentConfig) : Skill {
         injectionLevel = 1,
         nameZh = "切换 AI 模型",
         descriptionZh = "切换当前使用的 AI 语言模型。",
+        categories = listOf(SkillToolCategory.SELF_EVOLUTION, SkillToolCategory.SYSTEM),
         tags = listOf("系统"),
     )
 

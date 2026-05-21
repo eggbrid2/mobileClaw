@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
@@ -11,6 +12,8 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
+import com.mobileclaw.config.normalizedResponseLanguage
+import com.mobileclaw.config.responseLanguageShortInstruction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
@@ -64,7 +67,11 @@ class LocalGemmaGateway(
                 ?: throw IllegalStateException("Local model is not installed: $modelId")
             val engine = LocalGemmaRuntime.engine(context, path)
             val output = StringBuilder()
-            val streamCleaner = if (request.stream && request.onToken != null) LocalStreamingTextCleaner() else null
+            val streamCleaner = if (request.tools.isEmpty() && request.stream && request.onToken != null) {
+                LocalStreamingTextCleaner()
+            } else {
+                null
+            }
             Log.i("LocalGemma", "text request model=$modelId promptChars=${prompt.length} messages=${request.messages.size} tools=${request.tools.size} stream=${streamCleaner != null}")
             engine.createConversation().use { conversation ->
                 conversation.sendMessageAsync(prompt).collect { piece ->
@@ -89,13 +96,15 @@ class LocalGemmaGateway(
 }
 
 private fun ChatRequest.toLocalVisionPrompt(): String {
+    val language = preferredLocalLanguage()
     val lastTextUser = messages.lastOrNull { it.role == "user" && !it.content.isNullOrBlank() }
     val question = lastTextUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(600)
-        ?: "请理解这张图片，并用简体中文简洁回答用户可能想知道的内容。"
+        ?: if (language == "en") "Understand this image and answer concisely based on what the user may want to know." else "请理解这张图片，并用简体中文简洁回答用户可能想知道的内容。"
     return """
 你是 MobileClaw 的本地视觉模型。请只根据用户提供的图片和问题回答。
 不要输出 <turn>、<|turn|>、model、user 等模板标记。
 如果图片内容不清楚，请说明无法确认，不要编造。
+${responseLanguageShortInstruction(language)}
 
 用户问题:
 $question
@@ -105,6 +114,7 @@ $question
 }
 
 private fun ChatRequest.toLocalVisionToolPrompt(): String {
+    val language = preferredLocalLanguage()
     val lastTextUser = messages.lastOrNull { it.role == "user" && !it.content.isNullOrBlank() }
     val question = lastTextUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(700)
         ?: "Analyze the latest screenshot/image and choose the next action."
@@ -120,6 +130,7 @@ private fun ChatRequest.toLocalVisionToolPrompt(): String {
     return buildString {
         appendLine("You are MobileClaw's local VLM phone-control model.")
         appendLine("Use the provided image/screenshot plus recent context to decide the next concrete action.")
+        appendLine(responseLanguageShortInstruction(language))
         appendLine("Operate in an observe -> act -> verify loop.")
         appendLine("If the latest image shows a phone UI and the goal requires interaction, choose one concrete tool action such as tap, scroll, input_text, long_click, navigate, or phone_status.")
         appendLine("Coordinates from screenshots are image pixels. Use visible target centers from the image for x/y; the app tools map them to device coordinates.")
@@ -156,17 +167,23 @@ class HybridLlmGateway(
     private val useLocal: () -> Boolean,
     private val canUseCloud: () -> Boolean,
     private val nativeOnly: () -> Boolean,
+    private val language: () -> String,
 ) : LlmGateway {
     override suspend fun chat(request: ChatRequest): ChatResponse {
+        val localizedRequest = request.withResponseLanguage(language())
         if (nativeOnly()) {
-            return runCatching { local.chat(request) }.getOrElse { e ->
-                ChatResponse(content = "当前处于 Only native 本地模式，已禁止云端回退。\n本地模型调用失败：${e.message}\n请确认已安装并选择可运行的本地模型；如果是图片/VLM，请优先确认主 .litertlm 模型完整可用。")
+            return runCatching { local.chat(localizedRequest) }.getOrElse { e ->
+                ChatResponse(content = if (normalizedResponseLanguage(language()) == "en") {
+                    "Only native mode is enabled, so cloud fallback is disabled.\nLocal model call failed: ${e.message}\nPlease confirm that a runnable local model is installed and selected. For image/VLM tasks, make sure the main .litertlm model is usable and its matching vision resource is installed."
+                } else {
+                    "当前处于 Only native 本地模式，已禁止云端回退。\n本地模型调用失败：${e.message}\n请确认已安装并选择可运行的本地模型；如果是图片/VLM，请优先确认主 .litertlm 模型完整可用。"
+                })
             }
         }
-        if (useLocal() && (request.tools.isEmpty() || request.imageBase64Present())) {
+        if (useLocal() && (localizedRequest.tools.isEmpty() || localizedRequest.imageBase64Present())) {
             var localTokenEmitted = false
-            val localRequest = request.copy(
-                onToken = request.onToken?.let { downstream ->
+            val localRequest = localizedRequest.copy(
+                onToken = localizedRequest.onToken?.let { downstream ->
                     { token: String ->
                         localTokenEmitted = true
                         downstream(token)
@@ -175,13 +192,17 @@ class HybridLlmGateway(
             )
             return runCatching { local.chat(localRequest) }.getOrElse { e ->
                 if (canUseCloud() && !localTokenEmitted) {
-                    cloud.chat(request)
+                    cloud.chat(localizedRequest)
                 } else {
-                    ChatResponse(content = "本地模型调用失败：${e.message}\n请确认本地模型文件完整，或切回云端模型。")
+                    ChatResponse(content = if (normalizedResponseLanguage(language()) == "en") {
+                        "Local model call failed: ${e.message}\nPlease confirm the local model files are complete, or switch back to a cloud model."
+                    } else {
+                        "本地模型调用失败：${e.message}\n请确认本地模型文件完整，或切回云端模型。"
+                    })
                 }
             }
         }
-        return cloud.chat(request)
+        return cloud.chat(localizedRequest)
     }
 
     override suspend fun embed(text: String): FloatArray =
@@ -329,6 +350,15 @@ private fun List<com.mobileclaw.llm.Message>.compactForLocalModel(): List<com.mo
 }
 
 private fun ChatRequest.preferredLocalLanguage(): String {
+    val systemText = messages.filter { it.role == "system" }.joinToString("\n") { it.content.orEmpty() }
+    if (systemText.contains("app language is English", ignoreCase = true) ||
+        systemText.contains("MUST write all user-visible assistant text in English", ignoreCase = true) ||
+        systemText.contains("MUST respond in English", ignoreCase = true)
+    ) return "en"
+    if (systemText.contains("应用语言是中文") ||
+        systemText.contains("简体中文") ||
+        systemText.contains("Simplified Chinese", ignoreCase = true)
+    ) return "zh"
     val recent = messages.takeLast(4).joinToString("\n") { it.content.orEmpty() }
     return if (recent.any { it in '\u4e00'..'\u9fff' }) "zh" else "en"
 }
@@ -358,16 +388,48 @@ private fun String.toLocalToolResponse(tools: List<ToolDefinition>): ChatRespons
     val jsonText = extractJsonObject() ?: return null
     return runCatching {
         val root = JsonParser.parseString(jsonText).asJsonObject
-        val call = root["tool_call"]?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
-        val name = call["name"]?.asString?.takeIf { raw -> tools.any { it.name == raw } } ?: return null
+        val call = root.localToolCallObject() ?: return null
+        val name = call.localToolName()?.takeIf { raw -> tools.any { it.name == raw } } ?: return null
         val id = call["id"]?.asString?.takeIf { it.isNotBlank() } ?: "local-call"
-        val argsJson = call["arguments"]?.takeIf { it.isJsonObject }?.asJsonObject
+        val argsJson = call.localToolArguments()
         @Suppress("UNCHECKED_CAST")
         val args = if (argsJson != null) Gson().fromJson(argsJson, Map::class.java) as Map<String, Any> else emptyMap()
         val content = root["content"]?.takeIf { !it.isJsonNull }?.asString
         ChatResponse(content = content, toolCall = ToolCall(id = id, skillId = name, params = args))
     }.getOrNull()
 }
+
+private fun JsonObject.localToolCallObject(): JsonObject? {
+    val wrapped = get("tool_call")?.takeIf { it.isJsonObject }?.asJsonObject
+    if (wrapped != null) return wrapped
+    if (localToolName() != null) return this
+    val functionCall = get("function_call")?.takeIf { it.isJsonObject }?.asJsonObject
+    if (functionCall != null) return functionCall
+    return null
+}
+
+private fun JsonObject.localToolName(): String? =
+    listOf("name", "tool", "tool_name", "function")
+        .firstNotNullOfOrNull { key ->
+            get(key)
+                ?.takeIf { !it.isJsonNull && it.isJsonPrimitive }
+                ?.asString
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+
+private fun JsonObject.localToolArguments(): JsonObject? =
+    listOf("arguments", "args", "parameters", "params")
+        .firstNotNullOfOrNull { key ->
+            val value = get(key) ?: return@firstNotNullOfOrNull null
+            when {
+                value.isJsonObject -> value.asJsonObject
+                value.isJsonPrimitive && value.asJsonPrimitive.isString -> runCatching {
+                    JsonParser.parseString(value.asString).takeIf { it.isJsonObject }?.asJsonObject
+                }.getOrNull()
+                else -> null
+            }
+        }
 
 private fun String.extractJsonObject(): String? {
     val fenceStart = indexOf("```")

@@ -34,6 +34,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/wbHot",
@@ -53,6 +54,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.MEDIA),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/bili",
@@ -72,6 +74,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/zhihuHot",
@@ -91,6 +94,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/baiduRD",
@@ -110,6 +114,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.MEDIA),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/douyinHot",
@@ -129,6 +134,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/hotlist/toutiao",
@@ -153,6 +159,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("生活"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/weather?city={city}&type=week",
@@ -175,6 +182,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("网络"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.SYSTEM),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/getIpInfo?ip={ip}",
@@ -194,6 +202,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("生活"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/exchange",
@@ -213,6 +222,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("生活"),
+                categories = listOf(SkillToolCategory.WEB),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/almanac",
@@ -234,6 +244,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("创作"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.CHAT),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://v1.hitokoto.cn/?encode=json&min_length=5&max_length=80",
@@ -253,6 +264,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("创作"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.CHAT),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://v1.jinrishici.com/all.json",
@@ -272,6 +284,7 @@ object SkillMarket {
                 isBuiltin = false,
                 minApiLevel = 21,
                 tags = listOf("创作"),
+                categories = listOf(SkillToolCategory.WEB, SkillToolCategory.CHAT),
             ),
             httpConfig = HttpSkillConfig(
                 url = "https://api.vvhan.com/api/joke",

@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     branches: [ main, master ]
-    tags: [ 'v*' ]
+    tags: [ '*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -58,8 +58,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # ← 加这行
-    if: startsWith(github.ref, 'refs/tags/v')
+      contents: write
+    if: github.ref_type == 'tag'
     needs: build
     env:
       KEYSTORE_AVAILABLE: ${{ secrets.KEYSTORE_BASE64 != '' }}
@@ -67,6 +67,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -108,10 +110,33 @@ jobs:
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
+      - name: Collect release APK
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          if [ -n "${{ steps.sign.outputs.signedReleaseFile }}" ] && [ -f "${{ steps.sign.outputs.signedReleaseFile }}" ]; then
+            cp "${{ steps.sign.outputs.signedReleaseFile }}" "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk"
+          fi
+          find app/build/outputs/apk/release -maxdepth 1 -name "*.apk" -print0 \
+            | while IFS= read -r -d '' apk; do
+                base="$(basename "$apk" .apk)"
+                if [ ! -f "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk" ] || [[ "$base" != *signed* ]]; then
+                  cp "$apk" "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-${base}.apk"
+                fi
+              done
+          test -n "$(find release-artifacts -name '*.apk' -print -quit)"
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobileclaw-release-${{ github.ref_name }}
+          path: release-artifacts/*.apk
+          retention-days: 30
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          files: release-artifacts/*.apk
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

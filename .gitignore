@@ -9,3 +9,4 @@ local.properties
 keystore/
 __pycache__/
 *.py[cod]
+debug_artifacts/

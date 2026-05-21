@@ -10,6 +10,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.skill.executor.RuntimePipInstaller
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,6 +52,7 @@ class GenerateDocumentSkill(private val context: Context) : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.ARTIFACT, SkillToolCategory.CODE),
         tags = listOf("创作", "文件"),
     )
 

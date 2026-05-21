@@ -1,0 +1,40 @@
+name: Feature request / 功能建议
+description: Suggest a focused feature, skill, or recipe. / 建议一个聚焦的功能、Skill 或 recipe。
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 问题
+      description: What user task should this make possible? / 这个建议要让用户完成什么任务？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal / 方案
+      description: Describe the smallest useful version. / 请描述最小可用版本。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area / 相关区域
+      options:
+        - Phone control / 手机控制
+        - Skill system / Skill 系统
+        - Mini app / Mini app
+        - AI Page / AI Page
+        - Memory / 记忆
+        - Local model / 本地模型
+        - VPN / proxy / VPN 或代理
+        - Documentation / 文档
+        - Other / 其他
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 考虑过的替代方案
+

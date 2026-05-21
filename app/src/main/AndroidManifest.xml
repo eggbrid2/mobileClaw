@@ -59,6 +59,7 @@
             android:name=".ui.MainActivity"
             android:screenOrientation="portrait"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MobileClaw">
             <intent-filter>

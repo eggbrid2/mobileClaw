@@ -289,7 +289,7 @@ fun ChatScreen(
                 }
                 itemsIndexed(runState.messages, key = { idx, msg -> msg.stableUiKey(idx) }) { idx, msg ->
                     when (msg.role) {
-                        MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64)
+                        MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64, uiState.userAvatarUri)
                         MessageRole.AGENT -> {
                             val messageRole = remember(msg.senderRoleId, msg.senderRoleName, msg.senderRoleAvatar, uiState.availableRoles, uiState.currentRole) {
                                 msg.senderDisplayRole(uiState.availableRoles, uiState.currentRole)
@@ -368,6 +368,7 @@ fun ChatScreen(
                             attachments = listOf(attachment),
                             onOpenHtmlViewer = onOpenHtmlViewer,
                             onOpenBrowser = onOpenBrowser,
+                            onSendGoal = onSendGoal,
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                         )
                     }
@@ -539,6 +540,8 @@ fun ChatScreen(
             sheetState = sheetState,
         ) {
             val c = LocalClawColors.current
+            val detailView = remember(step) { buildStepDetailView(step) }
+            var debugExpanded by remember { mutableStateOf(false) }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -546,28 +549,119 @@ fun ChatScreen(
                     .navigationBarsPadding()
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text(str(R.string.chat_d0569b), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = c.text)
+                Text(detailView.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = c.text)
                 Spacer(Modifier.height(8.dp))
-                val displayLines = step.details.ifEmpty {
-                    if (step.text.isNotBlank()) listOf(step.text) else listOf(str(R.string.chat_cbf93e))
+                if (detailView.purpose.isNotBlank()) {
+                    DetailLabelRow("这一步在做什么", detailView.purpose)
+                    Spacer(Modifier.height(8.dp))
                 }
-                displayLines.forEach { detail ->
+                if (detailView.result.isNotBlank()) {
+                    DetailLabelRow("结果", detailView.result)
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (detailView.debugLines.isNotEmpty()) {
                     Text(
-                        detail,
-                        fontSize = 10.sp,
-                        color = c.subtext.copy(alpha = 0.85f),
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = 14.sp,
+                        if (debugExpanded) "收起调试信息" else "查看调试信息",
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(c.surface)
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { debugExpanded = !debugExpanded }
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
                     )
+                    AnimatedVisibility(debugExpanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            detailView.debugLines.forEach { detail ->
+                                Text(
+                                    detail,
+                                    fontSize = 10.sp,
+                                    color = c.subtext.copy(alpha = 0.75f),
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 14.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(c.surface)
+                                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+private data class StepDetailView(
+    val title: String,
+    val purpose: String,
+    val result: String,
+    val debugLines: List<String>,
+)
+
+private fun buildStepDetailView(step: LogLine): StepDetailView {
+    val detailLines = step.details.ifEmpty { listOf(step.text).filter { it.isNotBlank() } }
+    val purpose = detailLines.firstOrNull { it.startsWith("本步目的：") }
+        ?.removePrefix("本步目的：")
+        ?.trim()
+        .orEmpty()
+    val result = detailLines.firstOrNull { it.startsWith("本步结果：") }
+        ?.removePrefix("本步结果：")
+        ?.trim()
+        .orEmpty()
+    val debugLines = detailLines.filterNot {
+        it.startsWith("本步目的：") || it.startsWith("本步结果：") || it.startsWith("完整结果")
+    }.takeIf { it.isNotEmpty() } ?: listOf(step.text).filter { it.isNotBlank() }
+    val title = when (step.type) {
+        LogType.ACTION -> "操作详情"
+        LogType.OBSERVATION -> "观察详情"
+        LogType.THINKING -> "思考详情"
+        LogType.SUCCESS -> "完成详情"
+        LogType.ERROR -> "错误详情"
+        else -> "步骤详情"
+    }
+    return StepDetailView(
+        title = title,
+        purpose = purpose.ifBlank { fallbackReadablePurpose(step) },
+        result = result.ifBlank { fallbackReadableResult(step) },
+        debugLines = debugLines,
+    )
+}
+
+private fun fallbackReadablePurpose(step: LogLine): String = when (step.type) {
+    LogType.ACTION -> chineseSkillLabel(step.skillId)
+    LogType.OBSERVATION -> if (step.imageBase64 != null) "查看了当前画面" else "读取了当前结果"
+    LogType.THINKING -> step.text.ifBlank { "正在根据当前任务整理下一步" }
+    LogType.SUCCESS -> "任务阶段完成"
+    LogType.ERROR -> "当前步骤遇到问题"
+    else -> step.text.ifBlank { "继续推进当前任务" }
+}
+
+private fun fallbackReadableResult(step: LogLine): String = when (step.type) {
+    LogType.ACTION -> "已执行这一步，正在看下一步怎么走"
+    LogType.OBSERVATION -> if (step.imageBase64 != null) "已经拿到当前画面" else "已经拿到这一步结果"
+    LogType.THINKING -> step.text.ifBlank { "已更新当前任务的执行依据" }
+    LogType.SUCCESS -> step.text.ifBlank { "已完成" }
+    LogType.ERROR -> step.text.ifBlank { "执行失败" }
+    else -> step.text.ifBlank { "已记录" }
+}
+
+@Composable
+private fun DetailLabelRow(title: String, content: String) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.surface)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(title, color = c.subtext.copy(alpha = 0.62f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Text(content, color = c.text, fontSize = 12.sp, lineHeight = 16.sp)
     }
 }
 
@@ -887,10 +981,14 @@ private fun cleanTaskLabel(task: String): String =
 
 // ── User Bubble ───────────────────────────────────────────────────────────────
 @Composable
-private fun UserBubble(text: String, imageBase64: String? = null) {
+private fun UserBubble(text: String, imageBase64: String? = null, userAvatarUri: String? = null) {
     val c = LocalClawColors.current
     var showFullscreen by remember { mutableStateOf(false) }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.Top,
+    ) {
         Column(
             modifier = Modifier.widthIn(max = 290.dp),
             horizontalAlignment = Alignment.End,
@@ -934,6 +1032,8 @@ private fun UserBubble(text: String, imageBase64: String? = null) {
                 }
             }
         }
+        Spacer(Modifier.width(6.dp))
+        GradientAvatar(avatar = userAvatarUri.orEmpty(), size = 28.dp, color = c.text)
     }
 }
 
@@ -1278,6 +1378,12 @@ private fun ActiveTaskBubble(
     var thoughtExpanded by remember { mutableStateOf(false) }
 
     val lastAction = logLines.lastOrNull { it.type == LogType.ACTION || it.type == LogType.THINKING }
+    val latestProgress = logLines.asReversed()
+        .firstOrNull { it.text.isNotBlank() && it.type != LogType.SUCCESS }
+        ?.text
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(120)
+        .orEmpty()
     val currentLabel = when (lastAction?.type) {
         LogType.ACTION   -> chineseSkillLabel(lastAction.skillId)
         LogType.THINKING -> str(R.string.chat_dc269a)
@@ -1362,6 +1468,18 @@ private fun ActiveTaskBubble(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = 28.dp),
                 )
+                if (latestProgress.isNotBlank() && !stepsExpanded) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        latestProgress,
+                        color = c.subtext.copy(alpha = 0.82f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 28.dp, end = 4.dp),
+                    )
+                }
             }
 
             // Steps list — collapsed by default
@@ -1639,7 +1757,12 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
             val skillLabel = chineseSkillLabel(line.skillId)
             val accentLong = line.skillId?.let { SkillColors[it] }
             val labelColor = (if (accentLong != null) Color(accentLong) else c.blue).copy(alpha = 0.85f)
-            val summary = line.text.take(36).let { if (line.text.length > 36) "$it…" else it }
+            val summary = line.details.firstOrNull { it.startsWith("本步目的：") }
+                ?.removePrefix("本步目的：")
+                ?.trim()
+                ?.take(40)
+                ?.let { if (it.length >= 40) "$it…" else it }
+                ?: line.text.take(40).let { if (line.text.length > 40) "$it…" else it }
             CollapsibleStepRow(
                 label = skillLabel,
                 summary = summary,
@@ -1650,8 +1773,8 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 onDetail = { onSelectStep(line) },
             ) {
                 Box(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-                    if (line.skillId == "shell") ShellCommandCard(line.text)
-                    else SkillActionCard(line.text, line.skillId)
+                    if (line.skillId == "shell") ShellCommandCard(friendlySkillDescription(line.skillId ?: "", emptyMap()), line.text)
+                    else SkillActionCard(summary.ifBlank { skillLabel })
                 }
             }
         }
@@ -1661,7 +1784,13 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
             val hasImage = line.imageBase64 != null
             val label = if (hasImage) stringResource(R.string.chat_a3d484) else stringResource(R.string.chat_173c2c)
             val summary = when {
-                line.text.isNotBlank() -> line.text.take(36).let { if (line.text.length > 36) "$it…" else it }
+                line.details.firstOrNull { it.startsWith("本步结果：") } != null ->
+                    line.details.first { it.startsWith("本步结果：") }
+                        .removePrefix("本步结果：")
+                        .trim()
+                        .take(40)
+                        .let { if (it.length >= 40) "$it…" else it }
+                line.text.isNotBlank() -> line.text.take(40).let { if (line.text.length > 40) "$it…" else it }
                 hasImage               -> stringResource(R.string.chat_b3e19e)
                 else                   -> ""
             }
@@ -1704,8 +1833,13 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                             }
                         }
                     }
-                    if (line.text.isNotBlank()) {
-                        Text(line.text, color = c.subtext.copy(alpha = 0.7f), fontSize = 10.sp, lineHeight = 14.sp)
+                    val readable = line.details.firstOrNull { it.startsWith("本步结果：") }
+                        ?.removePrefix("本步结果：")
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: line.text.takeIf { it.isNotBlank() }
+                    if (readable != null) {
+                        Text(readable, color = c.subtext.copy(alpha = 0.78f), fontSize = 11.sp, lineHeight = 15.sp)
                     }
                 }
             }
@@ -1749,17 +1883,16 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
 }
 
 @Composable
-private fun SkillActionCard(text: String, skillId: String?) {
+private fun SkillActionCard(text: String) {
     val c = LocalClawColors.current
-    val accentLong = skillId?.let { SkillColors[it] }
-    val accentColor = if (accentLong != null) Color(accentLong) else c.blue
+    val accentColor = c.accent
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(accentColor.copy(alpha = 0.07f)),
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.surface),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -1781,20 +1914,17 @@ private fun SkillActionCard(text: String, skillId: String?) {
 }
 
 @Composable
-private fun ShellCommandCard(text: String) {
+private fun ShellCommandCard(summary: String, command: String) {
     val c = LocalClawColors.current
-    // Extract the command part after the emoji prefix
-    val cmdPart = text.removePrefix("⚡ Running: ").trim()
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(if (c.isDark) Color(0xFF0E0E0E) else Color(0xFFF6F6F4))
-            .border(1.dp, c.border, RoundedCornerShape(6.dp)),
+            .border(1.dp, c.border, RoundedCornerShape(8.dp)),
     ) {
-        // Terminal title bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1809,19 +1939,27 @@ private fun ShellCommandCard(text: String) {
             Spacer(Modifier.width(4.dp))
             Text("shell", color = Color(0xFF8B949E), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
         }
-        // Command line
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("$", color = c.accent, fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            Text("目的", color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(
-                cmdPart,
+                summary,
                 color = c.text,
                 fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
                 lineHeight = 16.sp,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (command.isNotBlank()) {
+            Text(
+                "命令细节已隐藏，点开步骤详情可查看调试信息。",
+                color = c.subtext.copy(alpha = 0.62f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(start = 9.dp, end = 9.dp, bottom = 7.dp),
             )
         }
     }
@@ -2384,6 +2522,8 @@ private fun ActionCardAttachment(
     onSendGoal: (String) -> Unit = {},
 ) {
     val c = LocalClawColors.current
+    val actionStateKey = remember(attachment) { attachment.stableUiSignature() }
+    var selectedActionMessage by remember(actionStateKey) { mutableStateOf<String?>(null) }
     val accent = when (attachment.tone) {
         "phone" -> Color(0xFF56D6BA)
         "role" -> Color(0xFFC7F43A)
@@ -2448,22 +2588,48 @@ private fun ActionCardAttachment(
         ) {
             attachment.actions.forEach { action ->
                 val primary = action.style == "primary"
+                val handled = selectedActionMessage != null
+                val selected = selectedActionMessage == action.message
+                val buttonBg = when {
+                    selected -> accent.copy(alpha = if (c.isDark) 0.22f else 0.16f)
+                    handled -> Color.Transparent
+                    primary -> c.text
+                    else -> Color.Transparent
+                }
+                val buttonBorder = when {
+                    selected -> accent
+                    primary && !handled -> c.text
+                    else -> c.border.copy(alpha = 0.75f)
+                }
+                val label = when {
+                    selected && action.label.contains("取消") -> "已取消"
+                    selected -> "已提交"
+                    else -> action.label
+                }
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(if (primary) c.text else Color.Transparent)
+                        .background(buttonBg)
                         .border(
                             0.8.dp,
-                            if (primary) c.text else c.border.copy(alpha = 0.9f),
+                            buttonBorder,
                             RoundedCornerShape(999.dp),
                         )
-                        .clickable { onSendGoal(action.message) }
+                        .clickable(enabled = !handled) {
+                            selectedActionMessage = action.message
+                            onSendGoal(action.message)
+                        }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        action.label,
-                        color = if (primary) c.bg else c.text,
+                        label,
+                        color = when {
+                            selected -> accent
+                            handled -> c.subtext.copy(alpha = 0.55f)
+                            primary -> c.bg
+                            else -> c.text
+                        },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -2674,9 +2840,31 @@ private fun ChatMessage.stableUiKey(index: Int): String = buildString {
     append(':')
     append(attachments.size)
     append(':')
+    append(attachments.joinToString("|") { it.stableUiSignature() }.hashCode())
+    append(':')
     append(logLines.size)
     append(':')
     append(index)
+}
+
+private fun SkillAttachment.stableUiSignature(): String = when (this) {
+    is SkillAttachment.ImageData -> "image:${base64.take(80).hashCode()}:${prompt.orEmpty().hashCode()}"
+    is SkillAttachment.FileData -> "file:$path:$name:$mimeType:$sizeBytes"
+    is SkillAttachment.HtmlData -> "html:$path:$title"
+    is SkillAttachment.WebPage -> "web:$url:${title.hashCode()}:${excerpt.hashCode()}"
+    is SkillAttachment.SearchResults -> "search:$query:$engine:${pages.joinToString("|") { it.url }.hashCode()}"
+    is SkillAttachment.AccessibilityRequest -> "accessibility:$skillName"
+    is SkillAttachment.ActionCard -> buildString {
+        append("action:")
+        append(tone)
+        append(':')
+        append(title.hashCode())
+        append(':')
+        append(body.hashCode())
+        append(':')
+        append(actions.joinToString("|") { "${it.label}:${it.message}:${it.style}" }.hashCode())
+    }
+    is SkillAttachment.FileList -> "files:$directory:${files.joinToString("|") { "${it.path}:${it.sizeBytes}" }.hashCode()}"
 }
 
 // ── Input Bar ─────────────────────────────────────────────────────────────────

@@ -24,9 +24,13 @@ class ClawAccessibilityService : AccessibilityService() {
         suspend fun captureScreenshotSom() = instance!!.screenshotController.captureSom()
         fun captureXmlForDisplay(displayId: Int) = instance!!.screenshotController.captureXmlForDisplay(displayId)
         fun getNodeMap() = instance!!.screenshotController.getNodeMap()
-        fun getCurrentPackage() = instance!!.rootInActiveWindow?.packageName?.toString()?.takeIf { it.isNotBlank() }
-            ?: instance!!.screenshotController.currentPackage
-        fun getCurrentActivity() = instance!!.screenshotController.currentActivity
+        fun getCurrentPackage(): String = getCurrentPackageOrNull().orEmpty()
+        fun getCurrentPackageOrNull(): String? {
+            val service = instance ?: return null
+            return service.rootInActiveWindow?.packageName?.toString()?.takeIf { it.isNotBlank() }
+                ?: service.screenshotController.currentPackage.takeIf { it.isNotBlank() }
+        }
+        fun getCurrentActivity() = instance?.screenshotController?.currentActivity.orEmpty()
 
         suspend fun clickNode(nodeId: String) = instance!!.actionController.clickNode(nodeId)
         suspend fun longClickNode(nodeId: String) = instance!!.actionController.longClickNode(nodeId)

@@ -19,7 +19,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -49,6 +48,8 @@ import com.mobileclaw.R
 import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillMarket
 import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.skill.SkillToolCategory
+import com.mobileclaw.skill.SkillToolTaxonomy
 import com.mobileclaw.str
 
 @Composable
@@ -68,25 +69,36 @@ fun SkillsPage(
     showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
+    val locale = LocalConfiguration.current.locales[0].language
     var pendingPromotion by remember { mutableStateOf<SkillMeta?>(null) }
     var pendingDelete by remember { mutableStateOf<SkillMeta?>(null) }
     val installedIds = remember(allSkills) { allSkills.map { it.id }.toSet() }
 
-    // Group by tag, then sort each group by level → name
-    val tagGroups = remember(allSkills) {
-        val emojiMap = mapOf(
-            str(R.string.skills_34e47d) to "phone", str(R.string.skills_066ae8) to "desktop", str(R.string.skills_7ddbe1) to "web", str(R.string.skills_2a0c47) to "folder",
-            str(R.string.drawer_apps) to "package", str(R.string.skills_93d695) to "appearance", str(R.string.profile_44e4d7) to "profile", str(R.string.drawer_roles) to "roles",
-            str(R.string.skills_9a834e) to "chat", str(R.string.group_chat_1fd02a) to "user", str(R.string.drawer_skills) to "tools", str(R.string.skills_8a8b89) to "settings",
+    // Group by execution channel so the AI and the user see the same capability taxonomy.
+    val tagGroups = remember(allSkills, locale) {
+        val categoryOrder = listOf(
+            SkillToolCategory.CHAT,
+            SkillToolCategory.MEMORY,
+            SkillToolCategory.PHONE,
+            SkillToolCategory.WEB,
+            SkillToolCategory.ARTIFACT,
+            SkillToolCategory.MEDIA,
+            SkillToolCategory.SKILL,
+            SkillToolCategory.SELF_EVOLUTION,
+            SkillToolCategory.CODE,
+            SkillToolCategory.VPN,
+            SkillToolCategory.SYSTEM,
         )
-        val tagOrder = listOf(str(R.string.skills_34e47d), str(R.string.skills_7ddbe1), str(R.string.skills_2a0c47), str(R.string.drawer_apps), str(R.string.profile_44e4d7), str(R.string.skills_93d695), str(R.string.drawer_roles), str(R.string.skills_9a834e), str(R.string.group_chat_1fd02a), str(R.string.drawer_skills), str(R.string.skills_8a8b89), str(R.string.skills_066ae8))
         val grouped = allSkills
-            .flatMap { skill -> (skill.tags.ifEmpty { listOf(str(R.string.skills_0d98c7)) }).map { tag -> tag to skill } }
+            .flatMap { skill -> SkillToolTaxonomy.categoriesFor(skill).map { category -> category to skill } }
             .groupBy({ it.first }, { it.second })
-        tagOrder.mapNotNull { tag -> grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "tools", it) } } +
-            (grouped.keys - tagOrder.toSet()).sorted().mapNotNull { tag ->
-                grouped[tag]?.let { Triple(tag, emojiMap[tag] ?: "tools", it) }
+        categoryOrder.mapNotNull { category ->
+            grouped[category]?.let { Triple(skillCategoryLabel(category, locale), category.name.lowercase(), it.distinctBy { s -> s.id }) }
+        } + (grouped.keys - categoryOrder.toSet()).sortedBy { it.name }.mapNotNull { category ->
+            grouped[category]?.let {
+                Triple(skillCategoryLabel(category, locale), category.name.lowercase(), it.distinctBy { s -> s.id })
             }
+        }
     }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
@@ -252,6 +264,23 @@ data class CompactTabItem(
     val selected: Boolean,
     val onClick: () -> Unit,
 )
+
+private fun skillCategoryLabel(category: SkillToolCategory, locale: String): String {
+    val zh = locale == "zh"
+    return when (category) {
+        SkillToolCategory.CHAT -> if (zh) "聊天表达" else "Chat"
+        SkillToolCategory.MEMORY -> if (zh) "记忆" else "Memory"
+        SkillToolCategory.SKILL -> if (zh) "技能管理" else "Skills"
+        SkillToolCategory.SELF_EVOLUTION -> if (zh) "自我进化" else "Evolution"
+        SkillToolCategory.ARTIFACT -> if (zh) "产物" else "Artifacts"
+        SkillToolCategory.PHONE -> if (zh) "手机操作" else "Phone"
+        SkillToolCategory.WEB -> if (zh) "网页" else "Web"
+        SkillToolCategory.MEDIA -> if (zh) "媒体" else "Media"
+        SkillToolCategory.VPN -> "VPN"
+        SkillToolCategory.CODE -> if (zh) "代码" else "Code"
+        SkillToolCategory.SYSTEM -> if (zh) "系统" else "System"
+    }
+}
 
 @Composable
 fun CompactScrollableTabs(

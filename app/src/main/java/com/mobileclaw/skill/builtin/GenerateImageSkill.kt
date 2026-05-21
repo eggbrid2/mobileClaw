@@ -10,6 +10,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,6 +74,7 @@ class GenerateImageSkill(
         injectionLevel = 1,
         nameZh = "生成图片",
         descriptionZh = "通过 AI 模型生成图片并在聊天中展示。支持 SiliconFlow / Together.ai / OpenAI / Pollinations (免费无需Key)。",
+        categories = listOf(SkillToolCategory.MEDIA),
         tags = listOf("创作"),
     )
 

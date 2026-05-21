@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
 
 class SwitchRoleSkill(
@@ -26,6 +27,7 @@ class SwitchRoleSkill(
         injectionLevel = 2,
         nameZh = "切换角色",
         descriptionZh = "切换当前活跃的 AI 角色或人设。",
+        categories = listOf(SkillToolCategory.SELF_EVOLUTION),
         tags = listOf("角色"),
     )
 

@@ -1,10 +1,15 @@
 package com.mobileclaw
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.agent.TaskRecipeStore
 import com.mobileclaw.agent.TaskReplayStore
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.config.AgentConfig
 import com.mobileclaw.config.SkillLevelStore
@@ -103,9 +108,16 @@ class ClawApplication : Application() {
     lateinit var taskRecipeStore: TaskRecipeStore
         private set
 
+    private var startedActivityCount = 0
+    private val _appForeground = MutableStateFlow(false)
+    val appForeground: StateFlow<Boolean> = _appForeground.asStateFlow()
+
+    fun isAppForeground(): Boolean = _appForeground.value
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        registerForegroundCallbacks()
         database = ClawDatabase.getInstance(this)
         agentConfig = AgentConfig(this)
         localModelManager = LocalModelManager(this)
@@ -154,12 +166,33 @@ class ClawApplication : Application() {
         useLocal = { agentConfig.snapshot().localModelEnabled },
         canUseCloud = { agentConfig.snapshot().let { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() } },
         nativeOnly = { agentConfig.snapshot().localNativeOnly },
+        language = { agentConfig.snapshot().language },
     )
 
     override fun onTerminate() {
         super.onTerminate()
         localApiServer.stop()
         consoleServer.stop()
+    }
+
+    private fun registerForegroundCallbacks() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                startedActivityCount++
+                if (startedActivityCount == 1) _appForeground.value = true
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
+                if (startedActivityCount == 0) _appForeground.value = false
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
     }
 
     /** Tasks submitted from MiniAppActivity to the main agent. */

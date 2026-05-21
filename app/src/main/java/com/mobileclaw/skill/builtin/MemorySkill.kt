@@ -5,6 +5,7 @@ import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
+import com.mobileclaw.skill.SkillToolCategory
 
 /**
  * Lets the agent read and write persistent semantic memory facts.
@@ -27,6 +28,7 @@ class MemorySkill(private val memory: SemanticMemory) : Skill {
         injectionLevel = 0,
         nameZh = "语义记忆",
         descriptionZh = "读写用户的键值对形式长期记忆。",
+        categories = listOf(SkillToolCategory.MEMORY),
         tags = listOf("记忆"),
     )
 

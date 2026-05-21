@@ -2,6 +2,7 @@ package com.mobileclaw.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,12 +44,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.mobileclaw.R
 import com.mobileclaw.app.MiniApp
 import com.mobileclaw.memory.db.SessionEntity
@@ -219,78 +225,178 @@ fun ClassicAddGroupAction(onClick: () -> Unit) {
 @Composable
 private fun ClassicBottomBar(selected: ClassicTab, onSelect: (ClassicTab) -> Unit) {
     val c = LocalClawColors.current
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.surface)
+            .background(c.bg)
             .navigationBarsPadding(),
     ) {
-        HorizontalDivider(color = c.border.copy(alpha = 0.75f), thickness = 0.5.dp)
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .height(82.dp),
         ) {
-            classicTabs().forEach { item ->
-                val active = selected == item.tab
-                val isCenter = item.tab == ClassicTab.CENTER
-                val iconBoxSize = if (isCenter) 36.dp else 30.dp
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onSelect(item.tab) }
-                        .padding(top = 1.dp, bottom = 1.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(iconBoxSize)
-                            .clip(RoundedCornerShape(if (isCenter) 15.dp else 13.dp))
-                            .background(
-                                when {
-                                    active -> c.text
-                                    isCenter -> c.cardAlt
-                                    else -> c.surface
-                                }
-                            )
-                            .border(
-                                0.5.dp,
-                                when {
-                                    active -> c.text
-                                    isCenter -> c.border
-                                    else -> c.surface
-                                },
-                                RoundedCornerShape(if (isCenter) 15.dp else 13.dp),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            item.icon,
-                            contentDescription = item.label,
-                            tint = if (active) c.bg else if (isCenter) c.text else c.subtext,
-                            modifier = Modifier.size(if (isCenter) 20.dp else 18.dp),
+            Canvas(Modifier.fillMaxSize()) {
+                val top = 22.dp.toPx()
+                val corner = 24.dp.toPx()
+                val centerX = size.width / 2f
+                val hubRadius = 36.dp.toPx()
+                val borderColor = c.border.copy(alpha = 0.72f)
+
+                drawCircle(
+                    color = c.surface,
+                    radius = hubRadius,
+                    center = Offset(centerX, top + 1.dp.toPx()),
+                )
+                drawRoundRect(
+                    color = c.surface,
+                    topLeft = Offset(0f, top),
+                    size = Size(size.width, size.height - top),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(corner, corner),
+                )
+                drawCircle(
+                    color = borderColor,
+                    radius = hubRadius,
+                    center = Offset(centerX, top + 1.dp.toPx()),
+                    style = Stroke(width = 0.6.dp.toPx()),
+                )
+                drawLine(
+                    color = borderColor,
+                    start = Offset(0f, top),
+                    end = Offset(centerX - hubRadius + 3.dp.toPx(), top),
+                    strokeWidth = 0.6.dp.toPx(),
+                )
+                drawLine(
+                    color = borderColor,
+                    start = Offset(centerX + hubRadius - 3.dp.toPx(), top),
+                    end = Offset(size.width, top),
+                    strokeWidth = 0.6.dp.toPx(),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 8.dp, end = 8.dp, bottom = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                classicTabs().forEach { item ->
+                    val active = selected == item.tab
+                    val isCenter = item.tab == ClassicTab.CENTER
+                    if (isCenter) {
+                        ClassicCenterDockItem(
+                            item = item,
+                            active = active,
+                            onClick = { onSelect(item.tab) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        ClassicDockItem(
+                            item = item,
+                            active = active,
+                            onClick = { onSelect(item.tab) },
+                            modifier = Modifier.weight(1f),
                         )
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        item.label,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        softWrap = false,
-                        fontSize = if (item.label.length > 6) 8.8.sp else 9.8.sp,
-                        textAlign = TextAlign.Center,
-                        color = if (active) c.text else c.subtext,
-                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
-                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ClassicDockItem(
+    item: ClassicTabItem,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = modifier
+            .height(54.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(top = 2.dp, bottom = 1.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(if (active) c.text else c.surface)
+                .border(0.5.dp, if (active) c.text else c.surface, RoundedCornerShape(13.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                item.icon,
+                contentDescription = item.label,
+                tint = if (active) c.bg else c.subtext,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            item.label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            fontSize = if (item.label.length > 6) 8.8.sp else 9.8.sp,
+            textAlign = TextAlign.Center,
+            color = if (active) c.text else c.subtext,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 1.dp),
+        )
+    }
+}
+
+@Composable
+private fun ClassicCenterDockItem(
+    item: ClassicTabItem,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = modifier
+            .height(70.dp)
+            .offset(y = (-12).dp)
+            .zIndex(2f)
+            .clickable(onClick = onClick)
+            .padding(top = 0.dp, bottom = 0.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(if (active) c.text else c.surface)
+                .border(1.dp, if (active) c.text else c.border.copy(alpha = 0.9f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                item.icon,
+                contentDescription = item.label,
+                tint = if (active) c.bg else c.text,
+                modifier = Modifier.size(23.dp),
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            item.label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            fontSize = if (item.label.length > 6) 8.6.sp else 9.4.sp,
+            textAlign = TextAlign.Center,
+            color = if (active) c.text else c.subtext,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth().height(12.dp).padding(horizontal = 1.dp),
+        )
     }
 }
 

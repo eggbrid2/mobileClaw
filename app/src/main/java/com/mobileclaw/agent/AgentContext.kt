@@ -1,7 +1,9 @@
 package com.mobileclaw.agent
 
+import com.mobileclaw.config.responseLanguageSystemInstruction
 import com.mobileclaw.llm.Message
 import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.skill.SkillToolTaxonomy
 
 /** Holds the full context of a single agent task execution. */
 data class AgentContext(
@@ -85,37 +87,67 @@ fun buildSystemPrompt(
     priorContext: String = "",
     episodicContext: String = "",
     semanticContext: String = "",
+    executionContext: String = "",
     language: String = "auto",
     role: Role? = null,
     userProfileContext: String = "",   // kept for back-compat but no longer injected; use user_profile tool instead
     taskType: TaskType = TaskType.GENERAL,
     taskPlan: TaskPlan? = null,
 ): String {
-    val skillList = skills.joinToString("\n") { s ->
-        "- ${s.id}: ${s.description}" + if (s.parameters.isNotEmpty()) {
-            "\n  Params: " + s.parameters.joinToString(", ") { p ->
-                "${p.name} (${p.type}${if (!p.required) ", optional" else ""}): ${p.description}"
-            }
-        } else ""
-    }
-    val langSection = when (language) {
-        "auto", "" -> ""
-        "zh" -> "\n## Response Language\nYou MUST respond in Simplified Chinese (简体中文) for all output. This is mandatory.\n"
-        "en" -> "\n## Response Language\nYou MUST respond in English for all output.\n"
-        "ja" -> "\n## Response Language\nYou MUST respond in Japanese (日本語) for all output.\n"
-        else -> "\n## Response Language\nYou MUST respond in $language for all output.\n"
-    }
+    val skillList = groupedSkillList(skills)
+    val langSection = "\n${responseLanguageSystemInstruction(language)}\n"
     val semanticSection = if (semanticContext.isNotBlank()) "\n## Stored Long-Term Memory\n$semanticContext\n" else ""
     val episodicSection = if (episodicContext.isNotBlank()) "\n## Lessons from Past Tasks\n$episodicContext\n" else ""
     val contextSection = if (priorContext.isNotBlank()) "\n## Conversation History\n$priorContext\n" else ""
+    val executionSection = if (executionContext.isNotBlank()) "\n$executionContext\n" else ""
     val roleSection = if (role != null && role.id != "general") {
         "\n## Active Role: ${role.name}\n${role.systemPromptAddendum.trim()}\n"
     } else ""
+    val channelSection = when (taskType) {
+        TaskType.PHONE_CONTROL -> """
+## Execution Channels
+- Phone tool channel: observe the screen, act on the device, and verify the result.
+- Memory channel: keep user preferences and prior phone-state lessons in view.
+- Self-evolution channel: only when the user explicitly asks to change capabilities, roles, or skills.
+""".trimIndent()
+        TaskType.WEB_RESEARCH -> """
+## Execution Channels
+- Web tool channel: gather sources and extract facts.
+- Memory channel: keep previous conclusions and source notes in view.
+- Chat channel: explain results in the configured app language.
+""".trimIndent()
+        TaskType.APP_BUILD -> """
+## Execution Channels
+- Artifact channel: create or update pages, apps, or previews.
+- Skill channel: reuse builders, market tools, or helper skills instead of reinventing them.
+- Memory channel: continue from existing pages/apps rather than creating duplicates.
+""".trimIndent()
+        TaskType.FILE_CREATE -> """
+## Execution Channels
+- File channel: create, read, list, update, or generate documents.
+- Memory channel: continue from existing file artifacts when the user says “继续/改一下”.
+- Skill channel: use document helpers when layout or file-format complexity is high.
+""".trimIndent()
+        TaskType.SKILL_MANAGEMENT -> """
+## Execution Channels
+- Skill channel: inspect, create, install, or refine capabilities.
+- Self-evolution channel: update roles, prompts, skill policies, and capability routing.
+- Memory channel: keep durable capability decisions and user preferences.
+""".trimIndent()
+        else -> """
+## Execution Channels
+- Chat channel: answer directly when no action is needed.
+- Tool channel: when the user asks for an action, inspection, repair, or creation, choose the smallest matching capability instead of pretending you lack tools.
+- Memory channel: use remembered facts and preferences before asking again.
+- Skill / self-evolution channel: if the user asks you to improve your own behavior, skills, roles, or pages, route there explicitly.
+""".trimIndent()
+    }
     val taskSection = "\n${TaskToolPolicy.prompt(taskType)}\n"
     val planSection = taskPlan?.let { "\n${it.toPrompt()}\n" } ?: ""
-    return """
+return """
 You are MobileClaw — an autonomous AI agent embedded in Android. You don't just suggest actions, you take them. You can see the screen, tap buttons, type text, search the web, and execute code.
-$langSection$roleSection$taskSection$planSection$semanticSection$episodicSection$contextSection
+$langSection$roleSection$channelSection$executionSection
+$taskSection$planSection$semanticSection$episodicSection$contextSection
 ## Available Tools
 $skillList
 
@@ -297,3 +329,28 @@ The app exposes a local HTTP API at http://127.0.0.1:52732 for self-modification
 Use web_browse or fetch_url to call these endpoints. Any HTTP skill you create can also call them.
 """.trimIndent()
 }
+
+private fun groupedSkillList(skills: List<SkillMeta>): String =
+    skills
+        .groupBy { SkillToolTaxonomy.primaryCategory(it) }
+        .entries
+        .joinToString("\n\n") { (category, group) ->
+            buildString {
+                appendLine("### ${SkillToolTaxonomy.label(category)}")
+                group.sortedBy { it.id }.forEach { s ->
+                    val categoryHint = s.categories
+                        .ifEmpty { SkillToolTaxonomy.categoriesFor(s.id).toList() }
+                        .joinToString(", ") { it.name.lowercase() }
+                    append("- ${s.id}")
+                    if (categoryHint.isNotBlank()) append(" [$categoryHint]")
+                    append(": ${s.description}")
+                    if (s.parameters.isNotEmpty()) {
+                        append("\n  Params: ")
+                        append(s.parameters.joinToString(", ") { p ->
+                            "${p.name} (${p.type}${if (!p.required) ", optional" else ""}): ${p.description}"
+                        })
+                    }
+                    appendLine()
+                }
+            }.trimEnd()
+        }

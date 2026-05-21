@@ -8,6 +8,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 
 private const val PROFILE_PREFIX = "profile."
 
@@ -40,6 +41,7 @@ class UserProfileSkill(
         injectionLevel = 1,
         nameZh = "用户画像",
         descriptionZh = "读取或更新用户的持久化画像信息（职业、兴趣、习惯等）。",
+        categories = listOf(SkillToolCategory.MEMORY),
         tags = listOf("记忆"),
     )
 

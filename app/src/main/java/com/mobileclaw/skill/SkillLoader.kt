@@ -87,6 +87,7 @@ class SkillLoader(
             meta = m.copy(
                 tags       = if (m.tags == null) emptyList() else m.tags,
                 parameters = if (m.parameters == null) emptyList() else m.parameters,
+                categories = if (m.categories == null) emptyList() else m.categories,
             ),
         )
     }

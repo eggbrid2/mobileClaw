@@ -9,6 +9,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.ui.aipage.AiPageDef
 import com.mobileclaw.ui.aipage.AiPageStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,6 +54,7 @@ class UiBuilderSkill(
         ),
         injectionLevel = 1,
         type = SkillType.NATIVE,
+        categories = listOf(SkillToolCategory.ARTIFACT, SkillToolCategory.SKILL),
         tags = listOf("页面", "应用"),
     )
 

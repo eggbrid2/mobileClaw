@@ -1,0 +1,74 @@
+name: Bug report / Bug 反馈
+description: Report a reproducible MobileClaw bug. / 报告可复现的 MobileClaw 问题。
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary / 摘要
+      description: What happened? / 发生了什么？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Include the task prompt when relevant. / 如果和 Agent 任务有关，请包含完整提示词。
+      placeholder: |
+        1. Open ... / 打开 ...
+        2. Grant ... / 授予 ...
+        3. Ask MobileClaw ... / 向 MobileClaw 输入 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior / 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / 实际行为
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MobileClaw version or commit / MobileClaw 版本或 commit
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model / 设备型号
+    validations:
+      required: false
+  - type: input
+    id: android
+    attributes:
+      label: Android version and ROM / Android 版本和 ROM
+    validations:
+      required: false
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: Area / 相关区域
+      options:
+        - label: AccessibilityService / screen reading / 无障碍服务或读屏
+        - label: Screenshot / VLM / 截图或 VLM
+        - label: Gesture or text input / 手势或文本输入
+        - label: Dynamic skills / 动态 Skill
+        - label: Python or shell execution / Python 或 Shell 执行
+        - label: WebView mini app / WebView mini app
+        - label: AI Page / AI Page
+        - label: VPN / proxy / VPN 或代理
+        - label: Local or LAN API server / 本地或局域网 API Server
+        - label: Model prompt, memory, or tool observations / 模型提示词、记忆或工具 observation
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or recordings / 日志、截图或录屏
+      description: Remove API keys, tokens, proxy credentials, phone numbers, private URLs, and personal screenshots. / 请移除 API Key、Token、代理凭据、手机号、私有 URL 和个人截图。
+

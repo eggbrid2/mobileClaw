@@ -55,6 +55,7 @@ import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillMarket
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
+import com.mobileclaw.skill.SkillToolTaxonomy
 import com.mobileclaw.skill.SkillType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -554,12 +555,13 @@ private fun buildRemoteDef(
         injectionLevel = 2,
         isBuiltin = false,
     )
+    val categorizedMeta = meta.copy(categories = SkillToolTaxonomy.categoriesFor(meta).toList())
     return if (httpUrl.isNotBlank()) {
-        SkillDefinition(meta = meta, httpConfig = HttpSkillConfig(url = httpUrl))
+        SkillDefinition(meta = categorizedMeta, httpConfig = HttpSkillConfig(url = httpUrl))
     } else {
         val script = scriptBody.ifBlank {
             "# $name\n# Sourced from $platform\nprint(\"\"\"$description\"\"\")"
         }
-        SkillDefinition(meta = meta, script = script)
+        SkillDefinition(meta = categorizedMeta, script = script)
     }
 }

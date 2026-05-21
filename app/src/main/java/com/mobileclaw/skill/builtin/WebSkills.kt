@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.ui.InAppWebViewManager
 import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,7 @@ class WebSearchSkill(private val webView: InAppWebViewManager? = null) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.WEB),
         tags = listOf("网络"),
     )
 
@@ -331,6 +333,7 @@ class FetchUrlSkill : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.WEB),
         tags = listOf("网络"),
     )
 
@@ -378,6 +381,7 @@ class WebBrowseSkill(private val manager: InAppWebViewManager) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.WEB),
         tags = listOf("网络"),
     )
 
@@ -402,6 +406,7 @@ class WebContentSkill(private val manager: InAppWebViewManager) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.WEB),
         tags = listOf("网络"),
     )
 
@@ -426,6 +431,7 @@ class WebJsSkill(private val manager: InAppWebViewManager) : Skill {
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
+        categories = listOf(SkillToolCategory.WEB),
         tags = listOf("网络"),
     )
 

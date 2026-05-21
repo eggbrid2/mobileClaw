@@ -12,6 +12,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -68,6 +69,7 @@ class GenerateVideoSkill(
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.MEDIA),
         tags = listOf("创作"),
     )
 

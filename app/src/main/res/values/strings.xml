@@ -1184,6 +1184,7 @@ You MUST respond in Simplified Chinese.
     <string name="sticker_favorites_empty">No favorite stickers yet.</string>
     <string name="sticker_favorite_action">Save</string>
     <string name="sticker_unfavorite_action">Remove</string>
+    <string name="group_members_addable">Add members</string>
     <string name="cache_title">Cache management</string>
     <string name="cache_subtitle">Clear generated files and runtime caches by category</string>
     <string name="cache_total">Reclaimable storage</string>

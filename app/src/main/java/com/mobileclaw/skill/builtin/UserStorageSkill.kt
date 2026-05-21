@@ -6,6 +6,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -31,6 +32,7 @@ class UserStorageSkill(private val storage: UserStorageManager) : Skill {
         injectionLevel = 1,
         nameZh = "用户存储",
         descriptionZh = "读写用户自定义存储数据。",
+        categories = listOf(SkillToolCategory.ARTIFACT, SkillToolCategory.SYSTEM),
         tags = listOf("用户"),
     )
 

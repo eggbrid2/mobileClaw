@@ -1,5 +1,7 @@
 package com.mobileclaw.llm
 
+import com.mobileclaw.config.responseLanguageSystemInstruction
+
 /** Unified interface for all LLM backends. Swap implementations without touching Agent logic. */
 interface LlmGateway {
     suspend fun chat(request: ChatRequest): ChatResponse
@@ -50,3 +52,12 @@ data class ToolProperty(
     val type: String,
     val description: String,
 )
+
+fun ChatRequest.withResponseLanguage(language: String): ChatRequest {
+    val instruction = responseLanguageSystemInstruction(language)
+    val hasSameInstruction = messages.any {
+        it.role == "system" && it.content?.contains("## Response Language") == true
+    }
+    if (hasSameInstruction) return this
+    return copy(messages = listOf(Message(role = "system", content = instruction)) + messages)
+}

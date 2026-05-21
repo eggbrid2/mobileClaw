@@ -7,6 +7,7 @@ import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
+import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -28,6 +29,7 @@ class CreateFileSkill(private val context: Context) : Skill {
         injectionLevel = 1,
         nameZh = "创建文件",
         descriptionZh = "在本地存储中创建或覆盖文件。",
+        categories = listOf(SkillToolCategory.ARTIFACT),
         tags = listOf("文件"),
     )
 
@@ -78,6 +80,7 @@ class ReadFileSkill(private val context: Context) : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.ARTIFACT),
         tags = listOf("文件"),
     )
 
@@ -116,6 +119,7 @@ class ListFilesSkill(private val context: Context) : Skill {
         type = SkillType.NATIVE,
         injectionLevel = 1,
         isBuiltin = true,
+        categories = listOf(SkillToolCategory.ARTIFACT),
         tags = listOf("文件"),
     )
 
@@ -198,6 +202,7 @@ class CreateHtmlSkill(private val context: Context) : Skill {
         injectionLevel = 1,
         nameZh = "创建一次性 HTML 预览",
         descriptionZh = "生成一次性 HTML 报告/预览并在聊天中打开。持久页面优先使用 ui_builder，真正的 MiniAPP 程序使用 app_manager，不要直接在聊天里返回 HTML。",
+        categories = listOf(SkillToolCategory.ARTIFACT),
         tags = listOf("文件"),
     )
 
