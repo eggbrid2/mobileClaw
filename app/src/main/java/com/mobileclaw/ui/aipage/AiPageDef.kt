@@ -1,6 +1,8 @@
 package com.mobileclaw.ui.aipage
 
 import com.google.gson.JsonObject
+import com.mobileclaw.artifact.ArtifactHistoryEntry
+import com.mobileclaw.artifact.ArtifactSpec
 
 /**
  * Definition of an AI-created native Compose page.
@@ -22,7 +24,10 @@ data class AiPageDef(
     val version: Int = 1,
     val description: String = "",
     val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
     val state: Map<String, String> = emptyMap(),
     val layout: JsonObject = JsonObject(),
     val actions: JsonObject = JsonObject(),
+    val spec: ArtifactSpec = ArtifactSpec(),
+    val history: List<ArtifactHistoryEntry> = emptyList(),
 )

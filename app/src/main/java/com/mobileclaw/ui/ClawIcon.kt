@@ -68,7 +68,7 @@ fun clawIconForPage(page: AppPage): ImageVector = when (page) {
     AppPage.SKILLS -> Icons.Outlined.Extension
     AppPage.SKILL_MARKET -> Icons.Outlined.Storefront
     AppPage.PROFILE -> Icons.Outlined.Psychology
-    AppPage.ROLES, AppPage.ROLE_EDIT -> Icons.Outlined.TheaterComedy
+    AppPage.ROLES, AppPage.ROLE_DETAIL, AppPage.ROLE_EDIT -> Icons.Outlined.TheaterComedy
     AppPage.USER_CONFIG -> Icons.Outlined.Person
     AppPage.APPS -> Icons.Outlined.Apps
     AppPage.CONSOLE -> Icons.Outlined.Terminal
@@ -77,6 +77,8 @@ fun clawIconForPage(page: AppPage): ImageVector = when (page) {
     AppPage.BROWSER -> Icons.Outlined.Web
     AppPage.AI_PAGES -> Icons.Outlined.Article
     AppPage.VPN -> Icons.Outlined.Lock
+    AppPage.AI_TOWN -> Icons.Outlined.TheaterComedy
+    AppPage.WORKSPACE -> Icons.Outlined.Folder
 }
 
 fun clawIconForSymbol(symbol: String?): ImageVector {
@@ -120,6 +122,7 @@ fun clawIconForSymbol(symbol: String?): ImageVector {
         value in setOf("🚀", "launch", "autostart", "启动") -> Icons.Outlined.RocketLaunch
         value in setOf("📥", "download", "downloads") -> Icons.Outlined.Download
         value in setOf("📁", "folder", "directory") -> Icons.Outlined.Folder
+        value in setOf("workspace", "workspaces", "工作空间") -> Icons.Outlined.Folder
         value in setOf("🖼", "🖼️", "image", "picture", "pictures") -> Icons.Outlined.Image
         value in setOf("📸", "📷", "camera", "screenshot") -> Icons.Outlined.CameraAlt
         value in setOf("🎵", "music", "audio") -> Icons.Outlined.MusicNote
@@ -133,6 +136,7 @@ fun clawIconForSymbol(symbol: String?): ImageVector {
         value in setOf("👁", "eye", "visible") -> Icons.Outlined.Visibility
         value in setOf("✅", "check", "done") -> Icons.Outlined.CheckCircle
         value in setOf("🎮", "game") -> Icons.Outlined.SportsEsports
+        value in setOf("town", "ai_town", "house", "home", "room", "小镇", "房间") -> Icons.Outlined.Home
         value in setOf("📦", "package") -> Icons.Outlined.ShoppingBag
         else -> Icons.Outlined.InsertDriveFile
     }

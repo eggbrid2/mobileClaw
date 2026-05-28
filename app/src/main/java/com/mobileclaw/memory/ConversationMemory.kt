@@ -48,6 +48,9 @@ class ConversationMemory(private val dao: ConversationDao) {
     suspend fun recentUserMessages(limit: Int = 50): List<ConversationEntity> =
         dao.recentUserMessages(limit)
 
+    suspend fun recentContextForTask(taskId: String, limit: Int = 40): List<ConversationEntity> =
+        dao.recentForTask(taskId, limit).reversed()
+
     /** Returns a combined recent message window (user + agent). */
     suspend fun recentContext(limit: Int = 80): List<ConversationEntity> =
         dao.recent(limit).reversed()

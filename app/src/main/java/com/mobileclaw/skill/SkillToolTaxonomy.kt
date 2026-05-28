@@ -28,6 +28,7 @@ object SkillToolTaxonomy {
             "session_manager",
             "task_recipe",
             "skill_notes",
+            "workspace_manager",
         ),
         SkillToolCategory.SKILL to setOf(
             "meta",
@@ -44,6 +45,8 @@ object SkillToolTaxonomy {
             "generate_icon",
             "console_editor",
             "page_control",
+            "house_artist",
+            "town_builder",
         ),
         SkillToolCategory.ARTIFACT to setOf(
             "ui_builder",
@@ -54,6 +57,9 @@ object SkillToolTaxonomy {
             "list_files",
             "generate_document",
             "user_storage",
+            "house_artist",
+            "town_builder",
+            "workspace_manager",
         ),
         SkillToolCategory.PHONE to setOf(
             "see_screen",
@@ -84,6 +90,7 @@ object SkillToolTaxonomy {
             "generate_image",
             "generate_icon",
             "generate_video",
+            "house_artist",
         ),
         SkillToolCategory.VPN to setOf(
             "vpn_control",

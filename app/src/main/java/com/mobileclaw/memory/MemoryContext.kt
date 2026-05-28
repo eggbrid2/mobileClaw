@@ -8,6 +8,7 @@ data class MemoryContextPacket(
     val hardRules: List<String> = emptyList(),
     val preferences: List<String> = emptyList(),
     val userFacts: List<String> = emptyList(),
+    val activeTaskMemory: List<String> = emptyList(),
     val appFacts: List<String> = emptyList(),
     val corrections: List<String> = emptyList(),
     val explicitConfig: List<String> = emptyList(),
@@ -17,6 +18,7 @@ data class MemoryContextPacket(
         hardRules.isEmpty() &&
             preferences.isEmpty() &&
             userFacts.isEmpty() &&
+            activeTaskMemory.isEmpty() &&
             appFacts.isEmpty() &&
             corrections.isEmpty() &&
             explicitConfig.isEmpty()
@@ -29,6 +31,7 @@ data class MemoryContextPacket(
             appendSection("Hard rules", hardRules)
             appendSection("User preferences", preferences)
             appendSection("User facts", userFacts)
+            appendSection("Active session/task memory", activeTaskMemory)
             appendSection("App/project/tool memory", appFacts)
             appendSection("Recent corrections and failure lessons", corrections)
             appendSection("Explicit user configuration", explicitConfig)
@@ -49,6 +52,7 @@ class MemoryContextBuilder(
     suspend fun build(
         userMessage: String,
         taskType: TaskType,
+        activeSessionScopeId: String? = null,
         inMemoryUserConfigEntries: Map<String, ConfigEntry> = emptyMap(),
         inMemoryFacts: Map<String, String> = emptyMap(),
     ): MemoryContextPacket {
@@ -61,7 +65,7 @@ class MemoryContextBuilder(
         val configs = inMemoryUserConfigEntries.ifEmpty {
             runCatching { userConfig.allEntries() }.getOrDefault(emptyMap())
         }
-        val packet = buildFromSnapshots(userMessage, taskType, configs, facts)
+        val packet = buildFromSnapshots(userMessage, taskType, configs, facts, activeSessionScopeId)
         if (!fromSnapshot) {
             runCatching { semanticMemory.markUsed(packet.sourceKeys) }
         }
@@ -73,11 +77,13 @@ class MemoryContextBuilder(
         taskType: TaskType,
         userConfigEntries: Map<String, ConfigEntry>,
         facts: Map<String, String>,
+        activeSessionScopeId: String? = null,
     ): MemoryContextPacket = buildFromSnapshots(
         userMessage = userMessage,
         taskType = taskType,
         userConfigEntries = userConfigEntries,
         facts = facts.map { (key, value) -> MemoryFact(key = key, value = value) },
+        activeSessionScopeId = activeSessionScopeId,
     )
 
     fun buildFromSnapshots(
@@ -85,11 +91,12 @@ class MemoryContextBuilder(
         taskType: TaskType,
         userConfigEntries: Map<String, ConfigEntry>,
         facts: List<MemoryFact>,
+        activeSessionScopeId: String? = null,
     ): MemoryContextPacket {
         val query = userMessage.lowercase()
         val relevantFacts = facts
             .filter { it.enabled }
-            .filter { fact -> isRelevantMemory(fact.key, fact.value, query, taskType) }
+            .filter { fact -> isRelevantMemory(fact.key, fact.value, query, taskType, activeSessionScopeId) }
             .sortedWith(compareByDescending<MemoryFact> { memoryPriority(it, taskType) }.thenByDescending { it.updatedAt }.thenBy { it.key })
             .take(48)
 
@@ -116,6 +123,10 @@ class MemoryContextBuilder(
                 .filterNot { it.key.startsWith("profile.preferred") || it.key.startsWith("profile.dislikes") }
                 .map { "${it.key.removePrefix("profile.").removePrefix("user.")}: ${it.value.take(180)}" }
                 .take(18),
+            activeTaskMemory = relevantFacts
+                .filter { it.key.startsWith("session.") }
+                .map { formatSessionMemory(it) }
+                .take(16),
             appFacts = relevantFacts
                 .filter { it.key.startsWith("project.") || it.key.startsWith("app.") || it.key.startsWith("skill.") || it.key.startsWith("model.") || it.key.startsWith("vpn.") }
                 .map { "${it.key}: ${it.value.take(220)}" }
@@ -129,11 +140,12 @@ class MemoryContextBuilder(
         )
     }
 
-    private fun isRelevantMemory(key: String, value: String, query: String, taskType: TaskType): Boolean {
+    private fun isRelevantMemory(key: String, value: String, query: String, taskType: TaskType, activeSessionScopeId: String?): Boolean {
         if (value.isBlank()) return false
         if (isSensitiveKey(key)) return false
         if (key.startsWith("rule.") || key.startsWith("tool.policy.") || key.startsWith("agent.behavior.")) return true
         if (key.startsWith("profile.") || key.startsWith("user.") || key.startsWith("preference.")) return true
+        if (key.startsWith("session.")) return activeSessionScopeId?.let { key.startsWith("session.$it.") } == true
         return when (taskType) {
             TaskType.PHONE_CONTROL -> key.startsWith("app.") || key.startsWith("tool.phone.") || key.startsWith("failure.phone.") || query.contains("手机")
             TaskType.APP_BUILD -> key.startsWith("project.") || key.startsWith("preference.ui") || key.startsWith("ui.") || key.startsWith("failure.ui") || key.startsWith("skill.ui")
@@ -165,6 +177,7 @@ class MemoryContextBuilder(
         val key = fact.key
         var score = 0
         if (key.startsWith("rule.") || key.startsWith("tool.policy.") || key.startsWith("agent.behavior.")) score += 100
+        if (key.startsWith("session.")) score += 110
         if (fact.pinned) score += 120
         if (key.startsWith("correction.") || key.startsWith("failure.") || key.startsWith("lesson.")) score += 80
         if (key.startsWith("preference.") || key.startsWith("profile.preferred")) score += 60
@@ -202,6 +215,19 @@ class MemoryContextBuilder(
 
     private fun shouldExposeUserConfig(key: String, value: String): Boolean =
         value.isNotBlank() && !isSensitiveKey(key)
+
+    private fun formatSessionMemory(fact: MemoryFact): String {
+        val suffix = fact.key.substringAfter("session.", "").substringAfter('.', "")
+        return when {
+            suffix.startsWith("task.goal") -> "current goal: ${fact.value.take(180)}"
+            suffix.startsWith("task.summary") -> "latest summary: ${fact.value.take(180)}"
+            suffix.startsWith("task.type") -> "task type: ${fact.value.take(80)}"
+            suffix.startsWith("task.state") -> "task state: ${fact.value.take(80)}"
+            suffix.startsWith("task.state_detail") -> "task state detail: ${fact.value.take(180)}"
+            suffix.startsWith("task.status") -> "task status: ${fact.value.take(80)}"
+            else -> "${suffix}: ${fact.value.take(180)}"
+        }
+    }
 
     private fun isSensitiveKey(key: String): Boolean {
         val lower = key.lowercase()

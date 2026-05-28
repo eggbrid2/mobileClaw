@@ -44,7 +44,7 @@ Join the WeChat group to discuss MobileClaw usage, Android agent development, lo
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="260" />
 </p>
 
-This WeChat group QR code is valid until **May 28, 2026**. If it expires, open the latest README or ask for an updated invite.
+This WeChat group QR code is valid until **June 4, 2026**. If it expires, open the latest README or ask for an updated invite.
 
 ## Why This Exists
 
@@ -302,10 +302,6 @@ Root is not a baseline requirement. Some background-display features may still n
 - Better docs, demos, and small role/skill presets.
 
 Before opening a PR, read [CONTRIBUTING.md](CONTRIBUTING.md). For device-specific behavior, use the ROM compatibility issue template and include the checklist from [docs/recipes/rom-compatibility-report.md](docs/recipes/rom-compatibility-report.md).
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=eggbrid2/mobileClaw&type=Date)](https://star-history.com/#eggbrid2/mobileClaw&Date)
 
 ## Status
 

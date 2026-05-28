@@ -1,6 +1,7 @@
 package com.mobileclaw.server
 
 import android.os.Build
+import android.util.Log
 import com.google.gson.Gson
 import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.config.UserConfig
@@ -55,39 +56,62 @@ import java.util.concurrent.CopyOnWriteArrayList
 class ConsoleServer(
     private val filesDir: File,
     private val database: ClawDatabase,
+    private val enabled: Boolean = false,
+    private val lanEnabled: Boolean = false,
+    private val authToken: String = "",
     val messageRequests: MutableSharedFlow<String> = MutableSharedFlow(extraBufferCapacity = 16),
     private val skillRegistry: SkillRegistry? = null,
     private val skillLoader: SkillLoader? = null,
     private val semanticMemory: SemanticMemory? = null,
     private val userConfig: UserConfig? = null,
 ) {
+    companion object {
+        const val PORT = 52733
+        private const val TAG = "ConsoleServer"
+    }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var serverSocket: ServerSocket? = null
     private val sseClients = CopyOnWriteArrayList<SseClient>()
     private val gson = Gson()
 
-    companion object {
-        const val PORT = 52733
-    }
-
     private data class SseClient(val output: OutputStream, val socket: Socket)
 
     fun start() {
+        if (!enabled) return
         scope.launch {
-            ensureDefaultHtml()
-            runCatching {
-                serverSocket = ServerSocket(PORT, 50, InetAddress.getByName("0.0.0.0"))
-                while (!serverSocket!!.isClosed) {
-                    val client = runCatching { serverSocket!!.accept() }.getOrNull() ?: break
+            try {
+                ensureDefaultHtml()
+                val bindAddress = if (lanEnabled) "0.0.0.0" else "127.0.0.1"
+                serverSocket = ServerSocket(PORT, 50, InetAddress.getByName(bindAddress))
+                while (serverSocket?.isClosed == false) {
+                    val client = try {
+                        serverSocket?.accept()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Console accept loop stopped", t)
+                        null
+                    } ?: break
                     launch { handleClient(client) }
                 }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to start console server", t)
             }
         }
     }
 
     fun stop() {
-        runCatching { serverSocket?.close() }
+        try {
+            serverSocket?.close()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to stop console server cleanly", t)
+        }
     }
+
+    fun isEnabled(): Boolean = enabled
+
+    fun isLanEnabled(): Boolean = enabled && lanEnabled
+
+    fun getAccessUrl(): String =
+        if (authToken.isBlank()) getLanUrl() else "${getLanUrl()}?token=$authToken"
 
     fun getLanUrl(): String = "http://${getLanIp()}:$PORT"
 
@@ -112,15 +136,18 @@ class ConsoleServer(
         val bytes = event.toByteArray(Charsets.UTF_8)
         val dead = mutableListOf<SseClient>()
         for (client in sseClients) {
-            runCatching {
+            try {
                 client.output.write(bytes)
                 client.output.flush()
-            }.onFailure { dead += client }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Dropping dead SSE client during broadcast", t)
+                dead += client
+            }
         }
         sseClients.removeAll(dead.toSet())
     }
 
-    private fun getLanIp(): String = runCatching {
+    private fun getLanIp(): String = try {
         NetworkInterface.getNetworkInterfaces()?.toList()
             ?.filter { it.isUp && !it.isLoopback && !it.isVirtual }
             ?.sortedWith(compareBy { iface ->
@@ -135,10 +162,14 @@ class ConsoleServer(
             ?.flatMap { iface -> iface.inetAddresses.toList().filter { !it.isLoopbackAddress && it is Inet4Address } }
             ?.firstOrNull()
             ?.hostAddress
-    }.getOrNull() ?: "127.0.0.1"
+            ?: "127.0.0.1"
+    } catch (t: Throwable) {
+        Log.w(TAG, "Failed to resolve LAN IP, fallback to loopback", t)
+        "127.0.0.1"
+    }
 
     private fun handleClient(socket: Socket) {
-        runCatching {
+        try {
             val reader = socket.getInputStream().bufferedReader(Charsets.UTF_8)
             val requestLine = reader.readLine() ?: return
             val parts = requestLine.split(" ")
@@ -148,13 +179,19 @@ class ConsoleServer(
             val path = fullPath.substringBefore("?")
             val query = if ("?" in fullPath) fullPath.substringAfter("?") else ""
 
+            val headers = linkedMapOf<String, String>()
             var contentLength = 0
             while (true) {
                 val line = reader.readLine() ?: break
                 if (line.isBlank()) break
                 val colon = line.indexOf(':')
-                if (colon > 0 && line.substring(0, colon).trim().lowercase() == "content-length") {
-                    contentLength = line.substring(colon + 1).trim().toIntOrNull() ?: 0
+                if (colon > 0) {
+                    val headerName = line.substring(0, colon).trim().lowercase()
+                    val headerValue = line.substring(colon + 1).trim()
+                    headers[headerName] = headerValue
+                    if (headerName == "content-length") {
+                        contentLength = headerValue.toIntOrNull() ?: 0
+                    }
                 }
             }
             val body = if (contentLength > 0) {
@@ -165,6 +202,12 @@ class ConsoleServer(
 
             // CORS preflight
             if (method == "OPTIONS") { sendCorsOk(socket); return }
+
+            val isLoopbackClient = socket.inetAddress.isLoopbackAddress
+            if (!isAuthorized(path, query, headers, isLoopbackClient)) {
+                sendJson(socket, "401 Unauthorized", mapOf("error" to "Console API auth required"))
+                return
+            }
 
             when {
                 path == "/api/events" -> { handleSse(socket); return }
@@ -197,43 +240,99 @@ class ConsoleServer(
                 path == "/" || path == "/index.html" -> handleIndex(socket)
                 else -> sendJson(socket, "404 Not Found", mapOf("error" to "Not found: $method $path"))
             }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to handle console client ${socket.inetAddress?.hostAddress}", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to handle request"))
         }
     }
 
+    private fun isAuthorized(
+        path: String,
+        query: String,
+        headers: Map<String, String>,
+        isLoopbackClient: Boolean,
+    ): Boolean {
+        if (!path.startsWith("/api/")) return true
+        if (isLoopbackClient && !lanEnabled) return true
+        if (authToken.isBlank()) return isLoopbackClient
+        val bearer = headers["authorization"]
+            ?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }
+            ?.substringAfter("Bearer ", "")
+            ?.trim()
+            .orEmpty()
+        val headerToken = headers["x-claw-token"].orEmpty()
+        val queryToken = query.split("&")
+            .firstOrNull { it.startsWith("token=") }
+            ?.substringAfter("token=")
+            .orEmpty()
+        return listOf(bearer, headerToken, queryToken).any { it == authToken }
+    }
+
     private fun handleSse(socket: Socket) {
-        val output = socket.getOutputStream()
-        runCatching {
+        val output = try {
+            socket.getOutputStream()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to open SSE output stream", t)
+            try {
+                socket.close()
+            } catch (_: Throwable) {
+            }
+            return
+        }
+        try {
             output.write((
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n" +
                 "Access-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n" +
                 "data: {\"type\":\"connected\"}\n\n"
             ).toByteArray(Charsets.UTF_8))
             output.flush()
-        }.onFailure { runCatching { socket.close() }; return }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to initialize SSE stream", t)
+            try {
+                socket.close()
+            } catch (_: Throwable) {
+            }
+            return
+        }
 
         val client = SseClient(output, socket)
         sseClients.add(client)
-        runCatching {
+        try {
             val input = socket.getInputStream()
             while (!socket.isClosed) {
                 if (input.read() == -1) break
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "SSE client loop ended with socket error", t)
         }
         sseClients.remove(client)
-        runCatching { socket.close() }
+        try {
+            socket.close()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to close SSE socket", t)
+        }
     }
 
     private fun handleSend(socket: Socket, body: String) {
-        val msg = runCatching {
+        val msg = try {
             @Suppress("UNCHECKED_CAST")
             (gson.fromJson(body, Map::class.java) as? Map<String, Any>)?.get("message") as? String
-        }.getOrNull() ?: ""
+        } catch (t: Throwable) {
+            Log.w(TAG, "Invalid /api/send payload: ${body.take(240)}", t)
+            null
+        }.orEmpty()
         if (msg.isNotBlank()) scope.launch { messageRequests.emit(msg) }
         sendJson(socket, "200 OK", mapOf("ok" to true))
     }
 
     private fun handleSessions(socket: Socket) {
-        val sessions = runCatching { runBlocking { database.sessionDao().recent(50) } }.getOrDefault(emptyList())
+        val sessions = try {
+            runBlocking { database.sessionDao().recent(50) }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to load sessions", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to load sessions"))
+            return
+        }
         sendJson(socket, "200 OK", mapOf("sessions" to sessions.map {
             mapOf("id" to it.id, "title" to it.title, "updatedAt" to it.updatedAt)
         }))
@@ -243,14 +342,20 @@ class ConsoleServer(
         val sessionId = query.split("&")
             .firstOrNull { it.startsWith("sessionId=") }?.substringAfter("sessionId=") ?: ""
         val msgs = if (sessionId.isNotBlank()) {
-            runCatching { runBlocking { database.sessionMessageDao().forSession(sessionId) } }.getOrDefault(emptyList())
-                .map { mapOf("role" to it.role, "text" to it.text, "createdAt" to it.createdAt) }
+            try {
+                runBlocking { database.sessionMessageDao().forSession(sessionId) }
+                    .map { mapOf("role" to it.role, "text" to it.text, "createdAt" to it.createdAt) }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to load messages for session=$sessionId", t)
+                sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to load messages"))
+                return
+            }
         } else emptyList()
         sendJson(socket, "200 OK", mapOf("messages" to msgs))
     }
 
     private fun handleIndex(socket: Socket) {
-        runCatching {
+        try {
             val html = getHtml()
             val bytes = html.toByteArray(Charsets.UTF_8)
             val out = socket.getOutputStream()
@@ -258,11 +363,14 @@ class ConsoleServer(
             out.write(bytes)
             out.flush()
             socket.close()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to serve console index", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to render console"))
         }
     }
 
     private fun sendJson(socket: Socket, status: String, data: Any) {
-        runCatching {
+        try {
             socket.use {
                 val json = gson.toJson(data)
                 val bytes = json.toByteArray(Charsets.UTF_8)
@@ -279,6 +387,8 @@ class ConsoleServer(
                 out.write(bytes)
                 out.flush()
             }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to send json response status=$status", t)
         }
     }
 
@@ -294,13 +404,14 @@ class ConsoleServer(
             "lan_ip" to ip,
             "port" to PORT,
             "base_url" to "http://$ip:$PORT",
+            "auth_required" to authToken.isNotBlank(),
             "capabilities" to listOf("send", "sessions", "messages", "events", "skills", "memory", "config"),
             "cli_url" to "http://$ip:$PORT/api/openclaw/cli.sh",
         ))
     }
 
     private fun handleSkillsList(socket: Socket) {
-        val skills = skillRegistry?.all()?.map { skill ->
+        val skills = skillRegistry?.all()?.filterNot { it.meta.internalTool }?.map { skill ->
             mapOf(
                 "id" to skill.meta.id,
                 "name" to skill.meta.name,
@@ -309,6 +420,7 @@ class ConsoleServer(
                 "type" to skill.meta.type.name.lowercase(),
                 "injectionLevel" to skill.meta.injectionLevel,
                 "isBuiltin" to skill.meta.isBuiltin,
+                "internalTool" to skill.meta.internalTool,
                 "tags" to skill.meta.tags,
             )
         } ?: emptyList<Any>()
@@ -331,12 +443,13 @@ class ConsoleServer(
         val loader = skillLoader ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Skill management not available")); return
         }
-        runCatching {
+        try {
             val def = gson.fromJson(body, SkillDefinition::class.java)
             loader.persist(def)
             sendJson(socket, "200 OK", mapOf("success" to true, "id" to def.meta.id))
-        }.onFailure { e ->
-            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Invalid skill definition")))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to install skill from payload: ${body.take(240)}", t)
+            sendJson(socket, "400 Bad Request", mapOf("error" to (t.message ?: "Invalid skill definition")))
         }
     }
 
@@ -344,12 +457,23 @@ class ConsoleServer(
         val loader = skillLoader ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Skill management not available")); return
         }
-        loader.delete(id)
-        sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to id))
+        try {
+            loader.delete(id)
+            sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to id))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to delete skill id=$id", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to delete skill"))
+        }
     }
 
     private fun handleMemoryGet(socket: Socket) {
-        val facts = runBlocking { runCatching { semanticMemory?.facts() }.getOrNull() ?: emptyList() }
+        val facts = try {
+            runBlocking { semanticMemory?.facts() ?: emptyList() }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to load memory facts", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to load memory"))
+            return
+        }
         sendJson(socket, "200 OK", mapOf("memory" to facts.associate { it.key to it.value }, "facts" to facts, "total" to facts.size))
     }
 
@@ -360,7 +484,7 @@ class ConsoleServer(
         val cfg = userConfig ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
         }
-        runCatching {
+        try {
             @Suppress("UNCHECKED_CAST")
             val req = gson.fromJson(body.ifBlank { "{}" }, Map::class.java) as Map<String, Any>
             val message = req["message"] as? String ?: ""
@@ -369,8 +493,9 @@ class ConsoleServer(
                 MemoryContextBuilder(mem, cfg).build(message, taskType).toPrompt()
             }
             sendJson(socket, "200 OK", mapOf("memoryContext" to context, "taskType" to taskType.name))
-        }.onFailure { e ->
-            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to build memory context. payload=${body.take(240)}", t)
+            sendJson(socket, "400 Bad Request", mapOf("error" to (t.message ?: "Bad request")))
         }
     }
 
@@ -378,7 +503,7 @@ class ConsoleServer(
         val mem = semanticMemory ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Memory not available")); return
         }
-        runCatching {
+        try {
             @Suppress("UNCHECKED_CAST")
             val req = gson.fromJson(body, Map::class.java) as Map<String, Any>
             val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
@@ -386,13 +511,20 @@ class ConsoleServer(
             val source = req["source"] as? String ?: "console_api"
             runBlocking { mem.set(key = key, value = value, source = source) }
             sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
-        }.onFailure { e ->
-            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to set memory. payload=${body.take(240)}", t)
+            sendJson(socket, "400 Bad Request", mapOf("error" to (t.message ?: "Bad request")))
         }
     }
 
     private fun handleConfigGet(socket: Socket) {
-        val entries = runBlocking { runCatching { userConfig?.all() }.getOrNull() ?: emptyMap<String, Any>() }
+        val entries = try {
+            runBlocking { userConfig?.all() ?: emptyMap<String, Any>() }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to load config entries", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to load config"))
+            return
+        }
         sendJson(socket, "200 OK", mapOf("config" to entries, "total" to entries.size))
     }
 
@@ -400,7 +532,7 @@ class ConsoleServer(
         val cfg = userConfig ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
         }
-        runCatching {
+        try {
             @Suppress("UNCHECKED_CAST")
             val req = gson.fromJson(body, Map::class.java) as Map<String, Any>
             val key = req["key"] as? String ?: throw IllegalArgumentException("key required")
@@ -411,8 +543,9 @@ class ConsoleServer(
                 if (mem != null) MemoryWriter(mem, cfg).syncUserConfig(key, value, desc) else cfg.set(key, value, desc)
             }
             sendJson(socket, "200 OK", mapOf("success" to true, "key" to key))
-        }.onFailure { e ->
-            sendJson(socket, "400 Bad Request", mapOf("error" to (e.message ?: "Bad request")))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to set config. payload=${body.take(240)}", t)
+            sendJson(socket, "400 Bad Request", mapOf("error" to (t.message ?: "Bad request")))
         }
     }
 
@@ -420,20 +553,23 @@ class ConsoleServer(
         val cfg = userConfig ?: run {
             sendJson(socket, "503 Service Unavailable", mapOf("error" to "Config not available")); return
         }
-        runBlocking {
-            runCatching {
+        try {
+            runBlocking {
                 val mem = semanticMemory
                 if (mem != null) MemoryWriter(mem, cfg).deleteUserConfig(key) else cfg.delete(key)
             }
+            sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to key))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to delete config key=$key", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to delete config"))
         }
-        sendJson(socket, "200 OK", mapOf("success" to true, "deleted" to key))
     }
 
     private fun handleCliScript(socket: Socket) {
         val ip = getLanIp()
         val script = buildOpenClawCliScript(ip)
         val bytes = script.toByteArray(Charsets.UTF_8)
-        runCatching {
+        try {
             val out = socket.getOutputStream()
             out.write((
                 "HTTP/1.1 200 OK\r\nContent-Type: text/x-shellscript; charset=utf-8\r\n" +
@@ -443,11 +579,14 @@ class ConsoleServer(
             out.write(bytes)
             out.flush()
             socket.close()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to serve OpenClaw CLI script", t)
+            sendJson(socket, "500 Internal Server Error", mapOf("error" to "Failed to generate cli script"))
         }
     }
 
     private fun sendCorsOk(socket: Socket) {
-        runCatching {
+        try {
             socket.use {
                 socket.getOutputStream().write((
                     "HTTP/1.1 204 No Content\r\n" +
@@ -457,19 +596,27 @@ class ConsoleServer(
                     "Connection: close\r\n\r\n"
                 ).toByteArray())
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to send CORS preflight response", t)
         }
     }
 
     private fun ensureDefaultHtml() {
-        val dir = File(filesDir, "console_web")
-        dir.mkdirs()
-        val file = File(dir, "index.html")
-        if (!file.exists()) file.writeText(DEFAULT_CONSOLE_HTML)
+        try {
+            val dir = File(filesDir, "console_web")
+            dir.mkdirs()
+            val file = File(dir, "index.html")
+            if (!file.exists()) file.writeText(DEFAULT_CONSOLE_HTML)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to initialize console html", t)
+            throw t
+        }
     }
 
     private fun getHtml(): String {
         val file = File(filesDir, "console_web/index.html")
-        return if (file.exists()) file.readText() else DEFAULT_CONSOLE_HTML
+        val raw = if (file.exists()) file.readText() else DEFAULT_CONSOLE_HTML
+        return raw.replace("__CLAW_TOKEN__", authToken)
     }
 
     private fun buildOpenClawCliScript(ip: String): String = """
@@ -480,12 +627,13 @@ class ConsoleServer(
 # Install:  sudo cp openclaw.sh /usr/local/bin/openclaw
 
 CLAW_HOST="${"$"}{CLAW_HOST:-http://$ip:$PORT}"
+CLAW_TOKEN="${"$"}{CLAW_TOKEN:-$authToken}"
 
 _require_curl() { command -v curl >/dev/null 2>&1 || { echo "error: curl is required"; exit 1; }; }
-
-_get()  { _require_curl; curl -sf "${"$"}{CLAW_HOST}$1"; }
-_post() { _require_curl; curl -sf -X POST -H "Content-Type: application/json" -d "$2" "${"$"}{CLAW_HOST}$1"; }
-_del()  { _require_curl; curl -sf -X DELETE "${"$"}{CLAW_HOST}$1"; }
+_curl_auth() { [ -n "${"$"}CLAW_TOKEN" ] && printf -- ' -H %q' "X-Claw-Token: ${"$"}CLAW_TOKEN"; }
+_get()  { _require_curl; eval "curl -sf$(_curl_auth) \"${"$"}{CLAW_HOST}$1\""; }
+_post() { _require_curl; eval "curl -sf -X POST -H \"Content-Type: application/json\"$(_curl_auth) -d \"$2\" \"${"$"}{CLAW_HOST}$1\""; }
+_del()  { _require_curl; eval "curl -sf -X DELETE$(_curl_auth) \"${"$"}{CLAW_HOST}$1\""; }
 _pp()   { command -v python3 >/dev/null 2>&1 && python3 -m json.tool || cat; }
 
 cmd_info()     { _get /api/info | _pp; }
@@ -714,6 +862,20 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','S
 </div>
 <script>
 var running=false,curSess=null,stBubble=null,stText='';
+window.__CLAW_TOKEN__='__CLAW_TOKEN__';
+
+function clawToken(){return (new URLSearchParams(location.search)).get('token')||window.__CLAW_TOKEN__||'';}
+function apiUrl(path){
+  var token=clawToken();
+  return token ? path+(path.indexOf('?')>=0?'&':'?')+'token='+encodeURIComponent(token) : path;
+}
+function apiFetch(path,opts){
+  var token=clawToken();
+  var next=opts||{};
+  next.headers=next.headers||{};
+  if(token)next.headers['X-Claw-Token']=token;
+  return fetch(apiUrl(path),next);
+}
 
 window.addEventListener('load',function(){
   loadSessions();
@@ -729,7 +891,7 @@ window.addEventListener('load',function(){
 });
 
 function connectSSE(){
-  var es=new EventSource('/api/events');
+  var es=new EventSource(apiUrl('/api/events'));
   es.onopen=function(){dot('on','Connected');};
   es.onmessage=function(e){var m=JSON.parse(e.data);onEvt(m.type,m.d);};
   es.onerror=function(){dot('','Reconnecting…');setTimeout(connectSSE,3000);es.close();};
@@ -753,7 +915,7 @@ function send(){
   var inp=document.getElementById('inp'),text=inp.value.trim();
   if(!text||running)return;
   inp.value='';inp.style.height='auto';
-  fetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})}).catch(function(){});
+  apiFetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})}).catch(function(){});
 }
 
 function hideEmpty(){var e=document.getElementById('empty');if(e)e.remove();}
@@ -794,7 +956,7 @@ function finalizeStream(stopped){
 }
 
 function loadSessions(){
-  fetch('/api/sessions').then(function(r){return r.json();}).then(function(data){
+  apiFetch('/api/sessions').then(function(r){return r.json();}).then(function(data){
     var list=document.getElementById('slist');list.innerHTML='';
     if(!data.sessions||!data.sessions.length){list.innerHTML='<div class="sysmsg" style="margin:14px 8px">No history</div>';return;}
     data.sessions.forEach(function(s){
@@ -817,7 +979,7 @@ function selectSess(id){
 }
 
 function loadMsgs(sid){
-  fetch('/api/messages?sessionId='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(data){
+  apiFetch('/api/messages?sessionId='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(data){
     var msgs=document.getElementById('msgs');
     var existing=msgs.querySelectorAll('.mr,.skl,.sysmsg');existing.forEach(function(e){e.remove();});
     var empty=document.getElementById('empty');

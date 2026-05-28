@@ -11,6 +11,7 @@ data class SkillMeta(
     val type: SkillType = SkillType.NATIVE,
     val injectionLevel: Int = 0,        // 0=always, 1=by task type, 2=on-demand
     val isBuiltin: Boolean = true,
+    val internalTool: Boolean = false,  // true=AI-owned tool, not shown as a user-installable skill
     val minApiLevel: Int = 30,
     val version: String = "1.0.0",
     val nameZh: String? = null,

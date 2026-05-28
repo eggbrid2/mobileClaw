@@ -2,6 +2,9 @@ package com.mobileclaw.app
 
 import android.content.Context
 import com.google.gson.Gson
+import com.mobileclaw.artifact.ArtifactHistoryEntry
+import com.mobileclaw.artifact.ArtifactSpec
+import com.mobileclaw.storage.AtomicTextFile
 import java.io.File
 
 data class MiniApp(
@@ -13,60 +16,105 @@ data class MiniApp(
     val hasPython: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val spec: ArtifactSpec = ArtifactSpec(),
+    val history: List<ArtifactHistoryEntry> = emptyList(),
 )
 
 /** Persists mini-app metadata and HTML content under filesDir/apps/. */
 class MiniAppStore(private val context: Context) {
 
     private val gson = Gson()
+    private val ioLock = Any()
     private val appsDir: File get() = context.filesDir.resolve("apps").also { it.mkdirs() }
 
-    fun all(): List<MiniApp> = appsDir.listFiles { f -> f.extension == "json" }
-        ?.mapNotNull { file ->
-            runCatching { gson.fromJson(file.readText(), MiniApp::class.java) }.getOrNull()
-        }
-        ?.sortedByDescending { it.updatedAt }
-        ?: emptyList()
+    fun all(): List<MiniApp> = synchronized(ioLock) {
+        appsDir.listFiles { f -> f.extension == "json" }
+            ?.mapNotNull { file ->
+                runCatching { gson.fromJson(AtomicTextFile.readOrNull(file), MiniApp::class.java) }.getOrNull()
+            }
+            ?.sortedByDescending { it.updatedAt }
+            ?: emptyList()
+    }
 
-    fun get(id: String): MiniApp? =
-        runCatching { gson.fromJson(File(appsDir, "$id.json").readText(), MiniApp::class.java) }.getOrNull()
+    fun get(id: String): MiniApp? = synchronized(ioLock) {
+        runCatching { gson.fromJson(AtomicTextFile.readOrNull(File(appsDir, "$id.json")), MiniApp::class.java) }.getOrNull()
+    }
 
     fun save(app: MiniApp, htmlContent: String) {
-        val htmlFile = File(appsDir, "${app.id}.html")
-        htmlFile.writeText(htmlContent)
-        val meta = app.copy(htmlPath = htmlFile.absolutePath, updatedAt = System.currentTimeMillis())
-        File(appsDir, "${app.id}.json").writeText(gson.toJson(meta))
+        synchronized(ioLock) {
+            val htmlFile = File(appsDir, "${app.id}.html")
+            AtomicTextFile.write(htmlFile, htmlContent)
+            val meta = app.copy(htmlPath = htmlFile.absolutePath, updatedAt = System.currentTimeMillis())
+            AtomicTextFile.write(File(appsDir, "${app.id}.json"), gson.toJson(meta))
+        }
     }
 
     fun htmlFile(id: String): File = File(appsDir, "$id.html")
 
-    fun readHtml(id: String): String? =
-        runCatching { htmlFile(id).readText() }.getOrNull()
+    fun readHtml(id: String): String? = synchronized(ioLock) {
+        runCatching { AtomicTextFile.readOrNull(htmlFile(id)) }.getOrNull()
+    }
 
-    fun updateHtml(id: String, htmlContent: String): Boolean {
+    fun updateHtml(id: String, htmlContent: String): Boolean = synchronized(ioLock) {
         val meta = get(id) ?: return false
-        File(appsDir, "$id.html").writeText(htmlContent)
-        File(appsDir, "$id.json").writeText(gson.toJson(meta.copy(updatedAt = System.currentTimeMillis())))
-        return true
+        AtomicTextFile.write(File(appsDir, "$id.html"), htmlContent)
+        AtomicTextFile.write(File(appsDir, "$id.json"), gson.toJson(meta.copy(updatedAt = System.currentTimeMillis())))
+        true
     }
 
     fun savePython(id: String, code: String) {
-        val dir = appDataDir(id)
-        File(dir, "backend.py").writeText(code)
-        // Update hasPython flag in metadata
-        val meta = get(id) ?: return
-        if (!meta.hasPython) {
-            File(appsDir, "$id.json").writeText(gson.toJson(meta.copy(hasPython = true, updatedAt = System.currentTimeMillis())))
+        synchronized(ioLock) {
+            val dir = appDataDir(id)
+            AtomicTextFile.write(File(dir, "backend.py"), code)
+            val meta = get(id) ?: return
+            if (!meta.hasPython) {
+                AtomicTextFile.write(File(appsDir, "$id.json"), gson.toJson(meta.copy(hasPython = true, updatedAt = System.currentTimeMillis())))
+            }
         }
     }
 
-    fun readPython(id: String): String? =
-        runCatching { File(appDataDir(id), "backend.py").readText() }.getOrNull()
+    fun readPython(id: String): String? = synchronized(ioLock) {
+        runCatching { AtomicTextFile.readOrNull(File(appDataDir(id), "backend.py")) }.getOrNull()
+    }
 
-    fun updateIcon(id: String, iconPath: String): Boolean {
+    fun appLogFile(id: String): File = File(appDataDir(id), "app.log")
+
+    fun appendLog(id: String, level: String, tag: String, message: String) {
+        synchronized(ioLock) {
+            val line = buildString {
+                append(System.currentTimeMillis())
+                append(" [")
+                append(level.uppercase())
+                append("] ")
+                append(tag.ifBlank { "app" }.take(40))
+                append(": ")
+                append(message.take(2000).replace('\n', ' '))
+            }
+            val file = appLogFile(id)
+            file.parentFile?.mkdirs()
+            val current = AtomicTextFile.readOrNull(file).orEmpty()
+            AtomicTextFile.write(file, current + line + "\n")
+            trimLogFile(file, maxLines = 400)
+        }
+    }
+
+    fun readLogs(id: String, limit: Int = 120): List<String> = synchronized(ioLock) {
+        runCatching {
+            AtomicTextFile.readOrNull(appLogFile(id))
+                ?.lines()
+                ?.filter { it.isNotEmpty() }
+                ?.takeLast(limit)
+                .orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    fun clearLogs(id: String): Boolean =
+        runCatching { appLogFile(id).delete() || !appLogFile(id).exists() }.getOrDefault(false)
+
+    fun updateIcon(id: String, iconPath: String): Boolean = synchronized(ioLock) {
         val meta = get(id) ?: return false
-        File(appsDir, "$id.json").writeText(gson.toJson(meta.copy(icon = iconPath, updatedAt = System.currentTimeMillis())))
-        return true
+        AtomicTextFile.write(File(appsDir, "$id.json"), gson.toJson(meta.copy(icon = iconPath, updatedAt = System.currentTimeMillis())))
+        true
     }
 
     fun delete(id: String) {
@@ -111,11 +159,13 @@ class MiniAppStore(private val context: Context) {
   window.addEventListener('unhandledrejection',function(e){
     var msg='Unhandled Promise rejection: '+(e.reason&&(e.reason.message||e.reason)||'unknown');
     try{A.showToast(msg.substring(0,100));}catch(_){}
+    try{A.appendLog('error','promise',msg);}catch(_){}
     console.error(msg);
   });
   window.addEventListener('error',function(e){
     var msg='JS error: '+(e.message||'unknown')+' ('+e.filename+':'+e.lineno+')';
     try{A.showToast(msg.substring(0,100));}catch(_){}
+    try{A.appendLog('error','window',msg);}catch(_){}
     console.error(msg);
   });
   // ── Redirect native fetch() → Claw.fetch() so AI mistakes fail loudly ──
@@ -161,6 +211,14 @@ class MiniAppStore(private val context: Context) {
     toast:function(m){try{A.showToast(String(m))}catch(e){}},
     vibrate:function(ms){try{A.vibrate(ms||100)}catch(e){}},
     device:function(){try{return JSON.parse(A.getDeviceInfo()||'{}')}catch(e){return {}}},
+    log:{
+      info:function(tag,msg){try{A.appendLog('info',String(tag||'app'),String(msg||''))}catch(e){}},
+      warn:function(tag,msg){try{A.appendLog('warn',String(tag||'app'),String(msg||''))}catch(e){}},
+      error:function(tag,msg){try{A.appendLog('error',String(tag||'app'),String(msg||''))}catch(e){}},
+      debug:function(tag,msg){try{A.appendLog('debug',String(tag||'app'),String(msg||''))}catch(e){}},
+      read:function(limit){try{return JSON.parse(A.readLogs(limit||80)||'[]')}catch(e){return []}},
+      clear:function(){try{return !!A.clearLogs()}catch(e){return false}}
+    },
     clipboard:{
       get:function(){try{return A.clipboardGet()||''}catch(e){return ''}},
       set:function(t){try{A.clipboardSet(String(t))}catch(e){}}
@@ -208,5 +266,14 @@ class MiniAppStore(private val context: Context) {
         val htmlTag = Regex("<html[^>]*>", RegexOption.IGNORE_CASE).find(html)
         if (htmlTag != null) return html.substring(0, htmlTag.range.last + 1) + script + html.substring(htmlTag.range.last + 1)
         return script + html
+    }
+
+    private fun trimLogFile(file: File, maxLines: Int) {
+        runCatching {
+            val lines = file.readLines()
+            if (lines.size > maxLines) {
+                file.writeText(lines.takeLast(maxLines).joinToString("\n") + "\n")
+            }
+        }
     }
 }

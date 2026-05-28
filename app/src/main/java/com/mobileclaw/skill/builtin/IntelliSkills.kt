@@ -52,7 +52,7 @@ class SkillCheckSkill(private val registry: SkillRegistry) : Skill {
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         val task = params["task"] as? String ?: ""
-        val all = registry.allMetasWithTaxonomy().sortedWith(compareBy({ it.injectionLevel }, { it.id }))
+        val all = registry.userVisibleMetasWithTaxonomy().sortedWith(compareBy({ it.injectionLevel }, { it.id }))
 
         val sb = StringBuilder()
         if (task.isNotBlank()) sb.appendLine("Task context: $task\n")

@@ -191,6 +191,9 @@ class AgentOverlayManager(private val context: Context) {
 
     fun onObservation(text: String) { runOnMain { state.lastObservation = text.take(100) } }
 
+    // Warning 只更新说明，不切换到错误态，避免用户把 guard / 约束误解成任务失败。
+    fun onWarning(message: String) { runOnMain { state.isError = false; state.lastObservation = message.take(100) } }
+
     fun onError(message: String) { runOnMain { state.isError = true; state.lastObservation = message.take(100) } }
 
     fun showCompleted(summary: String) {

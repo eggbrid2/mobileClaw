@@ -59,7 +59,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.LocalClawColors
-import com.mobileclaw.ui.MarkdownText
+import com.mobileclaw.ui.common.MarkdownText
 
 /** Renders an AI page's component tree, evaluating ${expr} templates from runtime state. */
 @Composable

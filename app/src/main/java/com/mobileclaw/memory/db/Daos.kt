@@ -58,6 +58,9 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY createdAt DESC LIMIT :limit")
     suspend fun recent(limit: Int = 100): List<ConversationEntity>
 
+    @Query("SELECT * FROM conversations WHERE taskId = :taskId ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recentForTask(taskId: String, limit: Int = 40): List<ConversationEntity>
+
     @Query("SELECT * FROM conversations WHERE role = 'user' ORDER BY createdAt DESC LIMIT :limit")
     suspend fun recentUserMessages(limit: Int = 50): List<ConversationEntity>
 

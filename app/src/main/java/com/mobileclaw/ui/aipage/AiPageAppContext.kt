@@ -193,6 +193,7 @@ class AiPageAppContext(private val context: Context) {
                     "type" to it.type.name.lowercase(),
                     "injectionLevel" to it.injectionLevel,
                     "isBuiltin" to it.isBuiltin,
+                    "internalTool" to it.internalTool,
                     "tags" to it.tags,
                     "parameters" to it.parameters.map { p ->
                         mapOf("name" to p.name, "type" to p.type, "required" to p.required, "description" to p.description)
@@ -268,7 +269,8 @@ class AiPageAppContext(private val context: Context) {
                 "chatSessionCount" to sessionCount,
                 "groupCount" to app.groupManager.all().size,
                 "roleCount" to app.roleManager.all().size,
-                "skillCount" to app.skillRegistry.all().size,
+                "skillCount" to app.skillRegistry.all().count { !it.meta.internalTool },
+                "internalToolCount" to app.skillRegistry.all().count { it.meta.internalTool },
                 "aiPageCount" to app.aiPageStore.getAll().size,
                 "limit" to limit,
             ),

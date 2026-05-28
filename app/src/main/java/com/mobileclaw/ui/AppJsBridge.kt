@@ -219,6 +219,23 @@ _env_info = json.dumps({
         appDataFile(name).delete()
     }.getOrDefault(false)
 
+    @JavascriptInterface
+    fun appendLog(level: String, tag: String, message: String) {
+        runCatching {
+            store.appendLog(appId, level, tag, message)
+        }
+    }
+
+    @JavascriptInterface
+    fun readLogs(limit: Int): String = runCatching {
+        gson.toJson(store.readLogs(appId, limit.coerceIn(1, 200)))
+    }.getOrDefault("[]")
+
+    @JavascriptInterface
+    fun clearLogs(): Boolean = runCatching {
+        store.clearLogs(appId)
+    }.getOrDefault(false)
+
     // ── Network ────────────────────────────────────────────────────────────────
 
     @JavascriptInterface

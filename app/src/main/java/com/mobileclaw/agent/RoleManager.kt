@@ -2,6 +2,7 @@ package com.mobileclaw.agent
 
 import android.content.Context
 import com.google.gson.Gson
+import com.mobileclaw.storage.AtomicTextFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,7 @@ import java.io.File
 class RoleManager(private val context: Context) {
 
     private val gson = Gson()
+    private val ioLock = Any()
     private val rolesDir: File get() = context.filesDir.resolve("roles").also { it.mkdirs() }
 
     private val builtinIds = Role.BUILTINS.map { it.id }.toSet()
@@ -22,10 +24,12 @@ class RoleManager(private val context: Context) {
     val rolesFlow: StateFlow<List<Role>> = _rolesFlow.asStateFlow()
 
     fun all(): List<Role> {
-        val fileMap = rolesDir.listFiles { f -> f.extension == "json" }
-            ?.associate { f ->
-                f.nameWithoutExtension to runCatching { normalize(gson.fromJson(f.readText(), Role::class.java)) }.getOrNull()
-            } ?: emptyMap()
+        val fileMap = synchronized(ioLock) {
+            rolesDir.listFiles { f -> f.extension == "json" }
+                ?.associate { f ->
+                    f.nameWithoutExtension to runCatching { normalize(gson.fromJson(AtomicTextFile.readOrNull(f), Role::class.java)) }.getOrNull()
+                } ?: emptyMap()
+        }
 
         // Built-ins: use override file if present, otherwise use canonical definition.
         // Always keep isBuiltin = true so the UI knows it's a built-in.
@@ -43,15 +47,19 @@ class RoleManager(private val context: Context) {
 
     fun getDefault(): Role = Role.DEFAULT
 
-    fun customRoles(): List<Role> = rolesDir.listFiles { f -> f.extension == "json" }
-        ?.mapNotNull { file ->
-            runCatching { normalize(gson.fromJson(file.readText(), Role::class.java)) }.getOrNull()
-                ?.takeIf { it.id !in builtinIds }
-        } ?: emptyList()
+    fun customRoles(): List<Role> = synchronized(ioLock) {
+        rolesDir.listFiles { f -> f.extension == "json" }
+            ?.mapNotNull { file ->
+                runCatching { normalize(gson.fromJson(AtomicTextFile.readOrNull(file), Role::class.java)) }.getOrNull()
+                    ?.takeIf { it.id !in builtinIds }
+            } ?: emptyList()
+    }
 
     /** Save any role (including built-in overrides). */
     fun save(role: Role) {
-        File(rolesDir, "${role.id}.json").writeText(gson.toJson(role))
+        synchronized(ioLock) {
+            AtomicTextFile.write(File(rolesDir, "${role.id}.json"), gson.toJson(role))
+        }
         _rolesFlow.value = all()
     }
 

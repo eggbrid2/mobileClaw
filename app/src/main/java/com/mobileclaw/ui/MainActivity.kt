@@ -45,6 +45,29 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.permission.PermissionItem
+import com.mobileclaw.ui.aipage.AiPagesPage
+import com.mobileclaw.ui.apps.AppLauncherPage
+import com.mobileclaw.ui.chat.ChatScreen
+import com.mobileclaw.ui.chat.currentRunState
+import com.mobileclaw.ui.group.GroupChatScreen
+import com.mobileclaw.ui.group.GroupsPage
+import com.mobileclaw.ui.home.HomePage
+import com.mobileclaw.ui.profile.ProfilePage
+import com.mobileclaw.ui.roles.RoleDetailPage
+import com.mobileclaw.ui.roles.RoleEditPage
+import com.mobileclaw.ui.roles.RoleHomePage
+import com.mobileclaw.ui.roles.RolesPage
+import com.mobileclaw.ui.common.HtmlAttachmentViewer
+import com.mobileclaw.ui.shell.ClassicCenterTab
+import com.mobileclaw.ui.shell.ClassicChatTab
+import com.mobileclaw.ui.shell.MainPageHost
+import com.mobileclaw.ui.shell.ClassicScaffold
+import com.mobileclaw.ui.shell.ClassicSessionAction
+import com.mobileclaw.ui.shell.ClassicAddGroupAction
+import com.mobileclaw.ui.shell.ClassicSkillTab
+import com.mobileclaw.ui.shell.ClassicTab
+import com.mobileclaw.ui.shell.ClassicShellContent
+import com.mobileclaw.ui.shell.rememberClassicShellController
 import kotlinx.coroutines.launch
 import java.util.Locale
 import com.mobileclaw.R
@@ -106,7 +129,7 @@ class MainActivity : ComponentActivity() {
                 accentColor = configSnapshot.accentColor,
             ) {
                 // Force white status bar icons on HOME (dark wallpaper), follow theme elsewhere
-                val lightStatusBars = uiState.currentPage != AppPage.HOME && !configSnapshot.darkTheme
+                val lightStatusBars = uiState.currentPage !in setOf(AppPage.HOME, AppPage.AI_TOWN) && !configSnapshot.darkTheme
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView)
                         .isAppearanceLightStatusBars = lightStatusBars
@@ -184,67 +207,8 @@ class MainActivity : ComponentActivity() {
                         scope.launch { drawerState.close() }
                     }
 
-                    var classicTab by remember { mutableStateOf(ClassicTab.CHAT) }
-                    var classicChatTab by remember { mutableStateOf(ClassicChatTab.SINGLE) }
-                    var classicSkillTab by remember { mutableStateOf(ClassicSkillTab.LOCAL) }
-                    var classicCenterTab by remember { mutableStateOf(ClassicCenterTab.MINI_APP) }
-                    var classicCreateGroupKey by remember { mutableIntStateOf(0) }
                     val isClassicStyle = configSnapshot.uiStyle == "classic"
-                    LaunchedEffect(uiState.currentPage) {
-                        classicTab = when (uiState.currentPage) {
-                            AppPage.CHAT -> ClassicTab.CHAT
-                            AppPage.GROUPS, AppPage.GROUP_CHAT -> ClassicTab.CHAT
-                            AppPage.SKILLS, AppPage.SKILL_MARKET -> ClassicTab.SKILL
-                            AppPage.APPS, AppPage.AI_PAGES -> ClassicTab.CENTER
-                            AppPage.ROLES, AppPage.ROLE_EDIT -> ClassicTab.ROLES
-                            AppPage.PROFILE, AppPage.CONSOLE, AppPage.VPN, AppPage.SETTINGS, AppPage.USER_CONFIG -> ClassicTab.ME
-                            else -> classicTab
-                        }
-                        if (uiState.currentPage == AppPage.GROUPS || uiState.currentPage == AppPage.GROUP_CHAT) classicChatTab = ClassicChatTab.GROUP
-                        if (uiState.currentPage == AppPage.SKILL_MARKET) classicSkillTab = ClassicSkillTab.MARKET
-                        if (uiState.currentPage == AppPage.AI_PAGES) classicCenterTab = ClassicCenterTab.AI_PAGE
-                    }
-                    val classicTitle = when (classicTab) {
-                        ClassicTab.CHAT -> str(R.string.home_859362)
-                        ClassicTab.SKILL -> str(R.string.drawer_skills)
-                        ClassicTab.CENTER -> str(R.string.classic_center)
-                        ClassicTab.ROLES -> str(R.string.drawer_roles)
-                        ClassicTab.ME -> str(R.string.classic_me)
-                    }
-                    val classicTopTabs = when (classicTab) {
-                        ClassicTab.CHAT -> listOf(
-                            str(R.string.classic_single_chat) to (classicChatTab == ClassicChatTab.SINGLE),
-                            str(R.string.classic_group_chat) to (classicChatTab == ClassicChatTab.GROUP),
-                        )
-                        ClassicTab.SKILL -> listOf(
-                            str(R.string.classic_local) to (classicSkillTab == ClassicSkillTab.LOCAL),
-                            str(R.string.skills_0e0282) to (classicSkillTab == ClassicSkillTab.MARKET),
-                        )
-                        ClassicTab.CENTER -> listOf(
-                            str(R.string.classic_mini_apps) to (classicCenterTab == ClassicCenterTab.MINI_APP),
-                            str(R.string.home_2d20d5) to (classicCenterTab == ClassicCenterTab.AI_PAGE),
-                        )
-                        ClassicTab.ROLES,
-                        ClassicTab.ME -> emptyList()
-                    }
-                    val onClassicTopTab: (Int) -> Unit = { index ->
-                        when (classicTab) {
-                            ClassicTab.CHAT -> {
-                                classicChatTab = if (index == 0) ClassicChatTab.SINGLE else ClassicChatTab.GROUP
-                                vm.navigate(if (index == 0) AppPage.CHAT else AppPage.GROUPS)
-                            }
-                            ClassicTab.SKILL -> {
-                                classicSkillTab = if (index == 0) ClassicSkillTab.LOCAL else ClassicSkillTab.MARKET
-                                vm.navigate(if (index == 0) AppPage.SKILLS else AppPage.SKILL_MARKET)
-                            }
-                            ClassicTab.CENTER -> {
-                                classicCenterTab = if (index == 0) ClassicCenterTab.MINI_APP else ClassicCenterTab.AI_PAGE
-                                vm.navigate(if (index == 0) AppPage.APPS else AppPage.AI_PAGES)
-                            }
-                            ClassicTab.ROLES,
-                            ClassicTab.ME -> Unit
-                        }
-                    }
+                    val classicShell = rememberClassicShellController(uiState.currentPage)
 
                     ModalNavigationDrawer(
                         drawerState = drawerState,
@@ -280,463 +244,53 @@ class MainActivity : ComponentActivity() {
                         gesturesEnabled = uiState.currentPage == AppPage.CHAT && uiState.openHtmlAttachment == null,
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (isClassicStyle) {
+                            val classicShowsRoot = isClassicStyle && classicShell.shouldRenderShellRoot(uiState.currentPage)
+                            if (classicShowsRoot) {
                                 ClassicScaffold(
-                                    selected = classicTab,
+                                    selected = classicShell.tab,
                                     onSelect = { tab ->
-                                        classicTab = tab
-                                        when (tab) {
-                                            ClassicTab.CHAT -> vm.navigate(if (classicChatTab == ClassicChatTab.GROUP) AppPage.GROUPS else AppPage.CHAT)
-                                            ClassicTab.SKILL -> vm.navigate(if (classicSkillTab == ClassicSkillTab.MARKET) AppPage.SKILL_MARKET else AppPage.SKILLS)
-                                            ClassicTab.CENTER -> vm.navigate(if (classicCenterTab == ClassicCenterTab.AI_PAGE) AppPage.AI_PAGES else AppPage.APPS)
-                                            ClassicTab.ROLES -> vm.navigate(AppPage.ROLES)
-                                            ClassicTab.ME -> Unit
-                                        }
+                                        classicShell.tab = tab
+                                        classicShell.currentPageForBottomTab(tab)?.let(vm::navigate)
                                     },
-                                    title = classicTitle,
-                                    tabs = classicTopTabs,
-                                    onTab = onClassicTopTab,
-                                    leadingAction = if (classicTab == ClassicTab.CHAT && classicChatTab == ClassicChatTab.SINGLE) {
+                                    title = classicShell.title,
+                                    tabs = classicShell.topTabs.map { it.label to it.selected },
+                                    onTab = { index -> classicShell.applyTopTabSelection(index)?.let(vm::navigate) },
+                                    leadingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.SINGLE) {
                                         { ClassicSessionAction { scope.launch { drawerState.open() } } }
                                     } else null,
-                                    trailingAction = if (classicTab == ClassicTab.CHAT && classicChatTab == ClassicChatTab.GROUP) {
-                                        { ClassicAddGroupAction { classicCreateGroupKey += 1 } }
+                                    trailingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.GROUP) {
+                                        { ClassicAddGroupAction { classicShell.createGroupRequestKey += 1 } }
                                     } else null,
                                 ) {
-                                    when (classicTab) {
-                                        ClassicTab.CHAT -> {
-                                            Column(Modifier.fillMaxSize()) {
-                                                Box(Modifier.fillMaxSize()) {
-                                                    if (classicChatTab == ClassicChatTab.SINGLE) {
-                                                        ChatScreen(
-                                                            uiState = uiState,
-                                                            onSendGoal = { vm.runTask(it) },
-                                                            onStop = { vm.stopTask() },
-                                                            onOpenSettings = { vm.navigate(AppPage.SETTINGS) },
-                                                            onOpenSkillManager = { vm.navigate(AppPage.SKILLS) },
-                                                            onOpenDrawer = { scope.launch { drawerState.open() } },
-                                                            onAttachImage = { vm.setInputImage(it) },
-                                                            onSendImage = { image, prompt -> vm.sendImageMessage(image, prompt) },
-                                                            onAttachFile = { vm.setFileAttachment(it) },
-                                                            onOpenProfile = { vm.navigate(AppPage.PROFILE) },
-                                                            onModelChange = { vm.setModel(it) },
-                                                            onFetchModels = { vm.fetchModels() },
-                                                            onOpenHelp = { vm.navigate(AppPage.HELP) },
-                                                            onOpenHtmlViewer = { vm.openHtmlViewer(it) },
-                                                            onOpenBrowser = { vm.navigateToBrowser(it) },
-                                                            onRenameSession = { id, title -> vm.renameSession(id, title) },
-                                                            onOpenDesktop = { vm.navigate(AppPage.HOME) },
-                                                            onSwitchRole = { vm.navigate(AppPage.ROLES) },
-                                                            onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
-                                                            onLoadMoreHistory = { vm.loadMoreHistory() },
-                                                            classicMode = true,
-                                                        )
-                                                    } else {
-                                                        GroupsPage(
-                                                            groups = uiState.groups,
-                                                            groupPreviews = uiState.groupPreviews,
-                                                            availableRoles = uiState.availableRoles,
-                                                            onOpenGroup = { vm.openGroupChat(it) },
-                                                            onCreateGroup = { vm.createGroup(it) },
-                                                            onDeleteGroup = { vm.deleteGroup(it) },
-                                                            onBack = { classicChatTab = ClassicChatTab.SINGLE; vm.navigate(AppPage.CHAT) },
-                                                            showHeader = false,
-                                                            createRequestKey = classicCreateGroupKey,
-                                                            showCreateFab = false,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        ClassicTab.SKILL -> {
-                                            Column(Modifier.fillMaxSize()) {
-                                                Box(Modifier.fillMaxSize()) {
-                                                    if (classicSkillTab == ClassicSkillTab.LOCAL) {
-                                                        SkillsPage(
-                                                            allSkills = uiState.allSkills,
-                                                            skillNotes = uiState.skillNotes,
-                                                            skillNoteGenerating = uiState.skillNoteGenerating,
-                                                            skillLevelOverrides = uiState.skillLevelOverrides,
-                                                            onPromote = { vm.promoteSkill(it) },
-                                                            onDemote = { vm.demoteSkill(it) },
-                                                            onDelete = { vm.deleteSkill(it) },
-                                                            onSetSkillLevel = { id, level -> vm.setSkillLevel(id, level) },
-                                                            onInstallMarketSkill = { vm.installMarketSkill(it) },
-                                                            onSaveNote = { id, note -> vm.saveSkillNote(id, note) },
-                                                            onGenerateNote = { id, name, desc -> vm.generateSkillNote(id, name, desc) },
-                                                            onBack = { vm.navigate(AppPage.CHAT) },
-                                                            showHeader = false,
-                                                        )
-                                                    } else {
-                                                        SkillMarketPage(
-                                                            installedIds = uiState.allSkills.map { it.id }.toSet(),
-                                                            onInstall = { vm.installMarketSkill(it) },
-                                                            onBack = { classicSkillTab = ClassicSkillTab.LOCAL; vm.navigate(AppPage.SKILLS) },
-                                                            showHeader = false,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        ClassicTab.CENTER -> {
-                                            Column(Modifier.fillMaxSize()) {
-                                                Box(Modifier.fillMaxSize()) {
-                                                    if (classicCenterTab == ClassicCenterTab.MINI_APP) {
-                                                        AppLauncherPage(
-                                                            miniApps = uiState.miniApps,
-                                                            onOpen = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },
-                                                            onDelete = { vm.deleteApp(it) },
-                                                            onBack = { vm.navigate(AppPage.CHAT) },
-                                                            showHeader = false,
-                                                        )
-                                                    } else {
-                                                        AiPagesPage(
-                                                            pages = uiState.aiPages,
-                                                            onOpen = { startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, it)) },
-                                                            onDelete = { vm.deleteAiPage(it) },
-                                                            onPinShortcut = {
-                                                                val def = uiState.aiPages.firstOrNull { p -> p.id == it }
-                                                                if (def != null) com.mobileclaw.ui.aipage.ShortcutHelper.pinShortcut(this@MainActivity, def)
-                                                            },
-                                                            onBack = { classicCenterTab = ClassicCenterTab.MINI_APP; vm.navigate(AppPage.APPS) },
-                                                            showHeader = false,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        ClassicTab.ROLES -> RolesPage(
-                                            availableRoles = uiState.availableRoles,
-                                            currentRole = uiState.currentRole,
-                                            onActivate = { vm.setActiveRole(it) },
-                                            onEdit = { vm.editRole(it) },
-                                            onDelete = { vm.deleteCustomRole(it) },
-                                            onBack = { vm.navigate(AppPage.CHAT) },
-                                            showHeader = false,
-                                        )
-                                        ClassicTab.ME -> ClassicMePage(
-                                            userAvatarUri = uiState.userAvatarUri,
-                                            userName = uiState.userConfigEntries["user.name"]?.value ?: "",
-                                            sessionCount = uiState.sessions.size,
-                                            miniApps = uiState.miniApps,
-                                            onProfile = { vm.navigate(AppPage.PROFILE) },
-                                            onConsole = { vm.navigate(AppPage.CONSOLE) },
-                                            onVpn = { vm.navigate(AppPage.VPN) },
-                                            onSettings = { vm.navigate(AppPage.SETTINGS) },
-                                        )
-                                    }
+                                    ClassicShellContent(
+                                        uiState = uiState,
+                                        classicShell = classicShell,
+                                        vm = vm,
+                                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                                        onOpenApp = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },
+                                        onOpenAiPage = { startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, it)) },
+                                        onPinAiPage = {
+                                            val def = uiState.aiPages.firstOrNull { p -> p.id == it }
+                                            if (def != null) com.mobileclaw.ui.aipage.ShortcutHelper.pinShortcut(this@MainActivity, def)
+                                        },
+                                        onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
+                                    )
                                 }
                             } else {
-                                // Block all touches to ChatScreen when another page is active.
-                                // Without this, the ChatScreen's BasicTextField below receives
-                                // key/touch events even when overlaid by another full-screen page.
-                                val chatActive = uiState.currentPage == AppPage.CHAT
-                                Box(modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer { alpha = if (chatActive) 1f else 0f }
-                                    .pointerInput(chatActive) {
-                                        if (!chatActive) {
-                                            awaitPointerEventScope {
-                                                while (true) {
-                                                    awaitPointerEvent(PointerEventPass.Initial)
-                                                        .changes.forEach { it.consume() }
-                                                }
-                                            }
-                                        }
-                                    }) {
-                                    ChatScreen(
-                                        uiState = uiState,
-                                        onSendGoal = { vm.runTask(it) },
-                                        onStop = { vm.stopTask() },
-                                        onOpenSettings = { vm.navigate(AppPage.SETTINGS) },
-                                        onOpenSkillManager = { vm.navigate(AppPage.SKILLS) },
-                                        onOpenDrawer = { scope.launch { drawerState.open() } },
-                                        onAttachImage = { vm.setInputImage(it) },
-                                        onSendImage = { image, prompt -> vm.sendImageMessage(image, prompt) },
-                                        onAttachFile = { vm.setFileAttachment(it) },
-                                        onOpenProfile = { vm.navigate(AppPage.PROFILE) },
-                                        onModelChange = { vm.setModel(it) },
-                                        onFetchModels = { vm.fetchModels() },
-                                        onOpenHelp = { vm.navigate(AppPage.HELP) },
-                                        onOpenHtmlViewer = { vm.openHtmlViewer(it) },
-                                        onOpenBrowser = { vm.navigateToBrowser(it) },
-                                        onRenameSession = { id, title -> vm.renameSession(id, title) },
-                                        onOpenDesktop = { vm.navigate(AppPage.HOME) },
-                                        onSwitchRole = { vm.navigate(AppPage.ROLES) },
-                                        onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
-                                        onLoadMoreHistory = { vm.loadMoreHistory() },
-                                    )
-                                }
-                                AnimatedVisibility(
-                                    visible = uiState.currentPage == AppPage.HOME,
-                                    enter = fadeIn(),
-                                    exit = fadeOut(),
-                                ) {
-                                    HomePage(
-                                        currentRole = uiState.currentRole,
-                                        sessions = uiState.sessions,
-                                        miniApps = uiState.miniApps,
-                                        darkTheme = configSnapshot.darkTheme,
-                                        onNavigate = { vm.navigate(it) },
-                                        onOpenApp = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },
-                                        onDeleteApp = { vm.deleteApp(it) },
-                                        onSelectSession = { vm.loadSession(it) },
-                                    )
-                                }
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.SETTINGS,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                SettingsPage(
-                                    config = uiState.config,
-                                    virtualDisplayManager = ClawApplication.instance.virtualDisplayManager,
-                                    vdTestResult = uiState.virtualDisplayTestResult,
-                                    privServerConnected = uiState.privServerConnected,
-                                    onSave = { vm.saveConfig(it) },
-                                    onBack = { vm.navigateBack() },
-                                    onOpenHelp = { vm.navigate(AppPage.HELP) },
-                                    onTestVirtualDisplay = { vm.testVirtualDisplay() },
-                                    onCheckPrivServer = { vm.checkPrivServer() },
-                                    localModels = uiState.localModels,
-                                    onLocalModelEnabled = { vm.setLocalModelEnabled(it) },
-                                    onLocalNativeOnly = { vm.setLocalNativeOnly(it) },
-                                    onSelectLocalModel = { vm.selectLocalModel(it) },
-                                    onDownloadLocalModel = { id, token, sourceUrl -> vm.downloadLocalModel(id, token, sourceUrl) },
-                                    onImportLocalModel = { id, uri -> vm.importLocalModel(id, uri) },
-                                    onDeleteLocalModel = { vm.deleteLocalModel(it) },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.SKILLS,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                SkillsPage(
-                                    allSkills = uiState.allSkills,
-                                    skillNotes = uiState.skillNotes,
-                                    skillNoteGenerating = uiState.skillNoteGenerating,
-                                    skillLevelOverrides = uiState.skillLevelOverrides,
-                                    onPromote = { vm.promoteSkill(it) },
-                                    onDemote = { vm.demoteSkill(it) },
-                                    onDelete = { vm.deleteSkill(it) },
-                                    onSetSkillLevel = { id, level -> vm.setSkillLevel(id, level) },
-                                    onInstallMarketSkill = { vm.installMarketSkill(it) },
-                                    onSaveNote = { id, note -> vm.saveSkillNote(id, note) },
-                                    onGenerateNote = { id, name, desc -> vm.generateSkillNote(id, name, desc) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.PROFILE,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                ProfilePage(
-                                    facts = uiState.profileFacts,
-                                    semanticFacts = uiState.semanticFacts,
-                                    episodes = uiState.recentEpisodes,
-                                    isLoading = uiState.profileLoading,
-                                    isExtracting = uiState.profileExtracting,
-                                    conversationCount = uiState.conversationCount,
-                                    onBack = { vm.navigateBack() },
-                                    onRefreshExtraction = { vm.triggerProfileExtraction() },
-                                    onSetFact = { key, value -> vm.setProfileFact(key, value) },
-                                    onPinMemory = { key, pinned -> vm.setMemoryPinned(key, pinned) },
-                                    onEnableMemory = { key, enabled -> vm.setMemoryEnabled(key, enabled) },
-                                    onDeleteMemory = { key -> vm.deleteMemoryFact(key) },
-                                    personalitySummary = uiState.personalitySummary,
-                                    personalitySummaryLoading = uiState.personalitySummaryLoading,
-                                    onGenerateSummary = { vm.generatePersonalitySummary() },
-                                    dimensionQuizzes = uiState.dimensionQuizzes,
-                                    dimensionQuizLoading = uiState.dimensionQuizLoading,
-                                    onGenerateDimensionQuiz = { id, title -> vm.generateDimensionQuiz(id, title) },
-                                    onPrewarmQuizzes = { dims -> vm.prewarmAllDimensionQuizzes(dims) },
-                                    totalSkillCount = uiState.allSkills.size,
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.ROLES,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                RolesPage(
-                                    availableRoles = uiState.availableRoles,
-                                    currentRole = uiState.currentRole,
-                                    onActivate = { vm.setActiveRole(it) },
-                                    onEdit = { vm.editRole(it) },
-                                    onDelete = { vm.deleteCustomRole(it) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.ROLE_EDIT,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                val role = uiState.editingRole
-                                if (role != null) {
-                                    key(role.id) {
-                                        RoleEditPage(
-                                            initial = role,
-                                            availableModels = uiState.availableModels,
-                                            modelsLoading = uiState.modelsLoading,
-                                            allSkills = uiState.allSkills,
-                                            onSave = { vm.saveCustomRole(it); vm.navigateBack() },
-                                            onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
-                                            onFetchModels = { vm.fetchModels() },
-                                            onBack = { vm.navigateBack() },
-                                        )
-                                    }
-                                }
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.USER_CONFIG,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                UserConfigPage(
-                                    entries = uiState.userConfigEntries,
-                                    onSet = { key, value, desc -> vm.setUserConfigEntry(key, value, desc) },
-                                    onDelete = { key -> vm.deleteUserConfigEntry(key) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.APPS,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                AppLauncherPage(
-                                    miniApps = uiState.miniApps,
-                                    onOpen = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },
-                                    onDelete = { vm.deleteApp(it) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.CONSOLE,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                ConsolePage(
-                                    serverUrl = uiState.consoleServerUrl,
-                                    isRunning = uiState.currentRunState.isRunning,
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.HELP,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                HelpPage(onBack = { vm.navigateBack() })
-                            }
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.GROUPS,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                GroupsPage(
-                                    groups = uiState.groups,
-                                    groupPreviews = uiState.groupPreviews,
-                                    availableRoles = uiState.availableRoles,
-                                    onOpenGroup = { vm.openGroupChat(it) },
-                                    onCreateGroup = { vm.createGroup(it) },
-                                    onDeleteGroup = { vm.deleteGroup(it) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.GROUP_CHAT,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                val group = uiState.openGroup
-                                if (group != null) {
-                                    GroupChatScreen(
-                                        group = group,
-                                        messages = uiState.groupMessages,
-                                        availableRoles = uiState.availableRoles,
-                                        userAvatarUri = uiState.userAvatarUri,
-                                        isRunning = uiState.groupRunning,
-                                        typingAgentIds = uiState.groupTypingAgents,
-                                        workingAgentIds = uiState.groupWorkingAgents,
-                                        historyHasMore = uiState.groupHistoryHasMore,
-                                        historyLoading = uiState.groupHistoryLoading,
-                                        onLoadMoreHistory = { vm.loadOlderGroupMessages() },
-                                        onUpdateGroupMembers = { vm.updateGroupMembers(group.id, it) },
-                                        onSend = { text, attachments -> vm.sendGroupMessage(text, attachments) },
-                                        onStop = { vm.stopGroupChat() },
-                                        onBack = { vm.closeGroupChat() },
-                                        onOpenHtmlViewer = { vm.openHtmlViewer(it) },
-                                        onOpenBrowser = { vm.navigateToBrowser(it) },
-                                        onOpenAccessibilitySettings = { vm.navigate(AppPage.SETTINGS) },
-                                    )
-                                }
-                            }
-
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.BROWSER,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                BrowserPage(
-                                    initialUrl = uiState.browserUrl,
-                                    onBack = { vm.navigateBack() },
-                                    onSendToAgent = { vm.runTask(it) },
-                                )
-                            }
-
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.SKILL_MARKET,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                SkillMarketPage(
-                                    installedIds = uiState.allSkills.map { it.id }.toSet(),
-                                    onInstall = { vm.installMarketSkill(it) },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-
-                            AnimatedVisibility(
-                                visible = !isClassicStyle && uiState.currentPage == AppPage.AI_PAGES,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                AiPagesPage(
-                                    pages = uiState.aiPages,
-                                    onOpen = { startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, it)) },
-                                    onDelete = { vm.deleteAiPage(it) },
-                                    onPinShortcut = {
+                                // 经典模式下二级页不再强塞进 tab 根壳，否则 currentPage 已经切了，内容区仍停留在根页。
+                                MainPageHost(
+                                    uiState = uiState,
+                                    vm = vm,
+                                    isClassicStyle = isClassicStyle,
+                                    darkTheme = configSnapshot.darkTheme,
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onOpenApp = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },
+                                    onOpenAiPage = { startActivity(com.mobileclaw.ui.aipage.AiPageActivity.intent(this@MainActivity, it)) },
+                                    onPinAiPage = {
                                         val def = uiState.aiPages.firstOrNull { p -> p.id == it }
                                         if (def != null) com.mobileclaw.ui.aipage.ShortcutHelper.pinShortcut(this@MainActivity, def)
                                     },
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-
-                            AnimatedVisibility(
-                                visible = uiState.currentPage == AppPage.VPN,
-                                enter = slideInHorizontally { it } + fadeIn(),
-                                exit = slideOutHorizontally { it } + fadeOut(),
-                            ) {
-                                VpnPage(
-                                    uiState = uiState,
-                                    vm = vm,
-                                    onBack = { vm.navigateBack() },
-                                )
-                            }
-
-                            // HTML attachment viewer at Activity level so addJavascriptInterface binds
-                            val htmlAttachment = uiState.openHtmlAttachment
-                            if (htmlAttachment != null) {
-                                HtmlAttachmentViewer(
-                                    attachment = htmlAttachment,
-                                    onClose = { vm.closeHtmlViewer() },
-                                    onAskAgent = { vm.runTask(it) },
+                                    onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
                                 )
                             }
                         }

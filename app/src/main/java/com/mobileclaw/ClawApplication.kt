@@ -2,6 +2,7 @@ package com.mobileclaw
 
 import android.app.Activity
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.agent.TaskRecipeStore
@@ -29,10 +30,14 @@ import com.mobileclaw.server.ConsoleServer
 import com.mobileclaw.server.LocalApiServer
 import com.mobileclaw.skill.SkillLoader
 import com.mobileclaw.skill.SkillRegistry
+import com.mobileclaw.town.AgentTownStore
 import com.mobileclaw.ui.AgentOverlayManager
 import com.mobileclaw.ui.AuroraOverlayManager
 import com.mobileclaw.ui.InAppWebViewManager
 import com.mobileclaw.ui.aipage.AiPageStore
+import com.mobileclaw.workspace.WorkspaceStore
+import kotlinx.coroutines.runBlocking
+import java.util.UUID
 
 class ClawApplication : Application() {
 
@@ -99,6 +104,9 @@ class ClawApplication : Application() {
     lateinit var aiPageStore: AiPageStore
         private set
 
+    lateinit var agentTownStore: AgentTownStore
+        private set
+
     lateinit var localModelManager: LocalModelManager
         private set
 
@@ -106,6 +114,9 @@ class ClawApplication : Application() {
         private set
 
     lateinit var taskRecipeStore: TaskRecipeStore
+        private set
+
+    lateinit var workspaceStore: WorkspaceStore
         private set
 
     private var startedActivityCount = 0
@@ -133,6 +144,21 @@ class ClawApplication : Application() {
         virtualDisplayManager = VirtualDisplayManager(this)
         userConfig = UserConfig(this)
         roleManager = RoleManager(this)
+        val consoleServerEnabled = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 || runBlocking {
+            userConfig.get("console_server_enabled") == "true"
+        }
+        val consoleServerLanEnabled = runBlocking {
+            userConfig.get("console_server_lan_enabled") == "true"
+        }
+        val consoleServerToken = if (consoleServerEnabled) {
+            runBlocking {
+                userConfig.get("console_server_token")?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString().also {
+                    userConfig.set("console_server_token", it, "Auth token for ConsoleServer LAN access")
+                }
+            }
+        } else {
+            ""
+        }
         val sharedSkillLoader = SkillLoader(this, skillRegistry)
         localApiServer = LocalApiServer(
             skillRegistry = skillRegistry,
@@ -144,6 +170,7 @@ class ClawApplication : Application() {
         miniAppStore = MiniAppStore(this)
         taskReplayStore = TaskReplayStore(filesDir)
         taskRecipeStore = TaskRecipeStore(filesDir)
+        workspaceStore = WorkspaceStore(filesDir)
         skillNotesStore = SkillNotesStore(this)
         skillLevelStore = SkillLevelStore(this)
         userStorageManager = com.mobileclaw.config.UserStorageManager(this)
@@ -151,6 +178,9 @@ class ClawApplication : Application() {
         consoleServer = ConsoleServer(
             filesDir = filesDir,
             database = database,
+            enabled = consoleServerEnabled,
+            lanEnabled = consoleServerLanEnabled,
+            authToken = consoleServerToken,
             skillRegistry = skillRegistry,
             skillLoader = sharedSkillLoader,
             semanticMemory = semanticMemory,
@@ -158,6 +188,7 @@ class ClawApplication : Application() {
         )
         consoleServer.start()
         aiPageStore = AiPageStore(filesDir)
+        agentTownStore = AgentTownStore(this)
     }
 
     fun createLlmGateway() = HybridLlmGateway(

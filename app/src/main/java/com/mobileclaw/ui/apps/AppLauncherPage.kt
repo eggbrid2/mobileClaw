@@ -1,0 +1,427 @@
+package com.mobileclaw.ui.apps
+
+import android.annotation.SuppressLint
+import android.graphics.BitmapFactory
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import com.mobileclaw.vpn.AppHttpProxy
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.ByteArrayInputStream
+import java.util.concurrent.TimeUnit
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.mobileclaw.ClawApplication
+import com.mobileclaw.app.MiniApp
+import com.mobileclaw.ui.AppJsBridge
+import com.mobileclaw.ui.ClawIconTile
+import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalClawColors
+import com.mobileclaw.ui.clawIconForSymbol
+import java.io.File
+import com.mobileclaw.R
+import com.mobileclaw.str
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AppLauncherPage(
+    miniApps: List<MiniApp>,
+    onOpen: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onBack: () -> Unit,
+    showHeader: Boolean = true,
+) {
+    val c = LocalClawColors.current
+    var isEditMode by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isEditMode) { isEditMode = false }
+
+    Column(Modifier.fillMaxSize().background(c.bg)) {
+        // Top bar using same pattern as other pages
+        if (showHeader) Column(Modifier.fillMaxWidth().background(c.surface).statusBarsPadding()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    str(R.string.app_launcher_0ecb7b),
+                    color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                )
+                if (miniApps.isNotEmpty()) {
+                    Text(
+                        if (isEditMode) str(R.string.app_launcher_done) else "${miniApps.size} 个",
+                        color = if (isEditMode) c.text else c.subtext,
+                        fontSize = 13.sp,
+                        fontWeight = if (isEditMode) FontWeight.Medium else FontWeight.Normal,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { isEditMode = !isEditMode }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        }
+
+        if (miniApps.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ClawIconTile("apps", size = 56.dp, iconSize = 28.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                    Text(str(R.string.app_launcher_28c8d6), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        str(R.string.app_launcher_d957e7),
+                        color = c.subtext, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 17.sp,
+                    )
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(miniApps, key = { it.id }) { app ->
+                    AppLauncherIcon(
+                        app = app,
+                        isEditMode = isEditMode,
+                        onOpen = { onOpen(app.id) },
+                        onDelete = { onDelete(app.id) },
+                        onEnterEditMode = { isEditMode = true },
+                    )
+                }
+            }
+        }
+    }
+
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AppLauncherIcon(
+    app: MiniApp,
+    isEditMode: Boolean,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    onEnterEditMode: () -> Unit,
+) {
+    val c = LocalClawColors.current
+
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 4.dp, vertical = 8.dp)
+            .combinedClickable(
+                onClick = { if (isEditMode) { /* tap in edit mode dismisses */ } else onOpen() },
+                onLongClick = { onEnterEditMode() },
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box {
+            // Icon container
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(c.card)
+                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (app.icon.startsWith("/")) {
+                    var bitmap by remember(app.icon) { mutableStateOf<android.graphics.Bitmap?>(null) }
+                    LaunchedEffect(app.icon) {
+                        withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            bitmap = runCatching { BitmapFactory.decodeFile(app.icon) }.getOrNull()
+                        }
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        ClawSymbolIcon("apps", tint = c.text, modifier = Modifier.size(28.dp))
+                    }
+                } else {
+                    ClawSymbolIcon(app.icon, tint = c.text, modifier = Modifier.size(28.dp))
+                }
+            }
+            // Python badge
+            if (app.hasPython) {
+                Icon(
+                    imageVector = clawIconForSymbol("python"),
+                    contentDescription = null,
+                    tint = c.bg,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 2.dp, y = 2.dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(c.text)
+                        .padding(3.dp),
+                )
+            }
+            // Delete badge in edit mode
+            if (isEditMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = (-4).dp, y = (-4).dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(c.red)
+                        .clickable { onDelete() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            app.title,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = c.text,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            lineHeight = 14.sp,
+            modifier = Modifier.width(64.dp),
+        )
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun AppViewerDialog(
+    appId: String,
+    onClose: () -> Unit,
+    onAskAgent: (String) -> Unit,
+) {
+    val app = ClawApplication.instance
+    val c = LocalClawColors.current
+    val miniApp = remember(appId) { app.miniAppStore.get(appId) }
+    var appTitle by remember(appId) { mutableStateOf(miniApp?.let { "${it.icon} ${it.title}" } ?: appId) }
+
+    LaunchedEffect(appId) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (!Python.isStarted()) {
+                    Python.start(AndroidPlatform(app))
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(c.bg)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().background(c.surface).statusBarsPadding(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    appTitle,
+                    color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        }
+
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = true
+                    @Suppress("DEPRECATION")
+                    settings.allowFileAccessFromFileURLs = true
+                    @Suppress("DEPRECATION")
+                    settings.allowUniversalAccessFromFileURLs = true
+                    settings.databaseEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = false
+                    settings.setSupportZoom(false)
+                    settings.builtInZoomControls = false
+                    webChromeClient = android.webkit.WebChromeClient()
+                    setBackgroundColor(android.graphics.Color.parseColor("#050505"))
+
+                    val bridge = AppJsBridge(
+                        context = context,
+                        appId = appId,
+                        store = app.miniAppStore,
+                        userConfig = app.userConfig,
+                        semanticMemory = app.semanticMemory,
+                        onAskAgent = onAskAgent,
+                        onClose = onClose,
+                        onSetTitle = { appTitle = it },
+                    )
+                    addJavascriptInterface(bridge, "Android")
+                    bridge.bindWebView(this)
+
+                    val corsClient = OkHttpClient.Builder()
+                        .proxySelector(AppHttpProxy.proxySelector())
+                        .connectTimeout(15, TimeUnit.SECONDS)
+                        .readTimeout(30, TimeUnit.SECONDS)
+                        .build()
+
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView,
+                            request: WebResourceRequest,
+                        ): WebResourceResponse? {
+                            val url = request.url?.toString() ?: return null
+                            if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+
+                            val method = request.method?.uppercase() ?: "GET"
+
+                            // Respond to CORS preflight immediately so the browser unblocks the real request
+                            if (method == "OPTIONS") {
+                                return WebResourceResponse(
+                                    "text/plain", "UTF-8", 200, "OK",
+                                    mapOf(
+                                        "Access-Control-Allow-Origin" to "*",
+                                        "Access-Control-Allow-Methods" to "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+                                        "Access-Control-Allow-Headers" to "*",
+                                        "Access-Control-Max-Age" to "86400",
+                                    ),
+                                    ByteArrayInputStream(ByteArray(0)),
+                                )
+                            }
+
+                            // For GET/HEAD: fetch natively and inject CORS headers into the response
+                            if (method !in listOf("GET", "HEAD")) return null
+
+                            return runCatching {
+                                val reqBuilder = Request.Builder().url(url)
+                                request.requestHeaders?.forEach { (k, v) ->
+                                    runCatching { reqBuilder.header(k, v) }
+                                }
+                                reqBuilder.method(method, null)
+
+                                val response = corsClient.newCall(reqBuilder.build()).execute()
+                                val contentType = response.header("Content-Type") ?: "application/octet-stream"
+                                val mimeType = contentType.substringBefore(";").trim()
+                                val encoding = contentType.substringAfter("charset=", "UTF-8")
+                                    .substringBefore(";").trim().ifBlank { "UTF-8" }
+
+                                val headers = mutableMapOf<String, String>()
+                                response.headers.forEach { (k, v) -> headers[k] = v }
+                                headers["Access-Control-Allow-Origin"] = "*"
+                                headers["Access-Control-Allow-Headers"] = "*"
+
+                                WebResourceResponse(
+                                    mimeType, encoding,
+                                    response.code, response.message.ifBlank { "OK" },
+                                    headers,
+                                    response.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0)),
+                                )
+                            }.getOrNull()
+                        }
+
+                        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            val reinjection = app.miniAppStore.clawBridgeSetupJs()
+                            view?.evaluateJavascript(
+                                "(function(){ if(typeof window.Claw==='undefined'){ $reinjection } })();",
+                                null,
+                            )
+                        }
+                    }
+
+                    val htmlFile = app.miniAppStore.htmlFile(appId)
+                    val baseUrl = "file://${htmlFile.parent}/"
+                    if (htmlFile.exists()) {
+                        val html = app.miniAppStore.injectBridge(htmlFile.readText())
+                        loadDataWithBaseURL(baseUrl, html, "text/html", "UTF-8", null)
+                    } else {
+                        loadDataWithBaseURL(
+                            baseUrl,
+                            "<html><body style='background:#050505;color:#fff;padding:24px;font-family:sans-serif'>" +
+                            "<h3>⚠ App not found</h3><p>id: $appId</p></body></html>",
+                            "text/html", "UTF-8", null,
+                        )
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}

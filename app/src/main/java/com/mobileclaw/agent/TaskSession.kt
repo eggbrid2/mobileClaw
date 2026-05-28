@@ -1,5 +1,6 @@
 package com.mobileclaw.agent
 
+import android.util.Log
 import com.mobileclaw.config.responseLanguageShortInstruction
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.LlmGateway
@@ -59,6 +60,8 @@ data class TaskPlan(
 }
 
 object TaskPlanner {
+    private const val TAG = "TaskPlanner"
+
     fun fallback(goal: String, taskType: TaskType): TaskPlan = fallbackPlan(goal, taskType)
 
     suspend fun plan(
@@ -98,7 +101,7 @@ Rules:
 - ${responseLanguageShortInstruction(language)}
 """.trimIndent()
 
-        val response = runCatching {
+        val response = try {
             llm.chat(
                 ChatRequest(
                     messages = listOf(
@@ -109,7 +112,10 @@ Rules:
                     stream = false,
                 )
             ).content.orEmpty()
-        }.getOrDefault("")
+        } catch (t: Throwable) {
+            Log.e(TAG, "Planning failed for taskType=$taskType goal=${goal.take(160)}", t)
+            ""
+        }
 
         return parsePlan(response, taskType)
             ?: fallbackPlan(goal, taskType)
@@ -297,8 +303,12 @@ object TaskToolPolicy {
 - Supporting channels: skill channel for builders, memory channel for existing pages/apps, self-evolution channel for updating existing roles or app behavior.
 - Build or update runnable UI with tools. NEVER return raw code/HTML as chat text.
 - Default route: for pages, dashboards, forms, settings panels, management screens, data viewers, and lightweight tools, use `ui_builder` to create an AI Native Page.
+- Hard rule: if the user explicitly asks for a mini-app/app/program/game or for custom HTML/CSS/JavaScript/WebView/canvas/Python/SQLite runtime, do not use `ui_builder`; use `app_manager`.
 - Use `app_manager` only when the user explicitly asks for an app/mini-app/program/game, or when the artifact needs custom HTML/CSS/JavaScript, canvas, complex browser rendering, Python backend, SQLite, or a WebView-style runtime.
 - Use `create_html` only for one-off rich HTML reports/previews shown in chat, not persistent apps or native pages.
+- For follow-up edits to an existing artifact, default to patch mode. Carry forward the artifact goal, required features, constraints, accepted corrections, known bugs, and non-goals.
+- Existing AI page flow: `ui_builder(get)` -> `ui_builder(analyze_change)` -> `ui_builder(update)` -> `ui_builder(validate)` -> `ui_builder(open if needed)`.
+- Existing MiniAPP flow: `app_manager(analyze_change)` -> `app_manager(update)` -> `app_manager(validate)` -> `app_manager(open if needed)`.
 """.trimIndent()
         TaskType.IMAGE_GENERATION -> """
 ## Current Task Mode: IMAGE_GENERATION
@@ -603,7 +613,7 @@ object TaskToolPolicy {
                 text.anyContains("页面", "原生", "native", "ui", "dashboard", "settings", "列表", "卡片") ->
                     listOf("ui_builder", "read_file", "create_file", "list_files")
                 text.anyContains("miniapp", "程序", "应用", "游戏", "webview", "html") ->
-                    listOf("app_manager", "create_html", "read_file", "create_file", "list_files")
+                    listOf("app_manager", "read_file", "create_file", "list_files", "create_html")
                 else -> listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
             }
             TaskType.IMAGE_GENERATION -> when {
@@ -637,6 +647,8 @@ object TaskToolPolicy {
                     listOf("role_manager", "switch_role", "memory")
                 text.anyContains("技能", "skill", "创建技能", "能力") ->
                     listOf("skill_check", "skill_market", "quick_skill", "create_skill", "skill_notes")
+                text.anyContains("miniapp", "mini app", "小程序", "程序", "应用", "game", "游戏", "webview", "html", "javascript", "canvas") ->
+                    listOf("app_manager", "read_file", "create_file", "list_files", "create_html", "ui_builder")
                 text.anyContains("页面", "ui", "原生", "app", "应用中心") ->
                     listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file")
                 text.anyContains("图片", "图标", "头像", "视频", "bqb", "表情") ->

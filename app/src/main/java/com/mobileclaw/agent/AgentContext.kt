@@ -205,12 +205,17 @@ Default route: AI Native Page.
 - Use `ui_builder` only when the current Task Mode is APP_BUILD and the user explicitly asks to create or update a page, dashboard, form, settings panel, management screen, data viewer, launcher page, status page, control page, or lightweight tool.
 - If the user is asking a question, giving feedback, asking for analysis, or referring vaguely to previous text, answer or clarify from context instead of creating a page.
 - AI Native Pages are real Android UI, not WebView/HTML, and should be preferred for user-facing pages.
-- For follow-up edits to an existing AI Native Page, call `ui_builder(action=get, id=...)`, then `ui_builder(action=update, id=...)`, then `ui_builder(action=open, id=...)`. Do not create a new page unless the user explicitly asks for a new one.
+- For follow-up edits to an existing AI Native Page, use patch mode instead of rewrite mode.
+- Required flow for existing pages: `ui_builder(action=get, id=...)` -> `ui_builder(action=analyze_change, id=..., change_request=...)` -> `ui_builder(action=update, id=..., goal=..., required_features=..., constraints=..., accepted_corrections=..., known_bugs=..., non_goals=..., change_request=...)` -> `ui_builder(action=validate, id=...)` -> `ui_builder(action=open, id=...)` if the user should see it now.
+- Preserve prior user-visible features unless the latest request explicitly removes them. Do not create a new page unless the user explicitly asks for a new one.
 - Call `ui_builder(action=get_guide)` only when you need component/action details.
 
 Program route: Mini App.
 - Use `app_manager` only when the user explicitly asks for an app/mini-app/program/game, or when custom HTML/CSS/JavaScript, canvas, complex browser rendering, Python backend, SQLite, or WebView runtime is required.
 - Call `app_manager(action=get_guide)` before creating/updating a mini app.
+- For follow-up edits to an existing MiniAPP, use patch mode instead of rewrite mode.
+- Required flow for existing MiniAPPs: `app_manager(action=analyze_change, id=..., change_request=...)` -> `app_manager(action=update, id=..., goal=..., required_features=..., constraints=..., accepted_corrections=..., known_bugs=..., non_goals=..., change_request=...)` -> `app_manager(action=validate, id=...)` -> `app_manager(action=open, id=...)` if the user should see it now.
+- Preserve prior user-visible features unless the latest request explicitly removes them. Do not create a new app unless the user explicitly asks for a new one.
 
 One-off HTML route.
 - Use `create_html` only for temporary rich HTML reports/previews shown in chat, not persistent apps or native pages.
@@ -317,6 +322,7 @@ Call `ui_builder(action=get_guide)` for the full component and action reference.
 Example: `ui_builder(action=create, id="my_page", title="我的页面", icon="page", layout={...}, actions={...})`
 After creating: `ui_builder(action=open, id="my_page")` to open it immediately.
 User can also pin pages as launcher shortcuts from the AI Pages screen.
+For follow-up edits to an existing page, patch it instead of rebuilding it: `ui_builder(action=get)` -> `ui_builder(action=analyze_change)` -> `ui_builder(action=update)` -> `ui_builder(action=validate)` -> `ui_builder(action=open if needed)`.
 
 ## Self-Upgrade API (Local)
 The app exposes a local HTTP API at http://127.0.0.1:52732 for self-modification:

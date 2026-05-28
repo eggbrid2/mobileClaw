@@ -43,7 +43,7 @@ class GenerateImageSkill(
         name = "Generate Image",
         description = "Generates an image using an AI image generation API and displays it in the chat. " +
             "Supported providers (set via user_config key 'image_api_endpoint'): " +
-            "SiliconFlow (https://api.siliconflow.cn), Together.ai (https://api.together.xyz), OpenAI (https://api.openai.com). " +
+            "Hugging Face Inference API, SiliconFlow (https://api.siliconflow.cn), Together.ai (https://api.together.xyz), OpenAI (https://api.openai.com). " +
             "Use model='pollinations' for a free no-key-needed option (Pollinations.ai). " +
             "Set 'image_api_key' in user_config if the image provider uses a different key from the LLM.",
         parameters = listOf(
@@ -52,6 +52,7 @@ class GenerateImageSkill(
                 "model", "string",
                 "Model to use. " +
                     "OpenAI: 'gpt-image-2' (recommended, high quality), 'dall-e-3', or 'dall-e-2'. " +
+                    "Hugging Face: 'hf-flux-schnell' or 'huggingface:black-forest-labs/FLUX.1-schnell'. " +
                     "SiliconFlow: 'black-forest-labs/FLUX.1-schnell' (free) or 'black-forest-labs/FLUX.1-dev'. " +
                     "Together.ai: 'black-forest-labs/FLUX.1-schnell-Free'. " +
                     "Free no-key option: 'pollinations'. " +
@@ -73,7 +74,7 @@ class GenerateImageSkill(
         type = SkillType.NATIVE,
         injectionLevel = 1,
         nameZh = "生成图片",
-        descriptionZh = "通过 AI 模型生成图片并在聊天中展示。支持 SiliconFlow / Together.ai / OpenAI / Pollinations (免费无需Key)。",
+        descriptionZh = "通过 AI 模型生成图片并在聊天中展示。支持 Hugging Face / SiliconFlow / Together.ai / OpenAI / Pollinations (免费无需Key)。",
         categories = listOf(SkillToolCategory.MEDIA),
         tags = listOf("创作"),
     )
@@ -83,14 +84,22 @@ class GenerateImageSkill(
             ?: return@withContext SkillResult(false, "prompt is required")
         val size = params["size"] as? String ?: "1024x1024"
         val quality = (params["quality"] as? String)?.takeIf { it.isNotBlank() } ?: "auto"
-        val model = (params["model"] as? String)?.takeIf { it.isNotBlank() } ?: "gpt-image-2"
+        val snapshot = config.snapshot()
+        val hasHfToken = userConfig?.get("huggingface_api_key")?.isNotBlank() == true
+        val model = resolveImageModel(
+            requested = (params["model"] as? String)?.takeIf { it.isNotBlank() },
+            endpoint = userConfig?.get("image_api_endpoint")?.trim().orEmpty().ifBlank { snapshot.endpoint },
+            hasHfToken = hasHfToken,
+        )
 
         // Pollinations.ai: free, no API key needed
         if (model == "pollinations" || model == "pollinations-flux") {
             return@withContext generateViaPollinatins(prompt, size)
         }
+        if (model == "hf-flux-schnell" || model.startsWith("huggingface:")) {
+            return@withContext generateViaHuggingFace(prompt, size, model)
+        }
 
-        val snapshot = config.snapshot()
         if (snapshot.endpoint.isBlank() || snapshot.apiKey.isBlank()) {
             return@withContext SkillResult(false, "LLM endpoint or API key not configured")
         }
@@ -187,9 +196,7 @@ class GenerateImageSkill(
     }
 
     private fun generateViaPollinatins(prompt: String, size: String): SkillResult {
-        val (w, h) = size.split("x").let {
-            (it.getOrNull(0)?.toIntOrNull() ?: 1024) to (it.getOrNull(1)?.toIntOrNull() ?: 1024)
-        }
+        val (w, h) = parseSize(size)
         val encodedPrompt = java.net.URLEncoder.encode(prompt, "UTF-8")
         val url = "https://image.pollinations.ai/prompt/$encodedPrompt?model=flux&width=$w&height=$h&nologo=true"
         return runCatching {
@@ -212,6 +219,92 @@ class GenerateImageSkill(
         }.getOrElse { e ->
             SkillResult(false, "Pollinations.ai 失败: ${e.message}")
         }
+    }
+
+    private suspend fun generateViaHuggingFace(prompt: String, size: String, model: String): SkillResult {
+        val token = userConfig?.get("huggingface_api_key")?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: userConfig?.get("image_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            ?: return SkillResult(
+                false,
+                "Hugging Face image generation requires user_config 'huggingface_api_key' or 'image_api_key'.",
+            )
+        val modelId = model.removePrefix("huggingface:")
+            .takeIf { it != model }
+            ?: "black-forest-labs/FLUX.1-schnell"
+        val (w, h) = parseSize(size)
+        val bodyJson = JsonObject().apply {
+            addProperty("inputs", prompt)
+            add("parameters", JsonObject().apply {
+                addProperty("width", w)
+                addProperty("height", h)
+                addProperty("num_inference_steps", 4)
+            })
+            add("options", JsonObject().apply {
+                addProperty("wait_for_model", true)
+            })
+        }
+        val url = "https://api-inference.huggingface.co/models/$modelId"
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .header("Accept", "image/png")
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        return runCatching {
+            slowClient.newCall(request).execute().use { resp ->
+                val contentType = resp.body?.contentType()?.toString()?.substringBefore(";") ?: ""
+                val bytes = resp.body?.bytes()
+                    ?: return SkillResult(false, "Hugging Face returned an empty response.")
+                if (!resp.isSuccessful || !contentType.startsWith("image/")) {
+                    val body = bytes.toString(Charsets.UTF_8)
+                    return SkillResult(
+                        false,
+                        "Hugging Face image API error ${resp.code}\nModel: $modelId\nResponse: ${body.take(400)}",
+                    )
+                }
+                val mime = contentType.ifBlank { "image/png" }
+                val dataUri = "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                SkillResult(
+                    success = true,
+                    output = "图片已生成 (Hugging Face $modelId)。提示词: $prompt",
+                    imageBase64 = dataUri,
+                    data = SkillAttachment.ImageData(dataUri, prompt),
+                )
+            }
+        }.getOrElse { e ->
+            SkillResult(false, "Hugging Face 图片生成失败: ${e.message}")
+        }
+    }
+
+    private fun parseSize(size: String): Pair<Int, Int> =
+        size.split("x").let {
+            (it.getOrNull(0)?.toIntOrNull() ?: 1024) to
+                (it.getOrNull(1)?.toIntOrNull() ?: 1024)
+        }
+
+    private fun resolveImageModel(requested: String?, endpoint: String, hasHfToken: Boolean): String {
+        val cleanRequested = requested?.trim().orEmpty()
+        if (cleanRequested.isNotBlank() && isSupportedImageModel(cleanRequested)) return cleanRequested
+        val lowerEndpoint = endpoint.lowercase()
+        return when {
+            "api.openai.com" in lowerEndpoint || "openai" in lowerEndpoint -> "gpt-image-2"
+            "siliconflow" in lowerEndpoint -> "black-forest-labs/FLUX.1-schnell"
+            "together" in lowerEndpoint -> "black-forest-labs/FLUX.1-schnell-Free"
+            hasHfToken -> "hf-flux-schnell"
+            else -> "pollinations"
+        }
+    }
+
+    private fun isSupportedImageModel(model: String): Boolean {
+        val value = model.trim()
+        return value == "pollinations" ||
+            value == "pollinations-flux" ||
+            value == "hf-flux-schnell" ||
+            value.startsWith("huggingface:") ||
+            value.startsWith("gpt-image-") ||
+            value.startsWith("dall-e-") ||
+            value.startsWith("black-forest-labs/FLUX.1")
     }
 
     private fun fetchImageAsBase64(url: String): String? = runCatching {

@@ -54,8 +54,9 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
     override suspend fun chat(request: ChatRequest): ChatResponse {
         val body = buildRequestBody(request)
         val snapshot = config.snapshot()
+        val apiBase = normalizeApiBase(snapshot.endpoint)
         val httpRequest = Request.Builder()
-            .url("${snapshot.endpoint.trimEnd('/')}/v1/chat/completions")
+            .url("$apiBase/chat/completions")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
@@ -84,12 +85,13 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     override suspend fun embed(text: String): FloatArray {
         val snapshot = config.snapshot()
+        val apiBase = normalizeApiBase(snapshot.endpoint)
         val bodyJson = JsonObject().apply {
             addProperty("model", snapshot.embeddingModel)
             addProperty("input", text)
         }
         val httpRequest = Request.Builder()
-            .url("${snapshot.endpoint.trimEnd('/')}/v1/embeddings")
+            .url("$apiBase/embeddings")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
             .header("Content-Type", "application/json")
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
@@ -295,8 +297,9 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
     suspend fun fetchModels(): List<String> {
         val snapshot = config.snapshot()
         if (snapshot.endpoint.isBlank() || snapshot.apiKey.isBlank()) return emptyList()
+        val apiBase = normalizeApiBase(snapshot.endpoint)
         val request = Request.Builder()
-            .url("${snapshot.endpoint.trimEnd('/')}/v1/models")
+            .url("$apiBase/models")
             .header("Authorization", "Bearer ${snapshot.apiKey}")
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
             .get()
@@ -353,6 +356,12 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
         runCatching {
             JsonParser.parseString(body).asJsonObject["error"]?.asJsonObject?.get("message")?.asString
         }.getOrNull() ?: body.take(200)
+
+    private fun normalizeApiBase(endpoint: String): String {
+        val trimmed = endpoint.trim().trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        return if (trimmed.endsWith("/v1", ignoreCase = true)) trimmed else "$trimmed/v1"
+    }
 
     private suspend fun chatBlocking(request: Request): ChatResponse =
         suspendCancellableCoroutine { cont ->

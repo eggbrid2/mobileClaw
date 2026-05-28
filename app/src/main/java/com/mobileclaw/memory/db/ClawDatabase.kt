@@ -203,7 +203,7 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         SubscriptionEntity::class,
     ],
     version = 10,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class ClawDatabase : RoomDatabase() {
     abstract fun episodeDao(): EpisodeDao

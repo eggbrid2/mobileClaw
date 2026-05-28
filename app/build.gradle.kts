@@ -6,6 +6,14 @@ plugins {
     alias(libs.plugins.chaquopy)
 }
 
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+        arg("room.expandProjection", "true")
+    }
+}
+
 android {
     namespace = "com.mobileclaw"
     compileSdk = 35

@@ -1,7 +1,12 @@
 package com.mobileclaw.skill.builtin
 
+import com.google.gson.Gson
 import com.mobileclaw.app.MiniApp
+import com.mobileclaw.app.MiniAppPreflightValidator
 import com.mobileclaw.app.MiniAppStore
+import com.mobileclaw.artifact.ArtifactHistoryEntry
+import com.mobileclaw.artifact.ArtifactSpec
+import com.mobileclaw.server.LocalApiServer
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
@@ -45,8 +50,10 @@ import java.util.UUID
  */
 class AppManagerSkill(
     private val store: MiniAppStore,
+    private val preflightValidator: MiniAppPreflightValidator,
     val openRequests: MutableSharedFlow<String>,
 ) : Skill {
+    private val gson = Gson()
 
     override val meta = SkillMeta(
         id = "app_manager",
@@ -56,14 +63,23 @@ class AppManagerSkill(
             "Use for explicit app/mini-app/program/game requests, custom HTML/CSS/JavaScript, canvas, complex browser rendering, SQLite, or Python backend. " +
             "For ordinary pages, dashboards, forms, settings panels, data viewers, and management screens, use ui_builder instead. " +
             "IMPORTANT: Always call action=get_guide before creating or updating an app to get the full API reference and starter template. " +
-            "All Claw async methods (fetch/sql/python/shell) MUST be used with await — synchronous calls will freeze the UI.",
+            "All Claw async methods (fetch/sql/python/shell) MUST be used with await — synchronous calls will freeze the UI. " +
+            "Use Claw.log.info/warn/error/debug and Claw.log.read() for runtime diagnostics and debugging. " +
+            "Actions: get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon",
         descriptionZh = "创建和管理在 MobileClaw 中运行的持久化 HTML+JS MiniAPP 程序。仅在用户明确要求应用/小程序/程序/游戏，或需要自定义 HTML/CSS/JavaScript、Canvas、复杂浏览器渲染、SQLite、Python 后端时使用。普通页面、仪表盘、表单、管理页优先使用 ui_builder。重要：创建或更新应用前请先调用 action=get_guide 获取完整 API 参考和起始模板。",
         parameters = listOf(
-            SkillParam("action", "string", "Action: 'get_guide' | 'create' | 'update' | 'list' | 'delete' | 'open' | 'set_icon'"),
+            SkillParam("action", "string", "Action: 'get_guide' | 'create' | 'update' | 'analyze_change' | 'validate' | 'inspect_logs' | 'list' | 'delete' | 'open' | 'set_icon'"),
             SkillParam("id", "string", "App ID (snake_case). Required for update/delete/open. Auto-generated for create.", required = false),
             SkillParam("title", "string", "App title shown in launcher", required = false),
             SkillParam("description", "string", "Short description of what the app does", required = false),
             SkillParam("icon", "string", "Emoji icon for the app", required = false),
+            SkillParam("goal", "string", "Original user goal for this app", required = false),
+            SkillParam("required_features", "array", "Required features that must be preserved across updates", required = false),
+            SkillParam("constraints", "array", "Constraints such as style, behavior, or platform requirements", required = false),
+            SkillParam("accepted_corrections", "array", "User-approved corrections that should persist", required = false),
+            SkillParam("known_bugs", "array", "Known bugs still pending", required = false),
+            SkillParam("non_goals", "array", "Out-of-scope items for this app", required = false),
+            SkillParam("change_request", "string", "Latest user correction or requested change", required = false),
             SkillParam("html", "string", "Complete HTML+CSS+JS. Use Claw.* APIs for all native features. For HTTP use Claw.fetch(url) — do NOT use fetch()/XMLHttpRequest (CORS blocked). For Python call Claw.python({action:'...',...}).", required = false),
             SkillParam("python", "string", "Optional Python backend. Must define handle(input_json_str)->str returning JSON. Called via Claw.python(obj) from HTML.", required = false),
         ),
@@ -87,6 +103,115 @@ class AppManagerSkill(
                 SkillResult(true, "Mini-apps (${apps.size}):\n$list")
             }
 
+            "analyze_change" -> {
+                val id = params["id"] as? String ?: return SkillResult(false, "id is required for analyze_change")
+                val app = store.get(id) ?: return SkillResult(false, "App '$id' not found.")
+                val changeRequest = params["change_request"] as? String ?: return SkillResult(false, "change_request required")
+                val recentLogs = store.readLogs(id, limit = 40)
+                val logReport = classifyMiniAppLogs(recentLogs)
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "id" to app.id,
+                    "title" to app.title,
+                    "goal" to app.spec.goal.ifBlank { app.description.ifBlank { app.title } },
+                    "current_features" to app.spec.currentFeatures.ifEmpty { summarizeAppFeatures(app, store.readHtml(id).orEmpty(), store.readPython(id).orEmpty()) },
+                    "preserve_features" to app.spec.requiredFeatures,
+                    "constraints" to app.spec.constraints,
+                    "accepted_corrections" to app.spec.acceptedCorrections,
+                    "known_bugs" to app.spec.knownBugs,
+                    "non_goals" to app.spec.nonGoals,
+                    "last_diff_summary" to app.spec.lastDiffSummary,
+                    "patch_focus" to inferPatchFocus(changeRequest),
+                    "change_type" to inferChangeType(changeRequest),
+                    "patch_brief" to "update only the smallest affected part, preserve all unrelated behavior, and keep the app runnable after the edit",
+                    "change_request" to changeRequest,
+                    "recent_logs" to recentLogs,
+                    "error_logs" to logReport.errors,
+                    "warning_logs" to logReport.warnings,
+                    "needs_runtime_repair" to logReport.needsRepair,
+                    "latest_log_summary" to recentLogs.takeLast(8).joinToString(" | ").take(800),
+                    "recommended_mode" to "patch",
+                    "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            "validate" -> {
+                val id = params["id"] as? String ?: return SkillResult(false, "id is required for validate")
+                val app = store.get(id) ?: return SkillResult(false, "App '$id' not found.")
+                val html = store.readHtml(id).orEmpty()
+                val py = store.readPython(id).orEmpty()
+                val body = (html + "\n" + py).lowercase()
+                val required = app.spec.requiredFeatures
+                val current = app.spec.currentFeatures.ifEmpty { summarizeAppFeatures(app, html, py) }
+                val recentLogs = store.readLogs(id, limit = 80)
+                val missingRequired = required.filter { feature ->
+                    val token = feature.trim().lowercase()
+                    token.isNotBlank() && token !in body
+                }
+                val missingCurrent = current.filter { feature ->
+                    val token = feature.trim().lowercase()
+                    token.isNotBlank() && token !in body
+                }
+                val runtimeIssues = validateMiniAppRuntime(html, py)
+                val logReport = classifyMiniAppLogs(recentLogs)
+                val ok = missingRequired.isEmpty() && missingCurrent.isEmpty() && runtimeIssues.isEmpty()
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "id" to app.id,
+                    "ok" to ok,
+                    "required_features" to required,
+                    "current_features" to current,
+                    "missing_required_features" to missingRequired,
+                    "missing_snapshot_features" to missingCurrent,
+                    "runtime_issues" to runtimeIssues,
+                    "recent_logs" to recentLogs,
+                    "error_logs" to logReport.errors,
+                    "warning_logs" to logReport.warnings,
+                    "needs_runtime_repair" to logReport.needsRepair,
+                    "latest_log_summary" to recentLogs.takeLast(10).joinToString(" | ").take(1000),
+                    "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "summary" to if (ok) {
+                        "Required features preserved and runtime validation passed."
+                    } else {
+                        buildString {
+                            append("Artifact validation failed.")
+                            if (missingRequired.isNotEmpty()) append(" Missing required features: ${missingRequired.joinToString(", ")}.")
+                            if (missingCurrent.isNotEmpty()) append(" Missing snapshot features: ${missingCurrent.joinToString(", ")}.")
+                            if (runtimeIssues.isNotEmpty()) append(" Runtime issues: ${runtimeIssues.joinToString(" | ")}.")
+                            if (recentLogs.isNotEmpty()) append(" Recent logs are attached for debugging.")
+                        }
+                    }
+                )
+                SkillResult(ok, gson.toJson(output))
+            }
+
+            "inspect_logs" -> {
+                val id = params["id"] as? String ?: return SkillResult(false, "id is required for inspect_logs")
+                val app = store.get(id) ?: return SkillResult(false, "App '$id' not found.")
+                val limit = (params["limit"] as? Number)?.toInt()?.coerceIn(1, 200) ?: 80
+                val recentLogs = store.readLogs(id, limit = limit)
+                val logReport = classifyMiniAppLogs(recentLogs)
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "inspect_logs",
+                    "id" to app.id,
+                    "title" to app.title,
+                    "recent_logs" to recentLogs,
+                    "error_logs" to logReport.errors,
+                    "warning_logs" to logReport.warnings,
+                    "needs_runtime_repair" to logReport.needsRepair,
+                    "latest_log_summary" to recentLogs.takeLast(10).joinToString(" | ").take(1000),
+                    "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "summary" to when {
+                        recentLogs.isEmpty() -> "No runtime logs recorded for '$id'."
+                        logReport.needsRepair -> "Loaded ${recentLogs.size} recent runtime logs for '$id'. Error logs indicate the app still needs runtime repair."
+                        else -> "Loaded ${recentLogs.size} recent runtime logs for '$id'."
+                    },
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
             "create" -> {
                 val html = params["html"] as? String
                     ?: return SkillResult(false, "html is required for create")
@@ -94,14 +219,73 @@ class AppManagerSkill(
                 val description = params["description"] as? String ?: ""
                 val icon = params["icon"] as? String ?: "apps"
                 val python = params["python"] as? String
+                val changeRequest = params["change_request"] as? String ?: ""
                 val id = (params["id"] as? String)?.takeIf { it.matches(Regex("[a-z0-9_]+")) }
                     ?: "app_${UUID.randomUUID().toString().take(8)}"
-                val app = MiniApp(id = id, title = title, description = description, icon = icon, htmlPath = "")
+                val app = MiniApp(
+                    id = id,
+                    title = title,
+                    description = description,
+                    icon = icon,
+                    htmlPath = "",
+                    spec = mergeSpec(
+                        existing = null,
+                        params = params,
+                        title = title,
+                        description = description,
+                        changeRequest = changeRequest,
+                        inferredCurrentFeatures = summarizeAppFeatures(title, description, html, python.orEmpty()),
+                    ),
+                    history = buildHistory(null, "create", changeRequest.ifBlank { description }, description.ifBlank { title }),
+                )
+                val preflight = preflightValidator.validate(id, html, python)
+                if (!preflight.ok) {
+                    store.save(app, store.injectBridge(html))
+                    if (!python.isNullOrBlank()) store.savePython(id, python)
+                    val saved = store.get(id) ?: app
+                    val logReport = classifyMiniAppLogs(preflight.recentLogs)
+                    val output = linkedMapOf(
+                        "artifact_type" to "miniapp",
+                        "action" to "create",
+                        "id" to saved.id,
+                        "title" to saved.title,
+                        "ok" to false,
+                        "saved_as_draft" to true,
+                        "open_blocked" to true,
+                        "preflight_issues" to preflight.issues,
+                        "preflight_warnings" to preflight.warnings,
+                        "recent_logs" to preflight.recentLogs,
+                        "error_logs" to logReport.errors,
+                        "warning_logs" to logReport.warnings,
+                        "needs_runtime_repair" to logReport.needsRepair,
+                        "latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
+                        "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                        "summary" to "MiniAPP draft '$id' was saved, but preflight failed so it was not opened. Repair the reported issues, then validate and open it.",
+                    )
+                    return SkillResult(true, gson.toJson(output))
+                }
                 store.save(app, store.injectBridge(html))
                 if (!python.isNullOrBlank()) store.savePython(id, python)
                 openRequests.emit(id)
-                val pythonNote = if (python != null) " (with Python backend)" else ""
-                SkillResult(true, "App '${app.icon} ${app.title}' created with id='$id'$pythonNote. Opening now.")
+                val saved = store.get(id) ?: app
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "create",
+                    "id" to saved.id,
+                    "title" to saved.title,
+                    "goal" to saved.spec.goal,
+                    "current_features" to saved.spec.currentFeatures,
+                    "required_features" to saved.spec.requiredFeatures,
+                    "last_diff_summary" to saved.spec.lastDiffSummary,
+                    "change_request" to changeRequest,
+                    "preflight_warnings" to preflight.warnings,
+                    "preflight_recent_logs" to preflight.recentLogs,
+                    "preflight_latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
+                    "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "open_hint" to "app_manager(action=open, id=$id)",
+                    "summary" to "Created MiniAPP '$id'${if (python != null) " with Python backend" else ""}."
+                )
+                SkillResult(true, gson.toJson(output))
             }
 
             "update" -> {
@@ -113,12 +297,73 @@ class AppManagerSkill(
                 val newTitle = params["title"] as? String
                 val newDescription = params["description"] as? String
                 val newIcon = params["icon"] as? String
-
                 val python = params["python"] as? String
+                val changeRequest = params["change_request"] as? String ?: ""
+                val effectiveHtml = html ?: store.readHtml(id).orEmpty()
+                val effectivePython = python ?: store.readPython(id).orEmpty()
+                val preflight = preflightValidator.validate(id, effectiveHtml, effectivePython)
+                if (!preflight.ok) {
+                    val draft = app.copy(
+                        title = newTitle ?: app.title,
+                        description = newDescription ?: app.description,
+                        icon = newIcon ?: app.icon,
+                        spec = mergeSpec(
+                            existing = app.spec,
+                            params = params,
+                            title = newTitle ?: app.title,
+                            description = newDescription ?: app.description,
+                            changeRequest = changeRequest,
+                            inferredCurrentFeatures = summarizeAppFeatures(
+                                newTitle ?: app.title,
+                                newDescription ?: app.description,
+                                effectiveHtml,
+                                effectivePython,
+                            ),
+                        ),
+                        history = buildHistory(app.history, "update", changeRequest.ifBlank { newDescription ?: app.description }, (newDescription ?: app.description).ifBlank { newTitle ?: app.title }),
+                    )
+                    store.save(draft, store.injectBridge(effectiveHtml))
+                    if (!effectivePython.isNullOrBlank()) store.savePython(id, effectivePython)
+                    val saved = store.get(id) ?: draft
+                    val logReport = classifyMiniAppLogs(preflight.recentLogs)
+                    val output = linkedMapOf(
+                        "artifact_type" to "miniapp",
+                        "action" to "update",
+                        "id" to saved.id,
+                        "title" to saved.title,
+                        "ok" to false,
+                        "saved_as_draft" to true,
+                        "open_blocked" to true,
+                        "preflight_issues" to preflight.issues,
+                        "preflight_warnings" to preflight.warnings,
+                        "recent_logs" to preflight.recentLogs,
+                        "error_logs" to logReport.errors,
+                        "warning_logs" to logReport.warnings,
+                        "needs_runtime_repair" to logReport.needsRepair,
+                        "latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
+                        "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                        "summary" to "MiniAPP draft '$id' was updated, but preflight failed so it was not opened. Repair the reported issues, then validate and open it.",
+                    )
+                    return SkillResult(true, gson.toJson(output))
+                }
                 val updated = app.copy(
                     title = newTitle ?: app.title,
                     description = newDescription ?: app.description,
                     icon = newIcon ?: app.icon,
+                    spec = mergeSpec(
+                        existing = app.spec,
+                        params = params,
+                        title = newTitle ?: app.title,
+                        description = newDescription ?: app.description,
+                        changeRequest = changeRequest,
+                        inferredCurrentFeatures = summarizeAppFeatures(
+                            newTitle ?: app.title,
+                            newDescription ?: app.description,
+                            effectiveHtml,
+                            effectivePython,
+                        ),
+                    ),
+                    history = buildHistory(app.history, "update", changeRequest.ifBlank { newDescription ?: app.description }, (newDescription ?: app.description).ifBlank { newTitle ?: app.title }),
                 )
                 if (html != null) {
                     store.save(updated, store.injectBridge(html))
@@ -127,12 +372,25 @@ class AppManagerSkill(
                     store.save(updated, existingHtml)
                 }
                 if (!python.isNullOrBlank()) store.savePython(id, python)
-                val what = buildList {
-                    if (html != null) add("HTML")
-                    if (python != null) add("Python")
-                    if (html == null && python == null) add("metadata")
-                }.joinToString(" + ")
-                SkillResult(true, "App '$id' $what updated. Use action=open to launch it.")
+                val saved = store.get(id) ?: updated
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "update",
+                    "id" to saved.id,
+                    "title" to saved.title,
+                    "goal" to saved.spec.goal,
+                    "current_features" to saved.spec.currentFeatures,
+                    "required_features" to saved.spec.requiredFeatures,
+                    "last_diff_summary" to saved.spec.lastDiffSummary,
+                    "change_request" to changeRequest,
+                    "preflight_warnings" to preflight.warnings,
+                    "preflight_recent_logs" to preflight.recentLogs,
+                    "preflight_latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
+                    "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "open_hint" to "app_manager(action=open, id=$id)",
+                    "summary" to "Updated MiniAPP '$id'."
+                )
+                SkillResult(true, gson.toJson(output))
             }
 
             "delete" -> {
@@ -162,10 +420,197 @@ class AppManagerSkill(
                 SkillResult(true, "Icon updated for app '$id'.")
             }
 
-            else -> SkillResult(false, "Unknown action: $action. Use get_guide | create | update | list | delete | open | set_icon")
+            else -> SkillResult(false, "Unknown action: $action. Use get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon")
         }
     }
 }
+
+private fun parseArtifactStringList(value: Any?): List<String>? = when (value) {
+    is List<*> -> value.mapNotNull { it?.toString()?.trim() }.filter { it.isNotBlank() }
+    is String -> runCatching {
+        com.google.gson.JsonParser.parseString(value).asJsonArray.mapNotNull { runCatching { it.asString.trim() }.getOrNull() }.filter { it.isNotBlank() }
+    }.getOrNull()
+    else -> null
+}
+
+private fun mergeSpec(
+    existing: ArtifactSpec?,
+    params: Map<String, Any>,
+    title: String,
+    description: String,
+    changeRequest: String,
+    inferredCurrentFeatures: List<String>,
+): ArtifactSpec {
+    val base = existing ?: ArtifactSpec()
+    val goal = (params["goal"] as? String)?.takeIf { it.isNotBlank() } ?: base.goal.ifBlank { description.ifBlank { title } }
+    val requiredFeatures = parseArtifactStringList(params["required_features"]) ?: base.requiredFeatures
+    val currentFeatures = inferredCurrentFeatures.ifEmpty { base.currentFeatures }
+    val constraints = parseArtifactStringList(params["constraints"]) ?: base.constraints
+    val acceptedCorrections = (base.acceptedCorrections + parseArtifactStringList(params["accepted_corrections"]).orEmpty() + listOf(changeRequest))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .takeLast(20)
+    val knownBugs = parseArtifactStringList(params["known_bugs"]) ?: base.knownBugs
+    val nonGoals = parseArtifactStringList(params["non_goals"]) ?: base.nonGoals
+    val summary = buildString {
+        append(goal)
+        if (requiredFeatures.isNotEmpty()) append(" | features=${requiredFeatures.joinToString("; ")}")
+        else if (currentFeatures.isNotEmpty()) append(" | current=${currentFeatures.joinToString("; ")}")
+        if (changeRequest.isNotBlank()) append(" | latest_change=$changeRequest")
+    }.take(400)
+    val diffSummary = buildFeatureDiffSummary(base.currentFeatures, currentFeatures)
+    return ArtifactSpec(
+        goal = goal,
+        requiredFeatures = requiredFeatures,
+        currentFeatures = currentFeatures,
+        constraints = constraints,
+        acceptedCorrections = acceptedCorrections,
+        knownBugs = knownBugs,
+        nonGoals = nonGoals,
+        currentSummary = summary,
+        lastDiffSummary = diffSummary,
+    )
+}
+
+private fun buildHistory(
+    existing: List<ArtifactHistoryEntry>?,
+    action: String,
+    request: String,
+    summary: String,
+): List<ArtifactHistoryEntry> =
+    ((existing ?: emptyList()) + ArtifactHistoryEntry(action = action, request = request, summary = summary)).takeLast(24)
+
+private fun summarizeAppFeatures(app: MiniApp, html: String, python: String): List<String> =
+    summarizeAppFeatures(app.title, app.description, html, python)
+
+private fun summarizeAppFeatures(
+    title: String,
+    description: String,
+    html: String,
+    python: String,
+): List<String> {
+    val body = (html + "\n" + python).lowercase()
+    val inferred = linkedSetOf<String>()
+    if (title.isNotBlank()) inferred += "title:${title.trim().take(40)}"
+    if (description.isNotBlank()) inferred += "description"
+    if (body.contains("<canvas")) inferred += "canvas"
+    if (body.contains("claw.fetch") || body.contains("android.httpfetch")) inferred += "http_fetch"
+    if (body.contains("claw.sql") || body.contains("android.sqlite")) inferred += "sqlite"
+    if (body.contains("claw.python") || python.isNotBlank()) inferred += "python_backend"
+    if (body.contains("input")) inferred += "input"
+    if (body.contains("button")) inferred += "button"
+    if (body.contains("form")) inferred += "form"
+    if (body.contains("chart") || body.contains("svg")) inferred += "chart_or_svg"
+    if (body.contains("localstorage") || body.contains("claw.files")) inferred += "local_storage"
+    if (body.contains("openurl") || body.contains("launchapp") || body.contains("sharetext")) inferred += "native_bridge_action"
+    return inferred.take(16)
+}
+
+private fun buildFeatureDiffSummary(previous: List<String>, current: List<String>): String {
+    val prev = previous.map { it.trim() }.filter { it.isNotBlank() }
+    val now = current.map { it.trim() }.filter { it.isNotBlank() }
+    if (prev.isEmpty() && now.isEmpty()) return ""
+    if (prev.isEmpty()) return "initial feature snapshot: ${now.joinToString(", ")}"
+    val added = now.filter { it !in prev }
+    val removed = prev.filter { it !in now }
+    val kept = now.filter { it in prev }
+    return buildString {
+        append("kept=${kept.take(8).joinToString(", ").ifBlank { "none" }}")
+        if (added.isNotEmpty()) append(" | added=${added.take(8).joinToString(", ")}")
+        if (removed.isNotEmpty()) append(" | removed=${removed.take(8).joinToString(", ")}")
+    }.take(400)
+}
+
+private fun inferPatchFocus(changeRequest: String): String {
+    val text = changeRequest.lowercase()
+    return when {
+        text.contains("ui") || text.contains("样式") || text.contains("布局") || text.contains("美化") -> "ui_surface"
+        text.contains("bug") || text.contains("修复") || text.contains("错误") -> "bug_fix"
+        text.contains("功能") || text.contains("按钮") || text.contains("交互") || text.contains("逻辑") -> "behavior"
+        text.contains("文案") || text.contains("文字") || text.contains("翻译") -> "copywriting"
+        else -> "targeted_patch"
+    }
+}
+
+private fun inferChangeType(changeRequest: String): String {
+    val text = changeRequest.lowercase()
+    return when {
+        text.contains("新增") || text.contains("添加") || text.contains("增加") -> "extend"
+        text.contains("删除") || text.contains("移除") -> "remove"
+        text.contains("修复") || text.contains("bug") || text.contains("错误") -> "fix"
+        text.contains("优化") || text.contains("调整") || text.contains("改") -> "refine"
+        else -> "modify"
+    }
+}
+
+private fun validateMiniAppRuntime(html: String, python: String): List<String> {
+    val issues = mutableListOf<String>()
+    val loweredHtml = html.lowercase()
+    val loweredPython = python.lowercase()
+    val merged = "$loweredHtml\n$loweredPython"
+
+    if (Regex("""https?://[^"'\\s)]+/v1/v1(/|$)""").containsMatchIn(merged)) {
+        issues += "Found duplicated '/v1/v1' in endpoint URL. Normalize the base endpoint before appending API paths."
+    }
+    if (Regex("""https?://(localhost|127\.0\.0\.1)(:\d+)?/v1/""").containsMatchIn(merged)) {
+        issues += "Found OpenAI-style API call pointing at localhost/127.0.0.1. MiniAPPs should use Claw.fetch or MobileClaw local APIs, not ad hoc local /v1 endpoints."
+    }
+    if (Regex("""(?<!claw\.)fetch\s*\(""").containsMatchIn(loweredHtml)) {
+        issues += "Detected native fetch(). Use await Claw.fetch(...) instead so requests go through the app bridge."
+    }
+    if ("xmlhttprequest" in loweredHtml) {
+        issues += "Detected XMLHttpRequest. Use await Claw.fetch(...) instead."
+    }
+    if (Regex("""(?<!await\s)claw\.(fetch|sql|python|shell|pip)\s*\(""").containsMatchIn(html)) {
+        issues += "Detected Claw async API call without 'await'. All Claw.fetch/sql/python/shell/pip calls must be awaited."
+    }
+    if (Regex("""https?://127\.0\.0\.1:52732(?!/api/)""").containsMatchIn(merged)) {
+        issues += "Local API server URL is malformed. Use ${LocalApiServer.BASE_URL}/api/... paths."
+    }
+    if (Regex("""https?://127\.0\.0\.1:52732/api/api/""").containsMatchIn(merged)) {
+        issues += "Local API server path is duplicated as '/api/api/'. Use ${LocalApiServer.BASE_URL}/api/...."
+    }
+    if ("http://127.0.0.1:52730" in merged) {
+        issues += "Detected direct privileged TCP endpoint usage. MiniAPPs should not call the privileged server directly."
+    }
+    return issues.distinct()
+}
+
+private data class MiniAppLogReport(
+    val errors: List<String>,
+    val warnings: List<String>,
+) {
+    val needsRepair: Boolean
+        get() = errors.isNotEmpty()
+}
+
+private fun classifyMiniAppLogs(recentLogs: List<String>): MiniAppLogReport {
+    if (recentLogs.isEmpty()) return MiniAppLogReport(emptyList(), emptyList())
+    val errors = mutableListOf<String>()
+    val warnings = mutableListOf<String>()
+    recentLogs.forEach { line ->
+        val text = line.trim()
+        val lower = text.lowercase()
+        when {
+            "[error]" in lower ||
+                "unhandled promise rejection" in lower ||
+                "js error:" in lower ||
+                "console error" in lower ||
+                "preload_js_error" in lower ||
+                "preload_promise_rejection" in lower -> errors += text
+            "[warn]" in lower ||
+                "console warning" in lower ||
+                "warning" in lower -> warnings += text
+        }
+    }
+    return MiniAppLogReport(
+        errors = errors.distinct().takeLast(16),
+        warnings = warnings.distinct().takeLast(16),
+    )
+}
+
+private const val MINI_APP_DEBUG_PROTOCOL = "miniapp_debug_v2: 1)get_guide before edit 2)write Claw.log startup/input/network/parse/error logs 3)update the smallest affected part 4)inspect_logs immediately after update 5)validate after logs 6)if error_logs/runtime_issues/preflight_issues exist, repair once using those diagnostics instead of rewriting unrelated parts"
 
 private val APP_CREATION_GUIDE = """
 ## MobileClaw Mini-App Development Guide
@@ -236,6 +681,9 @@ async function run(){
 | Claw.config.get(key) / .set(key,val) | string | Persistent user config |
 | Claw.memory.get(key) / .set(key,val) | string | Semantic memory |
 | Claw.files.read(name) / .write(name,data) / .list() / .del(name) | varies | Per-app file storage |
+| Claw.log.info/warn/error/debug(tag,msg) | void | Append structured runtime log lines to app.log |
+| Claw.log.read(limit?) | string[] | Read recent runtime log lines from app.log |
+| Claw.log.clear() | boolean | Clear the current app log |
 | Claw.toast(msg) | void | Android Toast notification |
 | Claw.vibrate(ms) | void | Device vibration |
 | Claw.clipboard.get() / .set(text) | string | Clipboard access |
@@ -268,6 +716,21 @@ Call from JS: `var r = await Claw.python({action:'greet', name:'Alice'})`
 - For **scrollable inner containers** (chat history, lists, etc.) use: `overflow-y:auto; -webkit-overflow-scrolling:touch; max-height:XXXpx`
 - Do NOT set `overflow:hidden` on `html` or `body` — it creates scroll conflicts in Android WebView
 - `native fetch()` and `XMLHttpRequest` are **blocked** (CORS) — always use `Claw.fetch()`
+
+### Debugging Rules
+- Required repair loop after every meaningful edit:
+  1. `update`
+  2. `inspect_logs`
+  3. `validate`
+  4. if `error_logs`, `runtime_issues`, or `preflight_issues` are present, do one focused repair pass using those diagnostics
+- Always add runtime logs for important paths: startup, input validation, network request start/end, parsed response, empty-state fallback, and caught exceptions.
+- Preferred pattern:
+  - `Claw.log.info('startup', 'page mounted')`
+  - `Claw.log.info('fetch', 'requesting weather for '+q)`
+  - `Claw.log.error('fetch', e.message || String(e))`
+- When a feature fails, inspect `Claw.log.read(80)` before rewriting the whole app.
+- If preflight or runtime validation reports bridge/API issues, fix those first instead of adding more features.
+- Do not rely only on visible UI text for debugging; write to `Claw.log.*` so future update passes can inspect stable diagnostics.
 
 ### Design Rules
 1. Dark theme: background #1a1a2e, cards #1e1e3f, accent #7c3aed, text #eee

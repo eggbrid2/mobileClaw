@@ -26,6 +26,9 @@ class SkillRegistry {
     fun allMetasWithTaxonomy(): List<SkillMeta> =
         skills.values.map { skill -> skill.meta.withEffectiveTaxonomy(levelOverrides[skill.meta.id]) }
 
+    fun userVisibleMetasWithTaxonomy(): List<SkillMeta> =
+        allMetasWithTaxonomy().filterNot { it.internalTool }
+
     fun setLevelOverride(skillId: String, level: Int) {
         levelOverrides[skillId] = level
     }
@@ -44,6 +47,9 @@ class SkillRegistry {
         val override = levelOverrides[skill.meta.id]
         skill.meta.withEffectiveTaxonomy(override)
     }
+
+    fun userVisibleWithEffectiveLevel(): List<SkillMeta> =
+        allWithEffectiveLevel().filterNot { it.internalTool }
 
     /** Returns skills eligible for injection at the given level and below (respects overrides). */
     fun forInjection(maxLevel: Int = 0): List<SkillMeta> =

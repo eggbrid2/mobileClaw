@@ -26,9 +26,15 @@ class UserProfileExtractor(
     // ── Public API ────────────────────────────────────────────────────────────
 
     /** Called after each task completes. Uses recent conversation history. */
-    suspend fun extractAndUpdate(recentGoal: String, recentSummary: String) {
-        val messages = runCatching { conversationMemory.recentUserMessages(limit = 30) }
-            .getOrDefault(emptyList())
+    suspend fun extractAndUpdate(recentGoal: String, recentSummary: String, taskId: String? = null) {
+        val taskMessages = taskId?.takeIf { it.isNotBlank() }?.let {
+            runCatching { conversationMemory.recentContextForTask(it, limit = 24) }.getOrDefault(emptyList())
+        }.orEmpty()
+        val messages = if (taskMessages.isNotEmpty()) {
+            taskMessages
+        } else {
+            runCatching { conversationMemory.recentUserMessages(limit = 30) }.getOrDefault(emptyList())
+        }
         if (messages.isEmpty() && recentGoal.isBlank()) return
         val snippet = buildConversationSnippet(messages, recentGoal, recentSummary)
         val facts = runCatching { callLlmConversation(snippet) }.getOrDefault(emptyList())

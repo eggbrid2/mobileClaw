@@ -125,7 +125,7 @@ class GenerateVideoSkill(
         aspectRatio: String,
         model: String?,
     ): String? {
-        val base = endpoint.trimEnd('/')
+        val base = normalizeProviderBase(endpoint)
         return when (provider) {
             Provider.KLING -> submitKling(base, apiKey, prompt, duration, aspectRatio, model ?: "kling-v1")
             Provider.OPENAI_COMPAT -> submitOpenAiCompat(base, apiKey, prompt, duration, aspectRatio, model)
@@ -183,7 +183,7 @@ class GenerateVideoSkill(
         taskId: String,
         maxWaitMs: Long,
     ): String? {
-        val base = endpoint.trimEnd('/')
+        val base = normalizeProviderBase(endpoint)
         val pollUrl = when (provider) {
             Provider.KLING       -> "$base/v1/videos/text2video/$taskId"
             Provider.OPENAI_COMPAT -> "$base/v1/videos/generations/$taskId"
@@ -204,6 +204,11 @@ class GenerateVideoSkill(
             if (result != null) return result
         }
         return null
+    }
+
+    private fun normalizeProviderBase(endpoint: String): String {
+        val trimmed = endpoint.trim().trimEnd('/')
+        return trimmed.removeSuffix("/v1")
     }
 
     private fun extractVideoUrl(json: JsonObject, provider: Provider): String? {

@@ -130,7 +130,14 @@ fun DrawerContent(
                 }
             }
             Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            // 用户配置入口不再只挂在一小段副标题文字上，整块信息区都可点击，减少抽屉里点不中的问题。
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onOpenUserConfig() }
+                    .padding(vertical = 3.dp),
+            ) {
                 Text(
                     text = userName,
                     fontSize = 15.sp,
@@ -142,11 +149,10 @@ fun DrawerContent(
                 )
                 val configCount = userConfigEntries.size
                 Text(
-                    text = if (configCount > 0) "${configCount} 项配置 · 编辑" else str(R.string.drawer_edit),
+                    text = if (configCount > 0) "${configCount} 项配置 · ${str(R.string.drawer_user_config)}" else str(R.string.drawer_user_config),
                     fontSize = 11.sp,
                     color = c.subtext,
                     letterSpacing = 0.sp,
-                    modifier = Modifier.clickable { onOpenUserConfig() },
                 )
             }
             IconButton(onClick = onOpenSettings, modifier = Modifier.size(34.dp)) {

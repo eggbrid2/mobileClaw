@@ -15,8 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
@@ -29,6 +28,7 @@ import java.net.Socket
  * Endpoints:
  *   GET  /api/health          — health check
  *   GET  /api/skills          — list all registered skills
+ *   POST /api/skill/execute   — execute a registered skill {id, params}
  *   POST /api/skill           — save a new SkillDefinition (JSON body)
  *   GET  /api/memory          — list all semantic memory facts
  *   POST /api/memory/context  — build foundational memory context {message}
@@ -72,22 +72,38 @@ class LocalApiServer(
     private fun handleClient(socket: Socket) {
         runCatching {
             socket.use {
-                val reader = BufferedReader(InputStreamReader(socket.inputStream))
                 val writer = PrintWriter(socket.outputStream, false)
-
-                // Read request line
-                val requestLine = reader.readLine() ?: return
+                val input = socket.inputStream
+                val headerBytes = ByteArrayOutputStream()
+                var matched = 0
+                while (true) {
+                    val b = input.read()
+                    if (b < 0) return
+                    headerBytes.write(b)
+                    matched = when {
+                        matched == 0 && b == '\r'.code -> 1
+                        matched == 1 && b == '\n'.code -> 2
+                        matched == 2 && b == '\r'.code -> 3
+                        matched == 3 && b == '\n'.code -> 4
+                        b == '\r'.code -> 1
+                        else -> 0
+                    }
+                    if (matched == 4) break
+                    if (headerBytes.size() > 64 * 1024) return
+                }
+                val headerText = headerBytes.toString(Charsets.ISO_8859_1.name())
+                val headerLines = headerText.split("\r\n")
+                val requestLine = headerLines.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
                 val method = parts[0]
                 val path = parts[1].substringBefore("?")
 
-                // Read headers
                 val headers = mutableMapOf<String, String>()
                 var line: String
                 var contentLength = 0
-                while (true) {
-                    line = reader.readLine() ?: break
+                for (headerLine in headerLines.drop(1)) {
+                    line = headerLine
                     if (line.isBlank()) break
                     val colon = line.indexOf(':')
                     if (colon > 0) {
@@ -98,11 +114,15 @@ class LocalApiServer(
                     }
                 }
 
-                // Read body if present
                 val body = if (contentLength > 0) {
-                    val buf = CharArray(contentLength)
-                    reader.read(buf, 0, contentLength)
-                    String(buf)
+                    val bodyBytes = ByteArray(contentLength)
+                    var offset = 0
+                    while (offset < contentLength) {
+                        val read = input.read(bodyBytes, offset, contentLength - offset)
+                        if (read < 0) break
+                        offset += read
+                    }
+                    String(bodyBytes, 0, offset, Charsets.UTF_8)
                 } else ""
 
                 val (statusCode, responseBody) = route(method, path, body)
@@ -126,7 +146,7 @@ class LocalApiServer(
             path == "/api/health" -> "200 OK" to mapOf("status" to "ok", "port" to PORT)
 
             path == "/api/skills" && method == "GET" -> {
-                val skills = skillRegistry.all().map { skill ->
+                val skills = skillRegistry.all().filterNot { it.meta.internalTool }.map { skill ->
                     mapOf(
                         "id" to skill.meta.id,
                         "name" to skill.meta.name,
@@ -134,9 +154,28 @@ class LocalApiServer(
                         "type" to skill.meta.type.name.lowercase(),
                         "injectionLevel" to skill.meta.injectionLevel,
                         "isBuiltin" to skill.meta.isBuiltin,
+                        "internalTool" to skill.meta.internalTool,
                     )
                 }
                 "200 OK" to mapOf("skills" to skills, "total" to skills.size)
+            }
+
+            path == "/api/skill/execute" && method == "POST" -> {
+                runCatching {
+                    val req = gson.fromJson(body.ifBlank { "{}" }, Map::class.java)
+                    val id = req["id"] as? String ?: throw IllegalArgumentException("id required")
+                    @Suppress("UNCHECKED_CAST")
+                    val params = (req["params"] as? Map<String, Any>) ?: emptyMap()
+                    val skill = skillRegistry.get(id) ?: throw IllegalArgumentException("skill not found: $id")
+                    val result = runBlocking { skill.execute(params) }
+                    "200 OK" to mapOf(
+                        "success" to result.success,
+                        "output" to result.output,
+                        "data" to result.data,
+                    )
+                }.getOrElse { e ->
+                    "400 Bad Request" to mapOf("error" to (e.message ?: "Bad request"))
+                }
             }
 
             path == "/api/skill" && method == "POST" -> {

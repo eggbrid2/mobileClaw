@@ -53,6 +53,91 @@ class MemoryWriter(
         }
     }
 
+    suspend fun recordScopedUserText(scopeId: String, text: String) {
+        if (scopeId.isBlank()) return
+        val facts = extractExplicitUserFacts(text)
+        if (facts.isEmpty()) return
+        facts.forEach { (key, value) ->
+            semanticMemory.set(
+                key = scopedMemoryKey(scopeId, key),
+                value = value,
+                confidence = confidenceForKey(key),
+                type = SemanticMemory.inferType(key),
+                scope = "session:$scopeId",
+                source = "user_chat_scoped",
+                sourceRef = key,
+            )
+            promoteScopedFactIfStable(scopeId, key, value)
+        }
+    }
+
+    suspend fun recordTaskSnapshot(
+        scopeId: String,
+        goal: String,
+        summary: String,
+        taskType: String,
+        success: Boolean? = null,
+    ) {
+        if (scopeId.isBlank()) return
+        val entries = linkedMapOf(
+            "session.$scopeId.task.goal" to goal.take(240),
+            "session.$scopeId.task.summary" to summary.take(240),
+            "session.$scopeId.task.type" to taskType.take(60),
+        ).apply {
+            success?.let { put("session.$scopeId.task.status", if (it) "success" else "failed") }
+        }
+        entries.forEach { (key, value) ->
+            if (value.isNotBlank()) {
+                semanticMemory.set(
+                    key = key,
+                    value = value,
+                    confidence = 0.95f,
+                    type = SemanticMemory.inferType(key),
+                    scope = "session:$scopeId",
+                    source = "task_snapshot",
+                )
+            }
+        }
+    }
+
+    suspend fun updateTaskState(scopeId: String, state: String, detail: String = "") {
+        if (scopeId.isBlank() || state.isBlank()) return
+        semanticMemory.set(
+            key = "session.$scopeId.task.state",
+            value = state.take(80),
+            confidence = 0.98f,
+            type = SemanticMemory.inferType("session.$scopeId.task.state"),
+            scope = "session:$scopeId",
+            source = "task_state",
+        )
+        if (detail.isNotBlank()) {
+            semanticMemory.set(
+                key = "session.$scopeId.task.state_detail",
+                value = detail.take(240),
+                confidence = 0.9f,
+                type = SemanticMemory.inferType("session.$scopeId.task.state_detail"),
+                scope = "session:$scopeId",
+                source = "task_state",
+            )
+        }
+    }
+
+    suspend fun promoteScopedMemory(memoryKey: String): Boolean {
+        val fact = semanticMemory.fact(memoryKey) ?: return false
+        if (!fact.key.startsWith("session.") || fact.sourceRef.isBlank()) return false
+        val targetKey = fact.sourceRef
+        semanticMemory.set(
+            key = targetKey,
+            value = fact.value,
+            confidence = fact.confidence.coerceAtLeast(0.95f),
+            type = SemanticMemory.inferType(targetKey),
+            source = "memory_promotion",
+            sourceRef = memoryKey,
+            pinned = targetKey.startsWith("rule.") || targetKey.startsWith("tool.policy."),
+        )
+        return true
+    }
+
     private fun confidenceForKey(key: String): Float = when {
         key.startsWith("rule.") -> 0.98f
         key.startsWith("correction.") -> 0.96f
@@ -66,6 +151,41 @@ class MemoryWriter(
         key == "task.default_lang" -> "profile.preferred_language"
         else -> null
     }
+
+    private fun scopedMemoryKey(scopeId: String, key: String): String = "session.$scopeId.$key"
+
+    private suspend fun promoteScopedFactIfStable(scopeId: String, baseKey: String, value: String) {
+        if (!isPromotableScopedKey(baseKey)) return
+        val allFacts = semanticMemory.allFactsIncludingDisabled()
+        val matchingScopes = allFacts
+            .filter { fact ->
+                fact.enabled &&
+                    fact.key.startsWith("session.") &&
+                    fact.sourceRef == baseKey &&
+                    fact.value == value &&
+                    fact.scope.startsWith("session:")
+            }
+            .map { it.scope.removePrefix("session:") }
+            .distinct()
+        if (matchingScopes.size < 2 && scopeId !in matchingScopes) return
+        if ((matchingScopes + scopeId).distinct().size < 2) return
+        semanticMemory.set(
+            key = baseKey,
+            value = value,
+            confidence = confidenceForKey(baseKey).coerceAtLeast(0.95f),
+            type = SemanticMemory.inferType(baseKey),
+            source = "memory_promotion",
+            sourceRef = "session:$scopeId",
+            pinned = baseKey.startsWith("rule.") || baseKey.startsWith("tool.policy."),
+        )
+    }
+
+    private fun isPromotableScopedKey(key: String): Boolean =
+        key.startsWith("rule.") ||
+            key.startsWith("preference.") ||
+            key.startsWith("tool.policy.") ||
+            key.startsWith("agent.behavior.") ||
+            key.startsWith("profile.preferred")
 
     private fun extractExplicitUserFacts(text: String): Map<String, String> {
         val trimmed = text.trim()

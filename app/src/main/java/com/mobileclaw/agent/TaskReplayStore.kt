@@ -2,6 +2,7 @@ package com.mobileclaw.agent
 
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.mobileclaw.storage.AtomicTextFile
 import java.io.File
 import java.util.UUID
 
@@ -50,6 +51,7 @@ data class TaskRecipe(
 
 class TaskReplayStore(filesDir: File) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val ioLock = Any()
     private val dir = File(filesDir, "task_replays").also { it.mkdirs() }
 
     fun record(result: AgentResult, taskType: TaskType, role: Role): TaskReplay {
@@ -83,19 +85,23 @@ class TaskReplayStore(filesDir: File) {
     }
 
     fun save(replay: TaskReplay) {
-        File(dir, "${replay.id}.json").writeText(gson.toJson(replay))
-        prune()
+        synchronized(ioLock) {
+            AtomicTextFile.write(File(dir, "${replay.id}.json"), gson.toJson(replay))
+            prune()
+        }
     }
 
-    fun get(id: String): TaskReplay? =
-        runCatching { gson.fromJson(File(dir, "$id.json").readText(), TaskReplay::class.java) }.getOrNull()
+    fun get(id: String): TaskReplay? = synchronized(ioLock) {
+        runCatching { gson.fromJson(AtomicTextFile.readOrNull(File(dir, "$id.json")), TaskReplay::class.java) }.getOrNull()
+    }
 
-    fun recent(limit: Int = 50): List<TaskReplay> =
+    fun recent(limit: Int = 50): List<TaskReplay> = synchronized(ioLock) {
         dir.listFiles { f -> f.extension == "json" }
-            ?.mapNotNull { file -> runCatching { gson.fromJson(file.readText(), TaskReplay::class.java) }.getOrNull() }
+            ?.mapNotNull { file -> runCatching { gson.fromJson(AtomicTextFile.readOrNull(file), TaskReplay::class.java) }.getOrNull() }
             ?.sortedByDescending { it.createdAt }
             ?.take(limit)
             ?: emptyList()
+    }
 
     private fun prune(max: Int = 200) {
         val files = dir.listFiles { f -> f.extension == "json" }
@@ -107,6 +113,7 @@ class TaskReplayStore(filesDir: File) {
 
 class TaskRecipeStore(filesDir: File) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
+    private val ioLock = Any()
     private val dir = File(filesDir, "task_recipes").also { it.mkdirs() }
 
     fun createFromReplay(replay: TaskReplay, title: String = replay.goal.toRecipeTitle()): TaskRecipe? {
@@ -139,18 +146,22 @@ class TaskRecipeStore(filesDir: File) {
     }
 
     fun save(recipe: TaskRecipe) {
-        File(dir, "${recipe.id}.json").writeText(gson.toJson(recipe))
+        synchronized(ioLock) {
+            AtomicTextFile.write(File(dir, "${recipe.id}.json"), gson.toJson(recipe))
+        }
     }
 
-    fun get(id: String): TaskRecipe? =
-        runCatching { gson.fromJson(File(dir, "$id.json").readText(), TaskRecipe::class.java) }.getOrNull()
+    fun get(id: String): TaskRecipe? = synchronized(ioLock) {
+        runCatching { gson.fromJson(AtomicTextFile.readOrNull(File(dir, "$id.json")), TaskRecipe::class.java) }.getOrNull()
+    }
 
-    fun list(limit: Int = 50): List<TaskRecipe> =
+    fun list(limit: Int = 50): List<TaskRecipe> = synchronized(ioLock) {
         dir.listFiles { f -> f.extension == "json" }
-            ?.mapNotNull { file -> runCatching { gson.fromJson(file.readText(), TaskRecipe::class.java) }.getOrNull() }
+            ?.mapNotNull { file -> runCatching { gson.fromJson(AtomicTextFile.readOrNull(file), TaskRecipe::class.java) }.getOrNull() }
             ?.sortedByDescending { it.updatedAt }
             ?.take(limit)
             ?: emptyList()
+    }
 
     fun delete(id: String): Boolean = File(dir, "$id.json").delete()
 

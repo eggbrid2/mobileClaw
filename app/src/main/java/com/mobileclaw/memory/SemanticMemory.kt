@@ -58,6 +58,8 @@ class SemanticMemory(private val dao: SemanticDao) {
 
     suspend fun get(key: String): String? = dao.get(key)?.takeIf { it.enabled }?.value
 
+    suspend fun fact(key: String): MemoryFact? = dao.get(key)?.toMemoryFact()
+
     suspend fun delete(key: String) = dao.delete(key)
 
     suspend fun all(): Map<String, String> = dao.all().associate { it.key to it.value }
@@ -120,6 +122,7 @@ class SemanticMemory(private val dao: SemanticDao) {
 
     companion object {
         fun inferType(key: String): String = when {
+            key.startsWith("session.") -> "session"
             key.startsWith("rule.") || key.startsWith("tool.policy.") || key.startsWith("agent.behavior.") -> "rule"
             key.startsWith("preference.") || key.startsWith("profile.preferred") || key.startsWith("profile.dislikes") -> "preference"
             key.startsWith("correction.") || key.startsWith("failure.") || key.startsWith("lesson.") -> "lesson"
