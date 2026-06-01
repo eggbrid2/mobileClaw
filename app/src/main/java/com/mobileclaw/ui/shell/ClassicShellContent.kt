@@ -54,6 +54,14 @@ fun ClassicShellContent(
                             onSwitchRole = { vm.navigate(AppPage.ROLES) },
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                             onLoadMoreHistory = { vm.loadMoreHistory() },
+                            onCloseMiniAppPreview = { vm.clearChatMiniAppPreview() },
+                            onOpenMiniAppFullscreen = {
+                                vm.clearChatMiniAppPreview()
+                                onOpenApp(it)
+                            },
+                            onMiniAppPreviewStatusChanged = { appId, status, healthy ->
+                                vm.updateChatMiniAppPreviewStatus(appId, status, healthy)
+                            },
                             classicMode = true,
                         )
                     } else {

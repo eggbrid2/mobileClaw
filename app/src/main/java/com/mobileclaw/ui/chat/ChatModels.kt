@@ -2,6 +2,7 @@ package com.mobileclaw.ui.chat
 
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.ui.MainUiState
+import java.util.UUID
 
 // 单聊会话运行态独立出来，避免 UiState 文件继续承载聊天 feature 的细节模型。
 data class SessionRunState(
@@ -37,11 +38,15 @@ data class ChatMessage(
 enum class MessageRole { USER, AGENT }
 
 data class LogLine(
+    val entryId: String = UUID.randomUUID().toString(),
     val type: LogType,
     val text: String,
     val skillId: String? = null,
     val imageBase64: String? = null,
     val details: List<String> = emptyList(),
+    val startedAt: Long = 0L,
+    val finishedAt: Long = 0L,
+    val isRunning: Boolean = false,
 )
 
 data class AiQuizQuestion(

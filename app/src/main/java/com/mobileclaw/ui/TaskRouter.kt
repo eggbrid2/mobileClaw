@@ -129,7 +129,7 @@ class TaskRouter(
                 aiPrimaryChannel = decision.primaryChannel,
                 aiSupportingChannels = decision.supportingChannels,
                 aiToolHints = decision.toolHints,
-                userVisibleSteps = decision.userVisibleSteps,
+                userVisibleSteps = normalizeUserVisibleSteps(decision.userVisibleSteps, decision.taskType, normalizedGoal, decision.targetApp),
                 aiRouteConfidence = decision.confidence,
                 aiRouteReason = decision.reason,
                 aiRouteTargetApp = decision.targetApp,
@@ -147,9 +147,9 @@ class TaskRouter(
         reason: String,
     ): TaskRoute {
         val steps = listOf(
-            "路由模型暂时没有给出可靠判断，先进入通用执行模式",
-            "检查当前可用能力，再选择最合适的通道继续",
-            "如果需要手机、网页、文件或记忆能力，会在执行中自动调用",
+            "先根据你刚才的话确认最合适的处理入口",
+            "再直接处理当前最核心的内容",
+            "如果中途需要网页、文件、手机或记忆能力，会自动接上对应能力",
         )
         return TaskRoute(
             taskType = TaskType.GENERAL,
@@ -181,11 +181,13 @@ class TaskRouter(
         activeWorkflow: ActiveWorkflow?,
     ): TaskRoute {
         if (!hasImage && !hasFile && activeWorkflow != null && shouldContinueActiveWorkflow(goal, activeWorkflow)) {
+            val continueGoal = activeWorkflow.originalGoal.ifBlank { effectiveGoal }
             return TaskRoute(
                 taskType = activeWorkflow.taskType,
                 contextualIntent = ContextualTaskIntent(
                     classificationGoal = goal,
                     taskTypeOverride = activeWorkflow.taskType,
+                    userVisibleSteps = continueVisibleSteps(activeWorkflow.taskType, continueGoal, goal, ""),
                     executionHint = buildString {
                         appendLine("The user is continuing an active task in this chat.")
                         appendLine("Active task type: ${activeWorkflow.taskType}.")
@@ -250,25 +252,29 @@ class TaskRouter(
 
         val inferredTaskType = inferTaskTypeFromMessage(latest)
         if (inferredTaskType != null) {
+            val anchorGoal = recentAnchorGoal(recent, effectiveGoal)
             return TaskRoute(
                 taskType = inferredTaskType,
                 contextualIntent = ContextualTaskIntent(
                     classificationGoal = goal,
                     taskTypeOverride = inferredTaskType,
+                    userVisibleSteps = continueVisibleSteps(inferredTaskType, anchorGoal, goal, inferTargetAppFromMessages(recent)),
                     executionHint = "The user's short follow-up refers to the latest meaningful ${inferredTaskType.name} task in this chat. Continue that task using the newest relevant chat records, not an older unrelated thread.",
                 ),
                 goalForExecution = effectiveGoal,
                 source = TaskRouteSource.RECENT_CONTEXT,
-                goalToRemember = recentAnchorGoal(recent, effectiveGoal),
+                goalToRemember = anchorGoal,
                 debugReason = "Recent message inferred follow-up taskType=$inferredTaskType.",
             )
         }
 
+        val genericAnchorGoal = recentAnchorGoal(recent, effectiveGoal)
         return TaskRoute(
             taskType = TaskType.GENERAL,
             contextualIntent = ContextualTaskIntent(
                 classificationGoal = goal,
                 taskTypeOverride = TaskType.GENERAL,
+                userVisibleSteps = continueVisibleSteps(TaskType.GENERAL, genericAnchorGoal, goal, inferTargetAppFromMessages(recent)),
                 executionHint = "The user's short follow-up refers to the latest conversational thread. Answer based on the newest relevant user intent; do not start an unrelated artifact or tool workflow.",
             ),
             goalForExecution = effectiveGoal,
@@ -283,6 +289,7 @@ class TaskRouter(
         val intent = ContextualTaskIntent(
             classificationGoal = goal,
             taskTypeOverride = taskType,
+            userVisibleSteps = continueVisibleSteps(taskType, workspace.goal.ifBlank { effectiveGoal }, goal, workspace.latestArtifactTitle),
             aiPage = workspaceAiPageTarget(workspace),
             miniApp = workspaceMiniAppTarget(workspace),
             executionHint = buildString {
@@ -524,16 +531,6 @@ class TaskRouter(
         if (recentArtifact != null && shouldUseRecentFileContext(text, recentArtifact)) {
             return recentFileContextIntent(goal, recentArtifact)
         }
-        val aiPage = inferAiPageContextTarget(goal)
-        if (aiPage != null) {
-            return ContextualTaskIntent(
-                classificationGoal = goal,
-                taskTypeOverride = TaskType.APP_BUILD,
-                aiPage = aiPage,
-                executionHint = "The user is referring to an existing AI Native Page. Update that page instead of creating HTML or a new unrelated artifact.",
-            )
-        }
-
         val miniApp = inferMiniAppContextTarget(goal)
         if (miniApp != null) {
             return ContextualTaskIntent(
@@ -541,6 +538,22 @@ class TaskRouter(
                 taskTypeOverride = TaskType.APP_BUILD,
                 miniApp = miniApp,
                 executionHint = "The user is referring to an existing MiniAPP. Update/open that MiniAPP instead of creating a new unrelated artifact.",
+                aiPrimaryChannel = ChannelType.ARTIFACT,
+                aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
+                aiToolHints = listOf("app_manager", "read_file", "create_file", "list_files", "create_html"),
+            )
+        }
+
+        val aiPage = inferAiPageContextTarget(goal)
+        if (aiPage != null) {
+            return ContextualTaskIntent(
+                classificationGoal = goal,
+                taskTypeOverride = TaskType.APP_BUILD,
+                aiPage = aiPage,
+                executionHint = "The user is referring to an existing AI Native Page. Update that page instead of creating HTML or a new unrelated artifact.",
+                aiPrimaryChannel = ChannelType.ARTIFACT,
+                aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
+                aiToolHints = listOf("ui_builder", "read_file", "create_file", "list_files"),
             )
         }
 
@@ -558,7 +571,7 @@ class TaskRouter(
                 aiPrimaryChannel = ChannelType.ARTIFACT,
                 aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
                 aiToolHints = listOf("app_manager", "read_file", "create_file", "list_files"),
-                userVisibleSteps = listOf("确认 MiniAPP 目标和功能", "创建或修复程序运行内容", "验证后打开结果"),
+                userVisibleSteps = listOf("先理清这个 MiniAPP 具体要做什么", "把 MiniAPP 的页面和逻辑做出来或修好", "跑一轮检查后直接打开给你看"),
             )
             isExplicitNativePageIntent(text) -> ContextualTaskIntent(
                 classificationGoal = goal,
@@ -567,10 +580,97 @@ class TaskRouter(
                 aiPrimaryChannel = ChannelType.ARTIFACT,
                 aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
                 aiToolHints = listOf("ui_builder", "read_file", "create_file", "list_files"),
-                userVisibleSteps = listOf("确认页面结构和目标", "生成或修复原生页面", "验证后打开结果"),
+                userVisibleSteps = listOf("先理清这个原生页面需要展示什么", "把原生页面做出来或改到位", "检查效果后直接打开给你看"),
             )
             else -> null
         }
+    }
+
+    private fun normalizeUserVisibleSteps(
+        rawSteps: List<String>,
+        taskType: TaskType?,
+        normalizedGoal: String,
+        targetApp: String,
+    ): List<String> {
+        val cleaned = rawSteps
+            .map { it.trim().trimStart('-', '•', '*', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '、') }
+            .filter { it.isNotBlank() }
+            .map { rewriteGenericStep(it, taskType, normalizedGoal, targetApp) }
+            .distinct()
+            .take(4)
+        return if (cleaned.isNotEmpty()) cleaned else defaultVisibleSteps(taskType, normalizedGoal, targetApp)
+    }
+
+    private fun rewriteGenericStep(
+        step: String,
+        taskType: TaskType?,
+        normalizedGoal: String,
+        targetApp: String,
+    ): String {
+        val normalized = step.lowercase()
+        val app = targetApp.takeIf { it.isNotBlank() } ?: extractQuotedTopic(normalizedGoal)
+        val topic = extractQuotedTopic(normalizedGoal)
+        return when {
+            normalized.contains("确认目标") || normalized.contains("确认页面") || normalized.contains("确认 miniapp") || normalized.contains("理清") ->
+                defaultVisibleSteps(taskType, normalizedGoal, targetApp).first()
+            normalized.contains("验证") || normalized.contains("检查结果") || normalized.contains("打开结果") ->
+                defaultVisibleSteps(taskType, normalizedGoal, targetApp).last()
+            normalized.contains("继续推进") || normalized.contains("完善流程") || normalized.contains("继续处理") ->
+                defaultVisibleSteps(taskType, normalizedGoal, targetApp).getOrElse(1) { step }
+            taskType == TaskType.PHONE_CONTROL && app != null && (normalized.contains("打开应用") || normalized.contains("目标应用")) ->
+                "先打开$app，进入真正要操作的界面"
+            taskType == TaskType.WEB_RESEARCH && topic != null && normalized.contains("查找") ->
+                "先查“$topic”里最直接有用的信息"
+            taskType == TaskType.CODE_EXECUTION && topic != null && normalized.contains("修复") ->
+                "先把「$topic」里最关键的代码问题定位出来"
+            else -> step
+        }
+    }
+
+    private fun defaultVisibleSteps(taskType: TaskType?, normalizedGoal: String, targetApp: String): List<String> {
+        val topic = extractQuotedTopic(normalizedGoal)
+        return when (taskType) {
+            TaskType.PHONE_CONTROL -> listOf(
+                if (targetApp.isNotBlank()) "先打开$targetApp，找到这次要操作的位置" else "先看清当前界面和要操作的入口",
+                if (topic != null) "再直接处理「$topic」相关的操作" else "再直接把这次手机操作做下去",
+                "做完后再看界面有没有按预期变化",
+            )
+            TaskType.WEB_RESEARCH -> listOf(
+                if (topic != null) "先查“$topic”里最直接有用的信息" else "先把最相关的网页信息找出来",
+                "再筛掉没用的内容，只保留真正有帮助的部分",
+                "最后把结果整理成你能直接用的结论",
+            )
+            TaskType.APP_BUILD -> listOf(
+                if (topic != null) "先理清「$topic」到底要做成什么样" else "先理清这次要做的页面或程序长什么样",
+                "再把核心页面、逻辑或交互补到位",
+                "跑一轮检查后直接打开给你看实际效果",
+            )
+            TaskType.FILE_CREATE -> listOf(
+                if (topic != null) "先整理「$topic」需要写进文件的内容" else "先整理这份文件真正要写什么",
+                "再把文件内容生成出来",
+                "最后确认它能不能直接打开或继续修改",
+            )
+            TaskType.CODE_EXECUTION -> listOf(
+                if (topic != null) "先定位「$topic」里最关键的问题" else "先定位当前最关键的代码问题",
+                "再直接修改代码并补齐缺的部分",
+                "跑一轮检查，确认这次改动有没有生效",
+            )
+            else -> listOf(
+                if (topic != null) "先处理「$topic」最核心的部分" else "先把这次需求里最核心的部分拿下来",
+                if (topic != null) "再把「$topic」里还没处理对的部分补上" else "再把还没处理对的部分补上",
+                "最后给你一个能直接理解和使用的结果",
+            )
+        }
+    }
+
+    private fun extractQuotedTopic(text: String): String? {
+        val clean = text.trim().replace('\n', ' ')
+        val quoted = Regex("[“\"']([^”\"']{2,32})[”\"']").find(clean)?.groupValues?.getOrNull(1)?.trim()
+        if (!quoted.isNullOrBlank()) return quoted
+        val compact = clean.split(Regex("[，。；,.;]"))
+            .map { it.trim() }
+            .firstOrNull { it.length in 4..28 && !it.contains("请") && !it.contains("帮我") && !it.contains("我想") }
+        return compact?.takeIf { it.isNotBlank() }
     }
 
     private fun explicitArtifactTaskType(goal: String): TaskType? {
@@ -611,9 +711,71 @@ class TaskRouter(
             taskTypeOverride = taskType,
             fileAttachment = recentArtifact as? SkillAttachment.FileData,
             htmlAttachment = recentArtifact as? SkillAttachment.HtmlData,
+            userVisibleSteps = continueVisibleSteps(taskType, recentArtifactSummary(recentArtifact), goal, ""),
             executionHint = "The user is referring to the latest relevant file or HTML artifact in this chat. Continue from that artifact, unless the user explicitly asks for a new one.",
         )
     }
+
+    private fun continueVisibleSteps(
+        taskType: TaskType?,
+        anchorGoal: String,
+        latestGoal: String,
+        targetApp: String,
+    ): List<String> {
+        val base = if (isGenericContinueOnly(latestGoal) || isContextualFollowUp(latestGoal)) anchorGoal else latestGoal
+        val topic = extractQuotedTopic(base).orEmpty()
+        return when (taskType) {
+            TaskType.PHONE_CONTROL -> listOf(
+                if (targetApp.isNotBlank()) "先回到${targetApp}当前这条操作线上" else "先接着当前手机操作往下走",
+                if (topic.isNotBlank()) "再直接处理「$topic」这一步" else "再把眼前这一步真正做完",
+                "做完后马上看界面变化，再决定下一下点哪里",
+            )
+            TaskType.APP_BUILD -> listOf(
+                if (topic.isNotBlank()) "先接着改「$topic」这块最关键的内容" else "先接着改当前页面或程序最关键的部分",
+                "再把这次不对的地方修到位",
+                "跑一轮效果检查后继续给你看结果",
+            )
+            TaskType.FILE_CREATE -> listOf(
+                if (topic.isNotBlank()) "先接着补「$topic」相关的文件内容" else "先接着补这份文件里缺的内容",
+                "再把这次要改的地方落到文件里",
+                "最后确认这份结果能不能直接打开或继续改",
+            )
+            TaskType.WEB_RESEARCH -> listOf(
+                if (topic.isNotBlank()) "先接着查「$topic」还缺的那部分信息" else "先接着找还没补齐的关键信息",
+                "再把噪音信息筛掉",
+                "最后只给你留下能直接用的结论",
+            )
+            TaskType.CODE_EXECUTION -> listOf(
+                if (topic.isNotBlank()) "先接着修「$topic」这块最关键的问题" else "先接着修当前最关键的代码问题",
+                "再补齐缺的逻辑或修掉报错",
+                "跑一轮检查，确认这次修复真的生效",
+            )
+            else -> listOf(
+                if (topic.isNotBlank()) "先接着处理「$topic」这件事" else "先接着处理你刚才那件事",
+                "再把这次不对或没做完的部分补上",
+                "最后给你一个更完整、直接能理解的结果",
+            )
+        }
+    }
+
+    private fun recentArtifactSummary(attachment: SkillAttachment): String =
+        when (attachment) {
+            is SkillAttachment.FileData -> attachment.name.ifBlank { attachment.path.substringAfterLast('/') }
+            is SkillAttachment.HtmlData -> attachment.title.ifBlank { attachment.path.substringAfterLast('/') }
+            else -> ""
+        }
+
+    private fun inferTargetAppFromMessages(messages: List<ChatMessage>): String =
+        messages
+            .asReversed()
+            .firstNotNullOfOrNull { msg ->
+                Regex("Target app: ([^\\n]+)").find(messageContextText(msg))
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            }
+            .orEmpty()
 
     private fun shouldUseRecentFileContext(text: String, attachment: SkillAttachment): Boolean {
         if (isLikelyStickerOrMediaAsset(attachment)) return false
@@ -816,7 +978,9 @@ class TaskRouter(
                 (page.title.isNotBlank() && text.contains(page.title.lowercase()))
         }
         if (explicit != null) return explicit
-        if (text.anyContainsLocal("ai native page", "原生页面", "ai页面", "aipage", "ui_builder")) {
+        if (text.anyContainsLocal("ai native page", "原生页面", "ai页面", "aipage") &&
+            !text.anyContainsLocal("miniapp", "mini app", "小应用", "小程序", "app_manager", "应用已创建", "app '")
+        ) {
             return pages.firstOrNull()
         }
         return null

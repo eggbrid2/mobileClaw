@@ -1286,4 +1286,14 @@ You MUST respond in Simplified Chinese (简体中文).
     <string name="workspace_no_active_memory">当前还没有激活的任务级记忆。</string>
     <string name="workspace_promote">提升</string>
     <string name="workspace_delete">删除</string>
+    <string name="chat_working_update">还在继续处理这件事。</string>
+    <string name="chat_checkpoint_done">已经先完成了 %1$d 步操作。</string>
+    <string name="chat_checkpoint_started">前面重点在：%1$s</string>
+    <string name="chat_checkpoint_now">目前拿到的结果是：%1$s</string>
+    <string name="chat_checkpoint_continue">接下来会基于现在的结果继续往下做，不会重新从头乱试。</string>
+    <string name="chat_view_process">查看过程</string>
+    <string name="chat_plan_goals_prefix">我会先做这些具体内容：%1$s</string>
+    <string name="chat_plan_validate">我会先从最前面的目标开始；如果执行中发现偏离你的要求，会先纠正再继续。</string>
+    <string name="chat_plan_validate_running">这轮目标我已经对齐好了，接下来先从第一项开始推进。</string>
+    <string name="chat_plan_adjust_prefix">接下来我会先做：%1$s</string>
 </resources>

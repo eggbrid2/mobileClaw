@@ -28,6 +28,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -61,13 +62,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -77,6 +81,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
@@ -89,6 +94,7 @@ import com.mobileclaw.ui.ClawSymbolIcon
 import com.mobileclaw.ui.GradientAvatar
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.MainUiState
+import com.mobileclaw.ui.MiniAppViewport
 import com.mobileclaw.ui.common.decodeDataUriBitmap
 import com.mobileclaw.ui.common.decodeFileAttachmentBitmap
 import com.mobileclaw.ui.common.formatFileSize
@@ -104,6 +110,7 @@ import com.mobileclaw.ui.common.buildPickedAttachment
 import com.mobileclaw.ui.common.imageUriToDataUri
 import com.mobileclaw.ui.common.stableUiSignature
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
@@ -118,6 +125,8 @@ private val ExampleTasks = listOf(
     str(R.string.chat_e8ab7f),
     str(R.string.chat_07f7c7),
 )
+
+private const val CHAT_MINI_APP_PREVIEW_ASPECT_RATIO = 9f / 19.5f
 
 private data class HistoryScrollAnchor(
     val index: Int,
@@ -149,6 +158,9 @@ fun ChatScreen(
     onSwitchRole: () -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
     onLoadMoreHistory: () -> Unit = {},
+    onCloseMiniAppPreview: () -> Unit = {},
+    onOpenMiniAppFullscreen: (String) -> Unit = {},
+    onMiniAppPreviewStatusChanged: (String, String, Boolean) -> Unit = { _, _, _ -> },
     classicMode: Boolean = false,
 ) {
     val c = LocalClawColors.current
@@ -188,6 +200,44 @@ fun ChatScreen(
     var showAttachMenu by remember { mutableStateOf(false) }
     var showStickerSearch by remember { mutableStateOf(false) }
     var historyScrollAnchor by remember(uiState.currentSessionId) { mutableStateOf<HistoryScrollAnchor?>(null) }
+    var stableLiveMessages by remember(uiState.currentSessionId) { mutableStateOf<List<ChatMessage>>(emptyList()) }
+
+    val freshlyBuiltLiveMessages = remember(
+        runState.isRunning,
+        runState.activeLogLines,
+        runState.activeAttachments,
+        runState.streamingToken,
+        runState.streamingThought,
+        uiState.currentRole.id,
+        uiState.currentRole.name,
+        uiState.currentRole.avatar,
+    ) {
+        if (!runState.isRunning) {
+            emptyList()
+        } else {
+            buildNarrativeAgentMessages(
+                summary = "",
+                logLines = runState.activeLogLines,
+                attachments = runState.activeAttachments,
+                sender = AgentSenderMeta(
+                    id = uiState.currentRole.id,
+                    name = uiState.currentRole.name,
+                    avatar = uiState.currentRole.avatar,
+                ),
+                streamingToken = runState.streamingToken,
+                streamingThought = runState.streamingThought,
+                isRunning = true,
+            )
+        }
+    }
+
+    LaunchedEffect(runState.isRunning, freshlyBuiltLiveMessages) {
+        stableLiveMessages = if (!runState.isRunning) {
+            emptyList()
+        } else {
+            stabilizeRunningMessages(previous = stableLiveMessages, fresh = freshlyBuiltLiveMessages)
+        }
+    }
 
     // Scroll to bottom. Split into two effects:
     // 1) item count changes → animated scroll (new message completed)
@@ -248,6 +298,19 @@ fun ChatScreen(
 
     // Step detail bottom sheet state
     var selectedStepLog by remember { mutableStateOf<LogLine?>(null) }
+    val previewAppId = uiState.chatMiniAppPreviewId
+    val previewMode = uiState.chatMiniAppPreviewMode
+    var previewExpanded by remember(previewAppId) { mutableStateOf(false) }
+    var previewMinimized by remember(previewAppId) { mutableStateOf(false) }
+    var previewOffsetX by remember(previewAppId) { mutableFloatStateOf(0f) }
+    var previewOffsetY by remember(previewAppId) { mutableFloatStateOf(0f) }
+    var previewStatusText by remember(previewAppId, uiState.chatMiniAppPreviewStatus) {
+        mutableStateOf(uiState.chatMiniAppPreviewStatus.ifBlank { "Validation preview loading" })
+    }
+    var previewHealthy by remember(previewAppId, uiState.chatMiniAppPreviewHealthy) {
+        mutableStateOf(uiState.chatMiniAppPreviewHealthy)
+    }
+    val density = LocalDensity.current
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg).imePadding()) {
         if (!classicMode) {
@@ -354,29 +417,57 @@ fun ChatScreen(
                     }
                 }
                 if (runState.isRunning) {
-                    item {
-                        ActiveTaskBubble(
-                            logLines = runState.activeLogLines,
-                            streamingToken = runState.streamingToken,
-                            streamingThought = runState.streamingThought,
-                            currentRole = uiState.currentRole,
-                            currentModel = uiState.currentModel,
-                            onPickModel = { showModelPicker = true },
-                            onOpenHtmlViewer = onOpenHtmlViewer,
-                            onOpenBrowser = onOpenBrowser,
-                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                            onSelectStep = { selectedStepLog = it },
-                            onSendGoal = onSendGoal,
-                        )
-                    }
-                    itemsIndexed(runState.activeAttachments, key = { idx, _ -> "active_attachment_$idx" }) { _, attachment ->
-                        AttachmentBubble(
-                            attachments = listOf(attachment),
-                            onOpenHtmlViewer = onOpenHtmlViewer,
-                            onOpenBrowser = onOpenBrowser,
-                            onSendGoal = onSendGoal,
-                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                        )
+                    itemsIndexed(
+                        stableLiveMessages,
+                        key = { idx, msg ->
+                            val firstLogId = msg.logLines.firstOrNull()?.entryId
+                            val lastLogId = msg.logLines.lastOrNull()?.entryId
+                            when {
+                                firstLogId != null || lastLogId != null -> "live_logs_${firstLogId.orEmpty()}_${lastLogId.orEmpty()}_$idx"
+                                msg.attachments.isNotEmpty() -> "live_attachment_${msg.attachments.joinToString("|") { it.stableUiSignature() }.hashCode()}_$idx"
+                                else -> "live_slot_$idx"
+                            }
+                        },
+                    ) { idx, msg ->
+                        val showHeader = idx == 0
+                        if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(0.93f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                if (showHeader) {
+                                    AgentMessageHeader(
+                                        role = uiState.currentRole,
+                                        model = uiState.currentModel,
+                                        onPickModel = { showModelPicker = true },
+                                        onSwitchRole = onSwitchRole,
+                                    )
+                                }
+                                AttachmentBubble(
+                                    attachments = msg.attachments,
+                                    onOpenHtmlViewer = onOpenHtmlViewer,
+                                    onOpenBrowser = onOpenBrowser,
+                                    onSendGoal = onSendGoal,
+                                    onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                )
+                            }
+                        } else {
+                            AgentBubble(
+                                summary = msg.text,
+                                logLines = msg.logLines,
+                                attachments = emptyList(),
+                                currentRole = uiState.currentRole,
+                                currentModel = uiState.currentModel,
+                                showHeader = showHeader,
+                                onSwitchRole = onSwitchRole,
+                                onPickModel = { showModelPicker = true },
+                                onOpenHtmlViewer = onOpenHtmlViewer,
+                                onOpenBrowser = onOpenBrowser,
+                                onSendGoal = onSendGoal,
+                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                onSelectStep = { selectedStepLog = it },
+                            )
+                        }
                     }
                 }
             }
@@ -414,6 +505,139 @@ fun ChatScreen(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
+                            }
+                        }
+                    }
+                }
+            }
+            if (previewAppId != null) {
+                val previewWidthFraction = when {
+                    previewMinimized -> 0.28f
+                    previewExpanded -> 0.68f
+                    else -> 0.5f
+                }
+                val previewTitle = uiState.miniApps.firstOrNull { it.id == previewAppId }?.title ?: previewAppId
+                val previewSurfaceTitle = if (previewMode == "validation") "$previewTitle · Validate" else previewTitle
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val horizontalMarginPx = with(density) { 14.dp.toPx() }
+                    val bottomMarginPx = with(density) { (if (showJumpToLatest) 64.dp else 14.dp).toPx() }
+                    val maxPreviewWidthPx = constraints.maxWidth - horizontalMarginPx * 2f
+                    val minY = with(density) { 72.dp.toPx() }
+                    val maxPreviewHeightPx = (constraints.maxHeight - minY - bottomMarginPx).coerceAtLeast(0f)
+                    val cardWidthPx = if (previewMinimized) {
+                        constraints.maxWidth * previewWidthFraction
+                    } else {
+                        minOf(
+                            constraints.maxWidth * previewWidthFraction,
+                            maxPreviewWidthPx,
+                            maxPreviewHeightPx * CHAT_MINI_APP_PREVIEW_ASPECT_RATIO,
+                        )
+                    }
+                    val cardHeightPx = if (previewMinimized) {
+                        with(density) { 54.dp.toPx() }
+                    } else {
+                        cardWidthPx / CHAT_MINI_APP_PREVIEW_ASPECT_RATIO
+                    }
+                    val minX = horizontalMarginPx
+                    val maxX = (constraints.maxWidth - cardWidthPx - horizontalMarginPx).coerceAtLeast(minX)
+                    val maxY = (constraints.maxHeight - cardHeightPx - bottomMarginPx).coerceAtLeast(minY)
+                    val cardWidthDp = with(density) { cardWidthPx.toDp() }
+                    val cardHeightDp = with(density) { cardHeightPx.toDp() }
+                    LaunchedEffect(previewAppId, previewExpanded, maxX, maxY, minX, minY) {
+                        if (previewOffsetX == 0f && previewOffsetY == 0f) {
+                            previewOffsetX = maxX
+                            previewOffsetY = maxY
+                        } else {
+                            previewOffsetX = previewOffsetX.coerceIn(minX, maxX)
+                            previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(cardWidthDp)
+                            .height(cardHeightDp)
+                            .offset {
+                                IntOffset(
+                                    x = previewOffsetX.toInt(),
+                                    y = previewOffsetY.toInt(),
+                                )
+                            }
+                            .clipToBounds()
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(if (c.isDark) Color(0xFF080808) else Color.White)
+                            .border(0.8.dp, c.border.copy(alpha = 0.9f), RoundedCornerShape(22.dp))
+                            .pointerInput(previewAppId, previewExpanded, showJumpToLatest) {
+                                detectDragGestures(
+                                    onDragEnd = {
+                                        val midX = (minX + maxX) / 2f
+                                        previewOffsetX = if (previewOffsetX < midX) minX else maxX
+                                        previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
+                                    },
+                                ) { _, dragAmount ->
+                                    previewOffsetX = (previewOffsetX + dragAmount.x).coerceIn(minX, maxX)
+                                    previewOffsetY = (previewOffsetY + dragAmount.y).coerceIn(minY, maxY)
+                                }
+                            },
+                    ) {
+                        if (previewMinimized) {
+                            MiniAppPreviewPill(
+                                title = previewSurfaceTitle,
+                                status = previewStatusText,
+                                healthy = previewHealthy,
+                                onRestore = { previewMinimized = false },
+                                onClose = onCloseMiniAppPreview,
+                            )
+                        } else {
+                            MiniAppViewport(
+                                appId = previewAppId,
+                                onClose = onCloseMiniAppPreview,
+                                onAskAgent = onSendGoal,
+                                modifier = Modifier.fillMaxSize(),
+                                compact = true,
+                                validationMode = previewMode == "validation",
+                                onStatusChange = { status, healthy ->
+                                    previewStatusText = status
+                                    previewHealthy = healthy
+                                    onMiniAppPreviewStatusChanged(previewAppId, status, healthy)
+                                },
+                                onToggleExpanded = {
+                                    previewExpanded = !previewExpanded
+                                    previewOffsetX = if (previewOffsetX < (minX + maxX) / 2f) minX else maxX
+                                    previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
+                                },
+                                onOpenExternal = {
+                                    onCloseMiniAppPreview()
+                                    onOpenMiniAppFullscreen(previewAppId)
+                                },
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(start = 10.dp, bottom = 10.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (c.isDark) Color(0xE6111111) else Color(0xF2FFFFFF))
+                                    .border(0.6.dp, c.border.copy(alpha = 0.7f), RoundedCornerShape(999.dp))
+                                    .clickable { previewMinimized = true }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = c.subtext,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Text(
+                                        if (previewMode == "validation") "Hide preview" else "Minimize",
+                                        color = c.subtext,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                    )
+                                }
                             }
                         }
                     }
@@ -559,18 +783,15 @@ fun ChatScreen(
                 Text(detailView.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = c.text)
                 Spacer(Modifier.height(8.dp))
                 if (detailView.purpose.isNotBlank()) {
-                    // 第一块固定回答“当前在处理什么”，让用户先知道 AI 现在的目标。
-                    DetailLabelRow("当前在处理", detailView.purpose)
+                    DetailLabelRow("这一步在做", detailView.purpose)
                     Spacer(Modifier.height(8.dp))
                 }
                 if (detailView.result.isNotBlank()) {
-                    // 第二块固定回答“当前判断”，让用户看到此刻结论而不是内部执行话术。
-                    DetailLabelRow("当前判断", detailView.result)
+                    DetailLabelRow("拿到的结果", detailView.result)
                     Spacer(Modifier.height(8.dp))
                 }
                 if (detailView.next.isNotBlank()) {
-                    // 第三块固定回答“接下来”，把下一步显式告诉用户，减少等待焦虑。
-                    DetailLabelRow("接下来", detailView.next)
+                    DetailLabelRow("后面会继续", detailView.next)
                     Spacer(Modifier.height(8.dp))
                 }
                 detailView.supportLines.forEach { (label, content) ->
@@ -579,7 +800,6 @@ fun ChatScreen(
                 }
                 if (detailView.debugLines.isNotEmpty()) {
                     Text(
-                        // 把“调试信息”改成“技术细节”，明确它是给需要深入看的用户准备的二级信息。
                         if (debugExpanded) "收起技术细节" else "查看技术细节",
                         color = c.subtext,
                         fontSize = 11.sp,
@@ -615,34 +835,24 @@ fun ChatScreen(
 }
 
 private data class StepDetailView(
-    // 用更用户化的标题标记当前弹框属于哪类进展，而不是暴露内部日志类型。
     val title: String,
-    // purpose 专门回答“现在在处理什么”，避免让用户自己从技术细节里反推意图。
     val purpose: String,
-    // result 专门回答“当前判断到了什么”，避免只展示空泛的成功/失败字样。
     val result: String,
-    // next 单独承载下一步，让弹框形成“当前处理 -> 当前判断 -> 接下来”的稳定阅读顺序。
     val next: String,
-    // supportLines 承载“这样安排/补充判断”这类正文辅助信息，避免它们被塞进技术细节区。
     val supportLines: List<Pair<String, String>>,
-    // debugLines 保留给点开后的技术细节，不再默认抢占主信息区。
     val debugLines: List<String>,
 )
 
 private fun buildStepDetailView(step: LogLine): StepDetailView {
-    // details 为空时回退到主文本，确保每个弹框至少能产出一套可读内容。
     val detailLines = step.details.ifEmpty { listOf(step.text).filter { it.isNotBlank() } }
-    // 从结构化 detail 里抽出“本步目的”，优先使用运行时已经整理好的用户向描述。
     val purpose = detailLines.firstOrNull { it.startsWith("本步目的：") }
         ?.removePrefix("本步目的：")
         ?.trim()
         .orEmpty()
-    // 从结构化 detail 里抽出“本步结果”，把系统原始返回和用户可见判断分离。
     val result = detailLines.firstOrNull { it.startsWith("本步结果：") }
         ?.removePrefix("本步结果：")
         ?.trim()
         .orEmpty()
-    // next 单独读取“接下来/后续计划”，避免下一步信息混在结果里显得机械。
     val next = detailLines.firstOrNull { it.startsWith("接下来：") || it.startsWith("后续计划：") }
         ?.substringAfter("：")
         ?.trim()
@@ -659,7 +869,6 @@ private fun buildStepDetailView(step: LogLine): StepDetailView {
             ?.takeIf { it.isNotBlank() }
             ?.let { add("补充判断" to it) }
     }
-    // 主视图只保留用户真正关心的三段信息，其余内容全部下沉成可展开的技术细节。
     val debugLines = detailLines.filterNot {
         it.startsWith("本步目的：") ||
             it.startsWith("本步结果：") ||
@@ -669,58 +878,43 @@ private fun buildStepDetailView(step: LogLine): StepDetailView {
             it.startsWith("后续计划：") ||
             it.startsWith("完整结果")
     }.takeIf { it.isNotEmpty() } ?: listOf(step.text).filter { it.isNotBlank() }
-    // 标题统一改成“进展/问题/完成情况”这类用户语言，避免出现机械的系统词汇。
     val title = when (step.type) {
-        LogType.ACTION -> "执行进展"
-        LogType.OBSERVATION -> "处理进展"
-        LogType.THINKING -> "思路进展"
-        LogType.SUCCESS -> "完成情况"
-        LogType.ERROR -> "问题详情"
-        else -> "当前进展"
+        LogType.ACTION -> "正在处理"
+        LogType.OBSERVATION -> "刚拿到的结果"
+        LogType.THINKING -> "这一段的判断"
+        LogType.SUCCESS -> "已经完成"
+        LogType.ERROR -> "这里出了问题"
+        else -> "当前情况"
     }
     return StepDetailView(
-        // 如果运行时没提供 purpose，就回退到本地生成的人话描述，保证弹框总是可读。
         title = title,
         purpose = purpose.ifBlank { fallbackReadablePurpose(step) },
-        // 如果运行时没提供 result，就回退到本地生成的用户向判断描述。
         result = result.ifBlank { fallbackReadableResult(step) },
-        // next 保持独立，让用户可以快速扫到“后面会发生什么”。
         next = next,
-        // supportLines 放在正文主信息区，但优先级低于“处理/判断/接下来”。
         supportLines = supportLines,
-        // 技术细节继续保留，但退居二级信息层。
         debugLines = debugLines,
     )
 }
 
 private fun fallbackReadablePurpose(step: LogLine): String = when (step.type) {
-    // ACTION 回退到技能中文名，至少让用户知道系统在调用哪类能力。
     LogType.ACTION -> chineseSkillLabel(step.skillId)
-    // OBSERVATION 改成“看画面/读结果的目的”而不是“已读取”，让用户理解为什么要看。
     LogType.OBSERVATION -> if (step.imageBase64 != null) "查看当前画面，确认任务是否推进到了正确位置" else "读取当前返回结果，判断这一步是否真的解决了问题"
-    // THINKING 继续保留“正在整理下一步”的语义，但不暴露内部链路名词。
     LogType.THINKING -> step.text.ifBlank { "正在根据当前任务整理下一步" }
-    // SUCCESS/ERROR 使用用户能理解的阶段语义，不用内部术语。
     LogType.SUCCESS -> "任务阶段完成"
     LogType.ERROR -> "当前步骤遇到问题"
     else -> step.text.ifBlank { "继续推进当前任务" }
 }
 
 private fun fallbackReadableResult(step: LogLine): String = when (step.type) {
-    // ACTION 告诉用户“这一步已经发出”，弱化机械的执行态细节。
     LogType.ACTION -> "这一步已经发出，正在等待结果返回"
-    // OBSERVATION 回答“拿到结果后现在怎么判断”，而不是只说“已读取结果”。
     LogType.OBSERVATION -> if (step.imageBase64 != null) "已经看到当前画面，正在判断是否符合目标" else "已经拿到结果，正在判断是否继续修正"
-    // THINKING 明确这一步产出的是“下一步依据”，让思考态更像在推进任务。
     LogType.THINKING -> step.text.ifBlank { "已经更新下一步的处理依据" }
     LogType.SUCCESS -> step.text.ifBlank { "已完成" }
-    // ERROR 改成“正在换一种方式继续”，减少“失败”这种让用户无从判断的字样。
     LogType.ERROR -> step.text.ifBlank { "这里遇到问题，正在准备换一种方式继续" }
     else -> step.text.ifBlank { "已经记录当前进展" }
 }
 
 private fun conciseUserProgress(text: String, limit: Int = 42): String {
-    // 先把多行和结构化前缀压成一句，避免步骤摘要像控制台日志一样碎。
     val normalized = text
         .lineSequence()
         .map { it.trim() }
@@ -733,7 +927,6 @@ private fun conciseUserProgress(text: String, limit: Int = 42): String {
         .replace("接下来：", "")
         .replace("后续计划：", "")
         .trim()
-    // 列表摘要必须短，只保留一眼能懂的进展信息。
     return when {
         normalized.isBlank() -> ""
         normalized.length <= limit -> normalized
@@ -742,7 +935,6 @@ private fun conciseUserProgress(text: String, limit: Int = 42): String {
 }
 
 private fun stepRowSummary(line: LogLine): String {
-    // 先优先使用结构化“结果/目的/下一步”，因为这些字段已经是给用户看的语义层信息。
     val structured = line.details.firstNotNullOfOrNull { detail ->
         when {
             detail.startsWith("本步结果：") -> detail.removePrefix("本步结果：").trim()
@@ -755,18 +947,38 @@ private fun stepRowSummary(line: LogLine): String {
         }
     }.orEmpty()
     val fallback = when (line.type) {
-        // THINKING 摘要直接回答“现在在想什么”，不要再显示字符数这种纯技术信息。
         LogType.THINKING -> line.text.ifBlank { "正在整理下一步" }
-        // ACTION 摘要优先展示用户视角的目的，而不是工具名本身。
         LogType.ACTION -> fallbackReadablePurpose(line)
-        // OBSERVATION 摘要优先回答“现在判断到了什么”。
         LogType.OBSERVATION -> fallbackReadableResult(line)
         LogType.SUCCESS -> line.text.ifBlank { "这一段已经完成" }
         LogType.ERROR -> line.text.ifBlank { "这一段遇到问题，正在调整" }
         else -> line.text
     }
-    // 统一走一遍压缩函数，确保所有步骤行高度和阅读节奏稳定。
     return conciseUserProgress(structured.ifBlank { fallback })
+}
+
+private fun formatStepStatus(line: LogLine, now: Long = System.currentTimeMillis()): String {
+    val anchor = line.startedAt.takeIf { it > 0L } ?: return ""
+    val end = if (line.isRunning) now else line.finishedAt.takeIf { it > 0L } ?: now
+    val elapsed = (end - anchor).coerceAtLeast(0L)
+    val elapsedText = formatElapsedShort(elapsed)
+    return if (line.isRunning) "执行中 $elapsedText" else elapsedText
+}
+
+private fun formatElapsedShort(durationMs: Long): String {
+    if (durationMs in 1L..999L) return "1s"
+    val totalSeconds = (durationMs / 1000L).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        minutes <= 0L -> "${seconds}s"
+        minutes < 60L -> "${minutes}m ${seconds.toString().padStart(2, '0')}s"
+        else -> {
+            val hours = minutes / 60L
+            val remainMinutes = minutes % 60L
+            "${hours}h ${remainMinutes.toString().padStart(2, '0')}m"
+        }
+    }
 }
 
 @Composable
@@ -782,6 +994,69 @@ private fun DetailLabelRow(title: String, content: String) {
     ) {
         Text(title, color = c.subtext.copy(alpha = 0.62f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         Text(content, color = c.text, fontSize = 12.sp, lineHeight = 16.sp)
+    }
+}
+
+@Composable
+private fun MiniAppPreviewPill(
+    title: String,
+    status: String,
+    healthy: Boolean,
+    onRestore: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (c.isDark) Color(0xF20B0B0B) else Color(0xFAFFFFFF))
+            .border(0.8.dp, c.border.copy(alpha = 0.9f), RoundedCornerShape(999.dp))
+            .clickable { onRestore() }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(if (healthy) Color(0xFF56D6BA) else Color(0xFFFF8A65)),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Text(
+                title,
+                color = c.text,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                status,
+                color = c.subtext,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.Default.KeyboardArrowUp,
+            contentDescription = null,
+            tint = c.subtext,
+            modifier = Modifier.size(15.dp),
+        )
+        Icon(
+            Icons.Default.Close,
+            contentDescription = null,
+            tint = c.subtext,
+            modifier = Modifier
+                .size(15.dp)
+                .clickable { onClose() },
+        )
     }
 }
 
@@ -1398,10 +1673,8 @@ private fun AgentBubble(
                     }
                 }
                 Text(
-                    buildString {
-                        append(stringResource(R.string.steps_label, steps.size))
-                        if (hasThinking) append(str(R.string.chat_3d188f))
-                    },
+                    if (hasError) "${stringResource(R.string.chat_view_process)} · ${stringResource(R.string.chat_1aa9e9)}"
+                    else stringResource(R.string.chat_view_process),
                     color = c.subtext,
                     fontSize = 11.sp,
                     modifier = Modifier.weight(1f),
@@ -1614,8 +1887,16 @@ private fun ActiveTaskBubble(
                             .padding(vertical = 4.dp),
                     ) {
                         logLines.forEachIndexed { index, line ->
-                            if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.25f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 10.dp))
-                            LogLineItem(line, onSelectStep = onSelectStep)
+                            key(line.entryId) {
+                                if (index > 0) {
+                                    HorizontalDivider(
+                                        color = c.border.copy(alpha = 0.25f),
+                                        thickness = 0.5.dp,
+                                        modifier = Modifier.padding(horizontal = 10.dp),
+                                    )
+                                }
+                                LogLineItem(line, onSelectStep = onSelectStep)
+                            }
                         }
                     }
                 }
@@ -1772,6 +2053,8 @@ private fun CollapsibleStepRow(
     onToggle: () -> Unit,
     labelColor: Color,
     iconSymbol: String,
+    statusText: String = "",
+    statusRunning: Boolean = false,
     onDetail: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
@@ -1818,6 +2101,32 @@ private fun CollapsibleStepRow(
                     )
                 }
             }
+            if (statusText.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (statusRunning) labelColor.copy(alpha = 0.10f) else c.text.copy(alpha = 0.05f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    if (statusRunning) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(labelColor),
+                        )
+                    }
+                    Text(
+                        text = statusText,
+                        color = if (statusRunning) labelColor else c.subtext.copy(alpha = 0.72f),
+                        fontSize = 10.sp,
+                        fontWeight = if (statusRunning) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
+            }
             // Expand/collapse toggle (dedicated tap area)
             Box(
                 modifier = Modifier
@@ -1846,10 +2155,24 @@ private fun CollapsibleStepRow(
 @Composable
 private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
     val c = LocalClawColors.current
+    val statusText by produceState(
+        initialValue = formatStepStatus(line),
+        key1 = line.startedAt,
+        key2 = line.finishedAt,
+        key3 = line.isRunning,
+    ) {
+        value = formatStepStatus(line)
+        if (line.isRunning && line.startedAt > 0L) {
+            while (true) {
+                delay(1_000)
+                value = formatStepStatus(line)
+            }
+        }
+    }
 
     when (line.type) {
         LogType.THINKING -> {
-            var expanded by remember { mutableStateOf(false) }
+            var expanded by remember(line.entryId) { mutableStateOf(false) }
             // 思考卡片的摘要改成“当前思路”，避免把字符数这种机械指标展示给用户。
             val summary = stepRowSummary(line)
             CollapsibleStepRow(
@@ -1859,6 +2182,8 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 onToggle = { expanded = !expanded },
                 labelColor = c.accent.copy(alpha = 0.78f),
                 iconSymbol = "profile",
+                statusText = statusText,
+                statusRunning = line.isRunning,
                 onDetail = { onSelectStep(line) },
             ) {
                 Text(
@@ -1873,7 +2198,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
         }
 
         LogType.ACTION -> {
-            var expanded by remember { mutableStateOf(false) }
+            var expanded by remember(line.entryId) { mutableStateOf(false) }
             val skillLabel = chineseSkillLabel(line.skillId)
             val accentLong = line.skillId?.let { SkillColors[it] }
             val labelColor = (if (accentLong != null) Color(accentLong) else c.blue).copy(alpha = 0.85f)
@@ -1886,6 +2211,8 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 onToggle = { expanded = !expanded },
                 labelColor = labelColor,
                 iconSymbol = skillIconSymbol(line.skillId),
+                statusText = statusText,
+                statusRunning = line.isRunning,
                 onDetail = { onSelectStep(line) },
             ) {
                 Box(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
@@ -1896,7 +2223,7 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
         }
 
         LogType.OBSERVATION -> {
-            var expanded by remember { mutableStateOf(false) }
+            var expanded by remember(line.entryId) { mutableStateOf(false) }
             val hasImage = line.imageBase64 != null
             val label = if (hasImage) stringResource(R.string.chat_a3d484) else stringResource(R.string.chat_173c2c)
             // 观察结果优先展示“当前判断”，这样用户能立刻知道这一步看到了什么。
@@ -1910,6 +2237,8 @@ private fun LogLineItem(line: LogLine, onSelectStep: (LogLine) -> Unit = {}) {
                 onToggle = { expanded = !expanded },
                 labelColor = c.subtext.copy(alpha = 0.65f),
                 iconSymbol = if (hasImage) "screenshot" else "eye",
+                statusText = statusText,
+                statusRunning = line.isRunning,
                 onDetail = { onSelectStep(line) },
             ) {
                 Column(
@@ -2675,17 +3004,51 @@ private fun ChatMessage.stableUiKey(index: Int): String = buildString {
     append(':')
     append(senderRoleId)
     append(':')
-    append(text.hashCode())
-    append(':')
-    append(imageBase64?.hashCode() ?: 0)
-    append(':')
-    append(attachments.size)
-    append(':')
-    append(attachments.joinToString("|") { it.stableUiSignature() }.hashCode())
-    append(':')
-    append(logLines.size)
+    val firstLogId = logLines.firstOrNull()?.entryId.orEmpty()
+    val lastLogId = logLines.lastOrNull()?.entryId.orEmpty()
+    val attachmentSignature = attachments.joinToString("|") { it.stableUiSignature() }
+    when {
+        logLines.isNotEmpty() -> {
+            append("logs:")
+            append(firstLogId)
+            append(':')
+            append(lastLogId)
+            append(':')
+            append(logLines.size)
+        }
+        attachments.isNotEmpty() -> {
+            append("attachments:")
+            append(attachmentSignature.hashCode())
+            append(':')
+            append(attachments.size)
+        }
+        imageBase64 != null -> {
+            append("image:")
+            append(imageBase64.hashCode())
+        }
+        text.isNotBlank() -> {
+            append("text:")
+            append(text.lineSequence().firstOrNull().orEmpty().hashCode())
+        }
+        else -> append("empty")
+    }
     append(':')
     append(index)
+}
+
+private fun stabilizeRunningMessages(
+    previous: List<ChatMessage>,
+    fresh: List<ChatMessage>,
+): List<ChatMessage> {
+    if (previous.isEmpty() || fresh.isEmpty()) return fresh
+    if (fresh.size == 1) return fresh
+
+    val preservedPrefixCount = minOf(previous.size, fresh.size) - 1
+    val merged = buildList {
+        addAll(previous.take(preservedPrefixCount))
+        addAll(fresh.drop(preservedPrefixCount))
+    }
+    return merged
 }
 
 // ── Input Bar ─────────────────────────────────────────────────────────────────

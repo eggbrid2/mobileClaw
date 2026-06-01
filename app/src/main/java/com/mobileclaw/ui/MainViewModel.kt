@@ -77,11 +77,13 @@ import com.mobileclaw.skill.builtin.RoleManagerSkill
 import com.mobileclaw.skill.builtin.SessionManagerSkill
 import com.mobileclaw.skill.builtin.WorkspaceManagerSkill
 import com.mobileclaw.ui.chat.AiQuizQuestion
+import com.mobileclaw.ui.chat.AgentSenderMeta
 import com.mobileclaw.ui.chat.ChatMessage
 import com.mobileclaw.ui.chat.ChatContextComposer
 import com.mobileclaw.ui.chat.ConfirmationFlow
 import com.mobileclaw.ui.chat.ExplicitRoleSwitch
 import com.mobileclaw.ui.chat.FileAttachment
+import com.mobileclaw.ui.chat.buildNarrativeAgentMessages
 import com.mobileclaw.ui.common.VISUAL_SKILL_IDS
 import com.mobileclaw.ui.common.friendlyObservationDescription
 import com.mobileclaw.ui.common.friendlySkillDescription
@@ -93,7 +95,11 @@ import com.mobileclaw.ui.common.stageAwareSkillDescription
 import com.mobileclaw.ui.common.stringListOrEmpty
 import com.mobileclaw.ui.common.stringOrNull
 import com.mobileclaw.ui.common.userFacingActionResult
+import com.mobileclaw.ui.common.userFacingActionNext
+import com.mobileclaw.ui.common.userFacingInitialIntent
 import com.mobileclaw.ui.common.userFacingPlanResult
+import com.mobileclaw.ui.common.userFacingSkillStart
+import com.mobileclaw.ui.common.userFacingThinkingResult
 import com.mobileclaw.ui.chat.LogLine
 import com.mobileclaw.ui.chat.LogType
 import com.mobileclaw.ui.chat.MessageRole
@@ -178,6 +184,18 @@ import com.mobileclaw.str
 private const val ROLE_PORTRAIT_STYLE_VERSION = "role_self_portrait_v5"
 private const val ROLE_SPRITE_STYLE_VERSION = "role_self_sprite_v1"
 private const val TAG = "MainViewModel"
+private const val MINI_APP_AUTO_REPAIR_MAX_ATTEMPTS = 2
+private const val LLM_RETRY_MAX_ATTEMPTS = 2
+
+// 聊天内 MiniAPP 预览如果暴露出运行问题，这里把“继续修”的意图挂起到 session 级队列里。
+// 这样不用把 UI 状态硬塞回正在执行的 runtime，也不会要求用户手动再说一次“继续”。
+private data class PendingMiniAppAutoRepair(
+    val sessionId: String,
+    val appId: String,
+    val previewStatus: String,
+    val attempt: Int,
+    val enqueuedAt: Long = System.currentTimeMillis(),
+)
 
 class MainViewModel : ViewModel() {
 
@@ -190,7 +208,6 @@ class MainViewModel : ViewModel() {
     private val episodicMemory = EpisodicMemory(app.database.episodeDao(), app.createLlmGateway())
     private val conversationMemory = app.conversationMemory
     private val profileExtractor = app.userProfileExtractor
-    @Volatile private var pendingCompletionOverlaySummary: String? = null
     private val roleManager = app.roleManager
     private val townStore = app.agentTownStore
     private val userConfig = app.userConfig
@@ -199,6 +216,35 @@ class MainViewModel : ViewModel() {
     private val database = app.database
     private val llm get() = app.createLlmGateway()
 
+    // 只对模型异常做轻量重试，避免正常业务失败也被机械重复执行。
+    private fun shouldRetryAfterAgentRun(result: com.mobileclaw.agent.AgentResult?, error: Throwable?): Boolean {
+        if (error is kotlinx.coroutines.CancellationException) return false
+        if (error != null) return true
+        return result?.success == false && result.summary.trim().startsWith("LLM error:")
+    }
+
+    // 直接聊天没有工具链保护，所以同样补一层模型异常重试。
+    private fun shouldRetryDirectChat(error: Throwable?): Boolean =
+        error != null && error !is kotlinx.coroutines.CancellationException
+
+    // 每次重试前都显式告诉用户当前不是卡死，而是在重新发起这一轮模型请求。
+    private fun appendRetryLogLine(sessionId: String, message: String) {
+        updateSession(sessionId) { s ->
+            s.copy(
+                streamingToken = "",
+                streamingThought = "",
+                activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                    type = LogType.INFO,
+                    text = message,
+                    details = listOf(
+                        "本步目的：恢复这次模型生成",
+                        "本步结果：上一次模型返回异常，正在按相同目标重新发起请求",
+                    ),
+                ).withLifecycle(running = false),
+            )
+        }
+    }
+
     // Role switch requests emitted by SwitchRoleSkill / RoleManagerSkill, consumed in init
     private val roleRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
     private val switchRoleSkill = SwitchRoleSkill(roleManager, roleRequests)
@@ -206,6 +252,7 @@ class MainViewModel : ViewModel() {
     private var pendingAccessibilityTaskGoal: String? = null
     private var pendingRoleSwitchTaskGoal: String? = null
     private val activeWorkflows = mutableMapOf<String, ActiveWorkflow>()
+    private val pendingMiniAppAutoRepairs = mutableMapOf<String, PendingMiniAppAutoRepair>()
     private val workspaceRuntime by lazy {
         WorkspaceRuntimeCoordinator(app.workspaceStore)
     }
@@ -222,10 +269,22 @@ class MainViewModel : ViewModel() {
             summarizeAttachments = { taskRouter.summarizeAttachmentsForContext(it) },
             buildArtifactContext = { taskRouter.buildArtifactContext(it) },
             buildWorkspaceContext = {
-                workspaceRuntime.currentWorkspaceContext(
+                val workspace = workspaceRuntime.currentWorkspaceContext(
                     sessionId = _uiState.value.currentSessionId,
                     semanticFacts = currentSemanticFactsForWorkspace,
                 )
+                val preview = _uiState.value.chatMiniAppPreviewId?.let { appId ->
+                    buildString {
+                        appendLine("## Chat MiniAPP Validation Preview")
+                        appendLine("MiniAPP id: $appId")
+                        appendLine("Mode: ${_uiState.value.chatMiniAppPreviewMode.ifBlank { "unknown" }}")
+                        appendLine("Status: ${_uiState.value.chatMiniAppPreviewStatus.ifBlank { "unknown" }}")
+                        appendLine("Healthy: ${if (_uiState.value.chatMiniAppPreviewHealthy) "yes" else "no"}")
+                        appendLine("This panel is a chat-linked validation tool, not the final delivery surface.")
+                        appendLine("If preview shows a blank screen or runtime issue, close the preview mentally, then use inspect_logs -> focused repair -> validate.")
+                    }.trim()
+                }.orEmpty()
+                listOf(workspace, preview).filter { it.isNotBlank() }.joinToString("\n\n")
             },
             buildUserMemoryContext = { goal, taskType ->
                 buildUserMemoryContextForPrompt(
@@ -348,7 +407,28 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             appOpenRequests.collect { appId ->
                 loadMiniApps()
-                _uiState.update { it.copy(openAppId = appId) }
+                val shouldPreviewInChat = app.isAppForeground() && _uiState.value.currentPage == AppPage.CHAT
+                _uiState.update {
+                    if (shouldPreviewInChat) {
+                        it.copy(
+                            chatMiniAppPreviewId = appId,
+                            chatMiniAppPreviewMode = "validation",
+                            chatMiniAppPreviewSessionId = it.currentSessionId,
+                            chatMiniAppPreviewStatus = "Validation preview loading",
+                            chatMiniAppPreviewHealthy = true,
+                            openAppId = null,
+                        )
+                    } else {
+                        it.copy(
+                            openAppId = appId,
+                            chatMiniAppPreviewId = null,
+                            chatMiniAppPreviewMode = "",
+                            chatMiniAppPreviewSessionId = null,
+                            chatMiniAppPreviewStatus = "",
+                            chatMiniAppPreviewHealthy = true,
+                        )
+                    }
+                }
             }
         }
 
@@ -650,37 +730,17 @@ class MainViewModel : ViewModel() {
         attachments: List<SkillAttachment>,
         senderRole: Role,
     ): List<ChatMessage> {
-        val messages = mutableListOf<ChatMessage>()
-        if (summary.isNotBlank() || logLines.isNotEmpty()) {
-            messages += ChatMessage(
-                role = MessageRole.AGENT,
-                text = summary,
-                logLines = logLines,
-                senderRoleId = senderRole.id,
-                senderRoleName = senderRole.name,
-                senderRoleAvatar = senderRole.avatar,
-            )
-        }
-        attachments.forEach { attachment ->
-            messages += ChatMessage(
-                role = MessageRole.AGENT,
-                text = "",
-                attachments = listOf(attachment),
-                senderRoleId = senderRole.id,
-                senderRoleName = senderRole.name,
-                senderRoleAvatar = senderRole.avatar,
-            )
-        }
-        if (messages.isEmpty()) {
-            messages += ChatMessage(
-                role = MessageRole.AGENT,
-                text = "Done.",
-                senderRoleId = senderRole.id,
-                senderRoleName = senderRole.name,
-                senderRoleAvatar = senderRole.avatar,
-            )
-        }
-        return messages
+        return buildNarrativeAgentMessages(
+            summary = summary,
+            logLines = logLines,
+            attachments = attachments,
+            sender = AgentSenderMeta(
+                id = senderRole.id,
+                name = senderRole.name,
+                avatar = senderRole.avatar,
+            ),
+            isRunning = false,
+        )
     }
 
     // ── Role Management ──────────────────────────────────────────────────────
@@ -1411,12 +1471,8 @@ class MainViewModel : ViewModel() {
                 activeLogLines = listOf(
                     LogLine(
                         type = LogType.THINKING,
-                        text = "正在理解你的请求",
-                        details = listOf(
-                            "本步目的：先判断这次需求该走哪条处理通道",
-                            "本步结果：正在整理任务类型和执行方式",
-                            "接下来：选好通道后开始正式处理",
-                        ),
+                        text = "",
+                        details = emptyList(),
                     )
                 ),
                 activeAttachments = emptyList(),
@@ -1596,6 +1652,7 @@ class MainViewModel : ViewModel() {
             hasFile = attachedFile != null,
             role = scheduledRole,
         )
+        val allowedToolIds = resolveAllowedToolIds(route, orchestration.channelDecision.toolHints, contextualGoal)
         val executionContext = orchestration.toPromptBlock()
         // Build the user message once so we have a stable reference for persisting
         val userMessage = pendingTurn?.userMessage ?: ChatMessage(
@@ -1691,23 +1748,14 @@ class MainViewModel : ViewModel() {
             }.getOrDefault("")
 
             updateSession(resolvedSessionId) { s ->
+                val firstStep = route.contextualIntent.userVisibleSteps.firstOrNull()
+                val secondStep = route.contextualIntent.userVisibleSteps.drop(1).firstOrNull()
                 s.copy(
-                    activeLogLines = s.activeLogLines + LogLine(
+                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
                         type = LogType.THINKING,
-                        text = route.contextualIntent.userVisibleSteps.firstOrNull()
-                            ?: "正在确定本轮任务的执行方式",
-                        details = buildList {
-                            add("本步目的：${route.contextualIntent.userVisibleSteps.firstOrNull() ?: "先确认该用聊天、手机操作、网页、文件还是应用能力来处理"}")
-                            add("本步结果：${route.contextualIntent.userVisibleSteps.drop(1).firstOrNull() ?: channelSummary}")
-                            add("路由来源：${route.source}")
-                            if (route.debugReason.isNotBlank()) {
-                                add("路由原因：${route.debugReason}")
-                            }
-                            if (route.contextualIntent.userVisibleSteps.size > 1) {
-                                add("接下来：${route.contextualIntent.userVisibleSteps.drop(1).joinToString("；")}")
-                            }
-                        },
-                    ),
+                        text = userFacingInitialIntent(firstStep, secondStep, channelSummary),
+                        details = emptyList(),
+                    ).withLifecycle(running = true),
                 )
             }
 
@@ -1731,7 +1779,9 @@ class MainViewModel : ViewModel() {
                         is AgentEvent.Started -> {
                             if (visibleUserText.isNotBlank()) {
                                 event.toLogLine()?.let { line ->
-                                    updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
+                                    updateSession(resolvedSessionId) {
+                                        it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                                    }
                                 }
                             }
                         }
@@ -1745,7 +1795,8 @@ class MainViewModel : ViewModel() {
                                 ?.count { it.type == LogType.ACTION }
                                 ?: 0
                             val stageText = plannedStageForAction(route.contextualIntent.userVisibleSteps, actionIndex)
-                            val purposeText = stageAwareSkillDescription(stageText, event.skillId, event.params)
+                            val debugPurposeText = stageAwareSkillDescription(stageText, event.skillId, event.params)
+                            val purposeText = userFacingSkillStart(stageText, event.skillId, event.params)
                             overlay.onSkillCalling(event.skillId, event.params)
                             if (isPhoneControlTask || event.skillId in VISUAL_SKILL_IDS) {
                                 if (event.skillId == "see_screen") auroraOverlay.flashFullScreen()
@@ -1757,19 +1808,25 @@ class MainViewModel : ViewModel() {
                             }
                             val lineDetails = buildList {
                                 add("本步目的：$purposeText")
-                                add("本步结果：${userFacingActionResult(event.skillId, stageText)}")
+                                userFacingActionResult(event.skillId, stageText)
+                                    .takeIf { it.isNotBlank() }
+                                    ?.let { add("本步结果：$it") }
                                 // 这类信息用户能理解，但不该压过主要结论，所以放在二级说明位。
-                                if (stageText.isNotBlank() && stageText != purposeText) add("这样安排：$stageText")
-                                add("接下来：等待这一步返回结果，再决定是否继续或修正")
+                                if (stageText.isNotBlank() && stageText != debugPurposeText) add("这样安排：$stageText")
                                 // 原始参数保留在调试区，默认阅读不需要看到键值列表。
                                 add("调试：${str(R.string.vm_c96809)}")
+                                add("调试：意图=$debugPurposeText")
                                 addAll(paramDetails.map { "调试：$it" })
                             }
                             val line = event.toLogLine()?.copy(text = purposeText, details = lineDetails)
                             updateSession(resolvedSessionId) { s ->
                                 s.copy(
                                     streamingThought = "",
-                                    activeLogLines = if (line != null) s.activeLogLines + line else s.activeLogLines,
+                                    activeLogLines = if (line != null) {
+                                        s.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = true)
+                                    } else {
+                                        s.activeLogLines
+                                    },
                                 )
                             }
                             launch(Dispatchers.IO) {
@@ -1810,7 +1867,8 @@ class MainViewModel : ViewModel() {
                             val lineDetails = buildList {
                                 actionStage?.takeIf { it.isNotBlank() }?.let { add("本步目的：$it") }
                                 add("本步结果：$purposeText")
-                                nextStepHint(previousSkill, event.text)?.let { add("接下来：$it") }
+                                userFacingActionNext(actionStage.orEmpty(), previousSkill.orEmpty(), event.text)
+                                    ?.let { add("接下来：$it") }
                                 if (event.text.isNotBlank()) {
                                     summarizeTechnicalResultForUser(previousSkill, event.text)?.let { add("补充判断：$it") }
                                     add("调试：完整结果 (${event.text.length} 字符)")
@@ -1822,10 +1880,10 @@ class MainViewModel : ViewModel() {
                                 text = purposeText,
                                 imageBase64 = event.imageBase64,
                                 details = lineDetails,
-                            )
+                            ).withLifecycle(running = false)
                             updateSession(resolvedSessionId) { s ->
                                 s.copy(
-                                    activeLogLines = s.activeLogLines + line,
+                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + line,
                                     activeAttachments = if (attachment != null)
                                         s.activeAttachments + attachment
                                     else s.activeAttachments,
@@ -1847,31 +1905,34 @@ class MainViewModel : ViewModel() {
                         is AgentEvent.Error -> {
                             overlay.onError(event.message)
                             event.toLogLine()?.let { line ->
-                                updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
+                                updateSession(resolvedSessionId) {
+                                    it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                                }
                             }
                         }
                         is AgentEvent.Warning -> {
                             overlay.onWarning(event.message)
                             event.toLogLine()?.let { line ->
-                                updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
+                                updateSession(resolvedSessionId) {
+                                    it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                                }
                             }
                         }
                         is AgentEvent.ThinkingComplete -> {
                             overlay.onThinkingComplete()
                             val friendlyThought = friendlyThinkingUpdate(event.thought, route.contextualIntent.userVisibleSteps)
+                            val userFacingThought = userFacingThinkingResult(event.thought, route.contextualIntent.userVisibleSteps)
                             updateSession(resolvedSessionId) { s ->
                                 s.copy(
-                                    activeLogLines = s.activeLogLines + LogLine(
+                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
                                         type = LogType.THINKING,
-                                        text = friendlyThought,
+                                        text = userFacingThought,
                                         details = listOf(
-                                            "本步目的：$friendlyThought",
-                                            // 思考态告诉用户“刚才的判断带来了什么变化”，而不是抽象地说思路更新。
-                                            "本步结果：已经根据刚才的结果换好了下一步思路",
-                                            "接下来：按新的判断继续推进，尽量避开刚才那种无效路径",
+                                            "本步目的：$userFacingThought",
+                                            "本步结果：$friendlyThought",
                                             "调试：${event.thought.take(1200)}",
                                         ),
-                                    ),
+                                    ).withLifecycle(running = false),
                                     streamingToken = "",
                                     streamingThought = "",
                                 )
@@ -1880,26 +1941,28 @@ class MainViewModel : ViewModel() {
                         is AgentEvent.PlanCreated -> {
                             val steps = route.contextualIntent.userVisibleSteps.ifEmpty { event.plan.steps }
                             val text = steps.firstOrNull() ?: event.plan.summary
+                            val secondStep = steps.drop(1).firstOrNull { it.isNotBlank() }
                             updateSession(resolvedSessionId) { s ->
                                 s.copy(
-                                    activeLogLines = s.activeLogLines + LogLine(
+                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
                                         type = LogType.THINKING,
                                         text = text,
                                         details = buildList {
                                             add("本步目的：$text")
-                                            // 计划态把“已创建计划”翻译成用户真正关心的进度表达。
                                             add("本步结果：${userFacingPlanResult(steps, event.plan.summary)}")
-                                            if (steps.isNotEmpty()) add("接下来：${steps.joinToString("；")}")
+                                            if (!secondStep.isNullOrBlank()) add("接下来：${secondStep.trim()}")
                                             add("调试：角色=${scheduledRole.name} (${scheduledRole.id})")
                                             add("调试：${scheduleDecision.reason}")
                                             add("调试：${event.plan.toPrompt().take(1600)}")
                                         },
-                                    )
+                                    ).withLifecycle(running = true)
                                 )
                             }
                         }
                         else -> event.toLogLine()?.let { line ->
-                            updateSession(resolvedSessionId) { it.copy(activeLogLines = it.activeLogLines + line) }
+                            updateSession(resolvedSessionId) {
+                                it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                            }
                         }
                     }
                 }
@@ -1913,41 +1976,53 @@ class MainViewModel : ViewModel() {
                     .let { if (it.isNotBlank()) "当前用户画像（请据此调整沟通风格和内容深度）：\n$it" else "" }
             }.getOrDefault("")
 
-            val result = runCatching {
-                val snap = config.snapshot()
-                rt.run(
-                    goal             = contextualGoal,
-                    taskType         = executionTaskType,
-                    priorContext     = agentPriorContext,
-                    episodicContext  = episodicContext,
-                    executionContext = executionContext,
-                    language         = config.language,
-                    imageBase64      = attachedImage,
-                    role             = scheduledRole,
-                    userProfileContext = userProfileContext,
-                    allowedToolIds = if (route.contextualIntent.disableToolNarrowing) emptyList() else orchestration.channelDecision.toolHints,
-                    preferFastLocalVision = attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
-                    preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
-                    onToken       = { token ->
-                        val clean = token.cleanLocalTurnTokens()
-                        if (clean.isNotEmpty()) {
-                            overlay.onToken(clean)
-                            updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
-                            consoleServer.broadcast("token", clean)
-                        }
-                    },
-                    onThinkToken  = { token ->
-                        overlay.onToken(token)
-                        updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + token) }
-                    },
-                    onWorkspaceUpdate = { update ->
-                        persistRuntimeWorkspaceUpdate(
-                            sessionId = resolvedSessionId,
-                            goal = contextualGoal,
-                            update = update,
-                        )
-                    },
+            var result: Result<com.mobileclaw.agent.AgentResult> = Result.failure(IllegalStateException("LLM did not start."))
+            repeat(LLM_RETRY_MAX_ATTEMPTS) { attemptIndex ->
+                result = runCatching {
+                    val snap = config.snapshot()
+                    rt.run(
+                        goal             = contextualGoal,
+                        taskType         = executionTaskType,
+                        priorContext     = agentPriorContext,
+                        episodicContext  = episodicContext,
+                        executionContext = executionContext,
+                        language         = config.language,
+                        imageBase64      = attachedImage,
+                        role             = scheduledRole,
+                        userProfileContext = userProfileContext,
+                        allowedToolIds = allowedToolIds,
+                        preferFastLocalVision = attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
+                        preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
+                        onToken       = { token ->
+                            val clean = token.cleanLocalTurnTokens()
+                            if (clean.isNotEmpty()) {
+                                overlay.onToken(clean)
+                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                                consoleServer.broadcast("token", clean)
+                            }
+                        },
+                        onThinkToken  = { token ->
+                            overlay.onToken(token)
+                            updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + token) }
+                        },
+                        onWorkspaceUpdate = { update ->
+                            persistRuntimeWorkspaceUpdate(
+                                sessionId = resolvedSessionId,
+                                goal = contextualGoal,
+                                update = update,
+                            )
+                        },
+                    )
+                }
+                val shouldRetry = attemptIndex < LLM_RETRY_MAX_ATTEMPTS - 1 &&
+                    shouldRetryAfterAgentRun(result.getOrNull(), result.exceptionOrNull())
+                if (!shouldRetry) return@repeat
+                appendRetryLogLine(
+                    resolvedSessionId,
+                    if (attemptIndex == 0) "模型这一步返回异常，我正在自动重试一次"
+                    else "模型仍然不稳定，我正在再次整理请求",
                 )
+                delay(700L * (attemptIndex + 1))
             }
             networkTraceJob.cancel()
             runtimeEventJob.cancel()
@@ -2048,21 +2123,9 @@ class MainViewModel : ViewModel() {
             val currentRunState = _uiState.value.sessionStates[resolvedSessionId] ?: SessionRunState()
             val finalAgentMessages = run {
                 val finalLogLines = buildList {
-                    addAll(currentRunState.activeLogLines)
-                    if (route.debugReason.isNotBlank() && none { it.text == "路由诊断" }) {
-                        add(
-                            LogLine(
-                                type = LogType.INFO,
-                                text = "路由诊断",
-                                details = listOf(
-                                    "路由来源：${route.source}",
-                                    "路由原因：${route.debugReason}",
-                                ),
-                            )
-                        )
-                    }
+                    addAll(currentRunState.activeLogLines.finishLatestRunningLine())
                     if (currentRunState.streamingThought.isNotBlank()) {
-                        add(LogLine(LogType.THINKING, currentRunState.streamingThought))
+                        add(LogLine(type = LogType.THINKING, text = currentRunState.streamingThought).withLifecycle(running = false))
                     }
                 }
                 buildAgentMessages(summary, finalLogLines, currentRunState.activeAttachments, scheduledRole)
@@ -2091,6 +2154,9 @@ class MainViewModel : ViewModel() {
                 val recs = buildSmartRecommendations(recent, profileFacts, miniApps, recentUserMsgs)
                 _uiState.update { it.copy(recommendations = recs) }
             }
+
+            // 如果聊天内预览在上一轮暴露了真实运行问题，这里直接续跑自动修复，不等用户补一句“继续”。
+            resumePendingMiniAppAutoRepair(resolvedSessionId)
         }
         taskJobs[sessionIdAtStart] = newJob
     }
@@ -2200,18 +2266,29 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 imageBase64 = imageBase64,
             )
 
-            val result = runCatching {
-                llm.chat(ChatRequest(
-                    messages = chatMessages,
-                    tools = emptyList(),
-                    stream = true,
-                    onToken = { token ->
-                        val clean = token.cleanLocalTurnTokens()
-                        if (clean.isNotEmpty()) {
-                            updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
-                        }
-                    },
-                ))
+            var result: Result<com.mobileclaw.llm.ChatResponse> = Result.failure(IllegalStateException("LLM did not start."))
+            repeat(LLM_RETRY_MAX_ATTEMPTS) { attemptIndex ->
+                result = runCatching {
+                    llm.chat(ChatRequest(
+                        messages = chatMessages,
+                        tools = emptyList(),
+                        stream = true,
+                        onToken = { token ->
+                            val clean = token.cleanLocalTurnTokens()
+                            if (clean.isNotEmpty()) {
+                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                            }
+                        },
+                    ))
+                }
+                val shouldRetry = attemptIndex < LLM_RETRY_MAX_ATTEMPTS - 1 && shouldRetryDirectChat(result.exceptionOrNull())
+                if (!shouldRetry) return@repeat
+                appendRetryLogLine(
+                    resolvedSessionId,
+                    if (attemptIndex == 0) "这次回复生成异常，我正在重新生成"
+                    else "回复仍然异常，我再试一次更稳的生成",
+                )
+                delay(500L * (attemptIndex + 1))
             }
 
             val summary = (result.getOrNull()?.content
@@ -2319,6 +2396,79 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             taskJobs.remove(sessionIdAtStart)
             runtimes.remove(sessionIdAtStart)
         }
+    }
+
+    // 预览失败后，把自动修复挂到当前会话上；若当前没有任务在跑，则直接续跑。
+    private fun enqueueMiniAppAutoRepair(sessionId: String, appId: String, previewStatus: String) {
+        if (sessionId.isBlank() || appId.isBlank()) return
+        val current = pendingMiniAppAutoRepairs[sessionId]
+        if (current?.appId == appId && current.previewStatus == previewStatus) return
+        val nextAttempt = if (current?.appId == appId) current.attempt + 1 else 1
+        if (nextAttempt > MINI_APP_AUTO_REPAIR_MAX_ATTEMPTS) return
+        pendingMiniAppAutoRepairs[sessionId] = PendingMiniAppAutoRepair(
+            sessionId = sessionId,
+            appId = appId,
+            previewStatus = previewStatus,
+            attempt = nextAttempt,
+        )
+        if (_uiState.value.sessionStates[sessionId]?.isRunning != true && taskJobs[sessionId] == null) {
+            resumePendingMiniAppAutoRepair(sessionId)
+        }
+    }
+
+    // 当前轮结束后，自动把“查日志 -> 小范围修复 -> 校验 -> 重新打开”继续跑完。
+    private fun resumePendingMiniAppAutoRepair(sessionId: String) {
+        val pending = pendingMiniAppAutoRepairs.remove(sessionId) ?: return
+        if (_uiState.value.sessionStates[sessionId]?.isRunning == true || taskJobs[sessionId] != null) {
+            pendingMiniAppAutoRepairs[sessionId] = pending
+            return
+        }
+        val rememberedGoal = activeWorkflows[sessionId]?.originalGoal
+            ?.takeIf { it.isNotBlank() }
+            ?: "Repair the existing MiniAPP without losing finished features."
+        val autoRepairGoal = buildString {
+            appendLine("Continue the current MiniAPP task automatically.")
+            appendLine("Target MiniAPP id: ${pending.appId}")
+            appendLine("Preview status: ${pending.previewStatus}")
+            appendLine("Original goal: ${rememberedGoal.take(1200)}")
+            appendLine("Required behavior:")
+            appendLine("1. Inspect the latest runtime logs for this MiniAPP.")
+            appendLine("2. Repair only the failing path shown by logs or preview behavior.")
+            appendLine("3. Validate the MiniAPP.")
+            appendLine("4. Re-open it and confirm the chat preview renders correctly.")
+            appendLine("5. Do not create a new MiniAPP. Do not ask the user to continue.")
+            if (pending.attempt > 1) {
+                appendLine("This is repair attempt ${pending.attempt}. Change strategy and patch the exact failing code path.")
+            }
+        }.trim()
+        val route = TaskRoute(
+            taskType = TaskType.APP_BUILD,
+            contextualIntent = ContextualTaskIntent(
+                classificationGoal = autoRepairGoal,
+                taskTypeOverride = TaskType.APP_BUILD,
+                userVisibleSteps = listOf(
+                    "我先定位聊天内预览为什么没有正常渲染",
+                    "然后只修出错的那一小段逻辑",
+                    "修完后重新校验并再次打开确认",
+                ),
+                executionHint = buildString {
+                    appendLine("Automatic MiniAPP repair continuation triggered by chat preview feedback.")
+                    appendLine("App id: ${pending.appId}")
+                    appendLine("Preview status: ${pending.previewStatus}")
+                    appendLine("Keep the existing artifact and continue from its latest runtime state.")
+                }.trim(),
+            ),
+            goalForExecution = autoRepairGoal,
+            source = TaskRouteSource.ACTIVE_WORKFLOW,
+            goalToRemember = rememberedGoal,
+            debugReason = "Auto-continued MiniAPP repair from unhealthy chat preview.",
+        )
+        runTaskInternal(
+            goal = autoRepairGoal,
+            visibleUserText = "",
+            routeOverride = route,
+            showUserMessage = false,
+        )
     }
 
     private fun shouldAnswerImageDirectly(goal: String): Boolean {
@@ -2447,6 +2597,64 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     fun clearPendingAppOpen() {
         _uiState.update { it.copy(openAppId = null) }
+    }
+
+    fun clearChatMiniAppPreview() {
+        _uiState.update {
+            it.copy(
+                chatMiniAppPreviewId = null,
+                chatMiniAppPreviewMode = "",
+                chatMiniAppPreviewSessionId = null,
+                chatMiniAppPreviewStatus = "",
+                chatMiniAppPreviewHealthy = true,
+            )
+        }
+    }
+
+    fun updateChatMiniAppPreviewStatus(appId: String, status: String, healthy: Boolean) {
+        val normalized = status.trim().ifBlank {
+            if (healthy) "Validation preview passed" else "Validation preview found issues"
+        }
+        val snapshot = _uiState.value
+        if (snapshot.chatMiniAppPreviewId != appId) return
+        val isValidationPreview = snapshot.chatMiniAppPreviewMode == "validation"
+        val previewSessionId = snapshot.chatMiniAppPreviewSessionId ?: snapshot.currentSessionId
+        val changed = snapshot.chatMiniAppPreviewStatus != normalized || snapshot.chatMiniAppPreviewHealthy != healthy
+        _uiState.update {
+            if (it.chatMiniAppPreviewId != appId) it
+            else it.copy(
+                chatMiniAppPreviewStatus = normalized,
+                chatMiniAppPreviewHealthy = healthy,
+            )
+        }
+        if (!changed || healthy) return
+        updateSession(previewSessionId) { state ->
+            if (!state.isRunning) return@updateSession state
+            val line = LogLine(
+                type = LogType.OBSERVATION,
+                text = normalized.take(220),
+                skillId = "app_manager",
+                details = listOf(
+                    "本步结果：聊天里的验证预览已经看到运行问题",
+                    "补充判断：先收起这个验证窗口，继续查日志并做一轮针对性修复，不要直接重写整个 MiniAPP",
+                ),
+            )
+            if (state.activeLogLines.lastOrNull()?.text == line.text) state
+            else state.copy(activeLogLines = state.activeLogLines + line)
+        }
+        if (isValidationPreview) {
+            _uiState.update {
+                if (it.chatMiniAppPreviewId != appId) it
+                else it.copy(
+                    chatMiniAppPreviewId = null,
+                    chatMiniAppPreviewMode = "",
+                    chatMiniAppPreviewSessionId = null,
+                    chatMiniAppPreviewStatus = "",
+                    chatMiniAppPreviewHealthy = true,
+                )
+            }
+        }
+        enqueueMiniAppAutoRepair(sessionId = previewSessionId, appId = appId, previewStatus = normalized)
     }
 
     fun clearAiPageOpen() {
@@ -2820,6 +3028,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 hasFile = false,
                 role = role,
             )
+            val groupAllowedToolIds = resolveAllowedToolIds(groupRoute, groupOrchestration.channelDecision.toolHints, triggerText)
             val phoneTask = taskType == TaskType.PHONE_CONTROL
             try {
                 if (delayMs > 0) delay(delayMs)
@@ -2869,7 +3078,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     baseMessages = callMessages,
                     taskType = taskType,
                     memoryContext = memoryPrompt,
-                    allowedToolIds = groupOrchestration.channelDecision.toolHints,
+                    allowedToolIds = groupAllowedToolIds,
                     maxSkillCalls = if (longTask || taskType == TaskType.PHONE_CONTROL) 12 else 4,
                     requireResponse = requireResponse,
                     shouldStop = { groupChatStopped },
@@ -3535,9 +3744,8 @@ $foundationalMemory
             overlay.hideCompleted()
             return
         }
-        pendingCompletionOverlaySummary?.let { summary ->
-            pendingCompletionOverlaySummary = null
-            overlay.showCompleted(summary)
+        if (overlay.state.visible && !overlay.state.completed) {
+            overlay.collapseToCompactIfRunning()
         }
     }
 
@@ -3552,10 +3760,8 @@ $foundationalMemory
 
     private fun showCompletionOverlayIfNeeded(summary: String) {
         if (isMobileClawForegroundNow()) {
-            pendingCompletionOverlaySummary = summary
-            overlay.hideCompleted()
+            overlay.hide()
         } else {
-            pendingCompletionOverlaySummary = null
             overlay.showCompleted(summary)
         }
     }
@@ -3629,6 +3835,31 @@ $foundationalMemory
             "继续", "接着", "继续执行", "继续操作", "继续吧", "接着来",
             "然后呢", "下一步", "go on", "continue", "next",
         ) || normalized.contains("继续") || normalized.contains("接着")
+    }
+
+    private fun resolveAllowedToolIds(
+        route: TaskRoute,
+        hintedToolIds: List<String>,
+        goal: String,
+    ): List<String> {
+        if (route.contextualIntent.disableToolNarrowing) return emptyList()
+        if (route.taskType == TaskType.APP_BUILD) {
+            // APP_BUILD is already narrowed by TaskToolPolicy. Do not add a second channel-level
+            // whitelist here, or the model can know the correct artifact tool but still be unable
+            // to call it in follow-up patch flows.
+            return emptyList()
+        }
+        if (route.taskType == TaskType.GENERAL &&
+            route.source in setOf(TaskRouteSource.RECENT_CONTEXT, TaskRouteSource.ACTIVE_WORKFLOW, TaskRouteSource.AI_ROUTER)
+        ) {
+            if (route.contextualIntent.miniApp != null || goal.contains("artifact_type=miniapp", ignoreCase = true)) {
+                return listOf("app_manager", "read_file", "create_file", "list_files", "create_html", "ui_builder")
+            }
+            if (route.contextualIntent.aiPage != null || goal.contains("artifact_type=ai_native_page", ignoreCase = true)) {
+                return listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
+            }
+        }
+        return hintedToolIds
     }
 
     private fun requestTaskExecutionConfirmation(goal: String, taskType: TaskType, confirmedRoute: TaskRoute? = null) {
@@ -4144,12 +4375,16 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
         arr.map { el ->
             val o = el.asJsonObject
             LogLine(
+                entryId = o["entryId"]?.asString ?: "",
                 type = runCatching { LogType.valueOf(o["type"]?.asString ?: "INFO") }.getOrDefault(LogType.INFO),
                 text = o["text"]?.asString ?: "",
                 skillId = o["skillId"]?.asString,
                 imageBase64 = null, // stripped on save
                 details = runCatching { o["details"]?.asJsonArray?.map { it.asString } ?: emptyList() }.getOrDefault(emptyList()),
-            )
+                startedAt = o["startedAt"]?.asLong ?: 0L,
+                finishedAt = o["finishedAt"]?.asLong ?: 0L,
+                isRunning = o["isRunning"]?.asBoolean ?: false,
+            ).let { line -> if (line.entryId.isBlank()) line.copy(entryId = java.util.UUID.randomUUID().toString()) else line }
         }
     }.getOrDefault(emptyList())
 
@@ -4227,18 +4462,46 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
 }
 
 private fun AgentEvent.toLogLine(): LogLine? = when (this) {
-    is AgentEvent.Started      -> LogLine(LogType.INFO, "▶ $goal")
+    is AgentEvent.Started      -> LogLine(type = LogType.INFO, text = "▶ $goal")
     is AgentEvent.Thinking     -> null
     is AgentEvent.ThinkingToken -> null
-    is AgentEvent.SkillCalling -> LogLine(LogType.ACTION, friendlySkillDescription(skillId, params), skillId = skillId)
-    is AgentEvent.Observation  -> LogLine(LogType.OBSERVATION, text.take(400), imageBase64 = imageBase64)
-    is AgentEvent.Completed    -> LogLine(LogType.SUCCESS, summary)
+    is AgentEvent.SkillCalling -> LogLine(type = LogType.ACTION, text = friendlySkillDescription(skillId, params), skillId = skillId)
+    is AgentEvent.Observation  -> LogLine(type = LogType.OBSERVATION, text = text.take(400), imageBase64 = imageBase64)
+    is AgentEvent.Completed    -> LogLine(type = LogType.SUCCESS, text = summary)
     // Warning 映射为 INFO，让 guard/约束在 UI 里表现为提醒而不是失败。
-    is AgentEvent.Warning      -> LogLine(LogType.INFO, friendlyRuntimeNotice(message))
-    is AgentEvent.Error        -> LogLine(LogType.ERROR, friendlyRuntimeNotice(message))
+    is AgentEvent.Warning      -> LogLine(type = LogType.INFO, text = friendlyRuntimeNotice(message))
+    is AgentEvent.Error        -> LogLine(type = LogType.ERROR, text = friendlyRuntimeNotice(message))
     is AgentEvent.Token        -> null
     is AgentEvent.ThinkingComplete -> null
-    is AgentEvent.PlanCreated -> LogLine(LogType.THINKING, plan.toPrompt())
+    is AgentEvent.PlanCreated -> LogLine(type = LogType.THINKING, text = plan.toPrompt())
+}
+
+private fun LogLine.withLifecycle(
+    running: Boolean,
+    now: Long = System.currentTimeMillis(),
+): LogLine = copy(
+    startedAt = when {
+        startedAt > 0L -> startedAt
+        else -> now
+    },
+    finishedAt = when {
+        running -> 0L
+        finishedAt > 0L -> finishedAt
+        else -> now
+    },
+    isRunning = running,
+)
+
+private fun List<LogLine>.finishLatestRunningLine(now: Long = System.currentTimeMillis()): List<LogLine> {
+    val index = indexOfLast { it.isRunning }
+    if (index < 0) return this
+    return toMutableList().also { lines ->
+        lines[index] = lines[index].copy(
+            isRunning = false,
+            startedAt = if (lines[index].startedAt > 0L) lines[index].startedAt else now,
+            finishedAt = now,
+        )
+    }
 }
 
 // 运行时内部报文统一翻译成人话，避免聊天步骤看起来像控制台日志。
@@ -4250,7 +4513,7 @@ private fun friendlyRuntimeNotice(message: String): String {
         normalized.startsWith("LLM error:") ->
             "模型这一步返回异常，正在重新组织请求后继续"
         normalized.contains("skill '", ignoreCase = true) && normalized.contains("not found", ignoreCase = true) ->
-            "当前缺少直接可用的能力，正在改走别的处理方式"
+            "这一步工具调用没有成功，正在改走别的处理方式"
         normalized.startsWith("Error executing ") ->
             "这一步执行时出了问题，正在根据返回结果继续修正"
         else -> normalized

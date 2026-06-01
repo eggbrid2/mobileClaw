@@ -562,6 +562,7 @@ object TaskToolPolicy {
     private fun narrowByGoal(allowed: List<String>, taskType: TaskType, goal: String): List<String> {
         val text = goal.lowercase()
         if (text.isBlank()) return allowed
+        val artifactPreference = detectArtifactToolPreferenceFromGoal(text)
         val preferred = when (taskType) {
             TaskType.PHONE_CONTROL -> when {
                 text.anyContains("截图", "看屏幕", "识别", "布局", "界面", "坐标", "当前页面") ->
@@ -610,6 +611,10 @@ object TaskToolPolicy {
                 else -> listOf("create_file", "read_file", "list_files", "generate_document", "create_html")
             }
             TaskType.APP_BUILD -> when {
+                artifactPreference == ArtifactToolPreference.MINI_APP ->
+                    listOf("app_manager", "read_file", "create_file", "list_files", "create_html")
+                artifactPreference == ArtifactToolPreference.AI_PAGE ->
+                    listOf("ui_builder", "read_file", "create_file", "list_files")
                 text.anyContains("页面", "原生", "native", "ui", "dashboard", "settings", "列表", "卡片") ->
                     listOf("ui_builder", "read_file", "create_file", "list_files")
                 text.anyContains("miniapp", "程序", "应用", "游戏", "webview", "html") ->
@@ -641,6 +646,10 @@ object TaskToolPolicy {
                 else -> listOf("shell", "run_python", "pip_install", "read_file", "create_file", "list_files")
             }
             TaskType.CHAT, TaskType.GENERAL -> when {
+                artifactPreference == ArtifactToolPreference.MINI_APP ->
+                    listOf("app_manager", "read_file", "create_file", "list_files", "create_html", "ui_builder")
+                artifactPreference == ArtifactToolPreference.AI_PAGE ->
+                    listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
                 text.anyContains("记忆", "记住", "偏好", "配置", "用户画像") ->
                     listOf("memory", "user_profile", "user_config")
                 text.anyContains("角色", "切换", "persona", "风格") ->
@@ -659,6 +668,27 @@ object TaskToolPolicy {
             }
         }
         return allowed.filter { it in preferred }.ifEmpty { allowed }
+    }
+
+    // When a continuation already carries an artifact contract or workspace anchor, prefer that tool
+    // over broad keyword matches like "页面" or "UI", which previously misrouted MiniAPP patch flows.
+    private fun detectArtifactToolPreferenceFromGoal(text: String): ArtifactToolPreference? = when {
+        text.contains("artifact_type=miniapp") ||
+            text.contains("current miniapp target:") ||
+            text.contains("current artifact: miniapp") ||
+            text.contains("latest artifact action:") && text.contains("app_manager") ->
+            ArtifactToolPreference.MINI_APP
+        text.contains("artifact_type=ai_native_page") ||
+            text.contains("current ai native page target:") ||
+            text.contains("current artifact: ai_native_page") ||
+            text.contains("latest artifact action:") && text.contains("ui_builder") ->
+            ArtifactToolPreference.AI_PAGE
+        else -> null
+    }
+
+    private enum class ArtifactToolPreference {
+        MINI_APP,
+        AI_PAGE,
     }
 
     private fun String.anyContains(vararg needles: String): Boolean =

@@ -48,18 +48,18 @@ internal fun stageAwareSkillDescription(stage: String, skillId: String, params: 
 internal fun userFacingActionResult(skillId: String, stageText: String): String =
     when (skillId) {
         "tap", "long_click", "scroll", "input_text", "navigate", "bg_launch" ->
-            "已经发出操作，接下来确认界面有没有按预期变化"
+            ""
         "see_screen", "read_screen", "bg_read_screen", "screenshot", "bg_screenshot" ->
-            "已经开始读取当前界面，马上会根据结果决定下一步"
+            ""
         "web_search", "fetch_url", "web_browse", "web_content", "web_js" ->
-            "已经开始查找和读取相关内容，接下来会筛出真正有用的信息"
+            ""
         "app_manager" ->
-            if (stageText.contains("MiniAPP")) "已经开始处理 MiniAPP，接下来会检查结果是否可直接使用" else "已经开始处理应用结果，接下来会检查是否可用"
+            if (stageText.contains("MiniAPP")) "这一步会直接动 MiniAPP 的内容和结构" else ""
         "ui_builder" ->
-            if (stageText.contains("原生页面")) "已经开始处理原生页面，接下来会检查展示和功能是否正常" else "已经开始处理页面结果，接下来会检查是否需要继续修改"
+            if (stageText.contains("原生页面")) "这一步会直接改原生页面的展示或交互" else ""
         "memory", "user_config" ->
-            "已经开始处理个性化信息，后续会按新的记忆或配置继续"
-        else -> "这一步已经开始，接下来会根据返回结果继续推进"
+            ""
+        else -> ""
     }
 
 internal fun conciseUserPlanSummary(text: String, limit: Int = 90): String {
@@ -79,10 +79,97 @@ internal fun conciseUserPlanSummary(text: String, limit: Int = 90): String {
 
 internal fun userFacingPlanResult(steps: List<String>, summary: String): String =
     when {
-        steps.isNotEmpty() -> "已经理清本轮要先做什么、后做什么"
+        steps.size >= 2 -> "先做「${steps.first().trim()}」，后面再处理「${steps[1].trim()}」"
+        steps.size == 1 -> "先从「${steps.first().trim()}」开始"
         summary.isNotBlank() -> conciseUserPlanSummary(summary)
         else -> "已经整理出本轮的处理顺序"
     }
+
+internal fun userFacingInitialIntent(firstStep: String?, secondStep: String?, channelSummary: String): String =
+    when {
+        !firstStep.isNullOrBlank() ->
+            firstStep.trim()
+        channelSummary.isNotBlank() ->
+            channelSummary.trim().trimEnd('。', '.')
+        !secondStep.isNullOrBlank() ->
+            secondStep.trim()
+        else -> ""
+    }
+
+internal fun userFacingThinkingResult(thought: String, plannedSteps: List<String>): String {
+    val current = plannedSteps.firstOrNull { it.isNotBlank() }.orEmpty()
+    val next = plannedSteps.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
+    val clean = thought.cleanLocalGeneratedText().trim().take(100)
+    return when {
+        current.isNotBlank() && next.isNotBlank() -> "$current / $next"
+        current.isNotBlank() -> current
+        clean.isNotBlank() ->
+            clean
+        else -> ""
+    }
+}
+
+internal fun userFacingSkillStart(stageText: String, skillId: String, params: Map<String, Any>): String {
+    fun p(key: String) = params[key]?.toString()?.trim().orEmpty()
+    val stage = stageText.trim()
+    val concrete = when (skillId) {
+        "web_search" -> p("query").takeIf { it.isNotBlank() }?.let { "查“$it”相关的内容" }
+        "fetch_url", "web_browse" -> p("url").takeIf { it.isNotBlank() }?.let { "打开这个网页，看看里面有没有当前要用的信息" }
+        "web_content" -> "把网页正文读出来，筛掉没用的部分"
+        "see_screen", "read_screen", "screenshot", "bg_screenshot", "bg_read_screen" -> "先看清当前界面，再决定下一步怎么点"
+        "tap" -> p("label").ifBlank { p("text") }.takeIf { it.isNotBlank() }?.let { "点开“$it”看看界面会怎么变化" }
+        "long_click" -> p("label").ifBlank { p("text") }.takeIf { it.isNotBlank() }?.let { "长按“$it”看看有没有隐藏操作" }
+        "scroll" -> "继续翻一下，看看目标内容是不是在下面"
+        "input_text" -> p("text").takeIf { it.isNotBlank() }?.let { "把需要的内容填进去：${it.take(24)}" }
+        "navigate" -> when {
+            p("package_name").isNotBlank() -> "把目标应用打开到可操作的界面"
+            p("action") == "back" -> "退回上一层，确认是不是走错了路径"
+            p("action") == "home" -> "回到桌面，从头进入正确的入口"
+            else -> "切一下当前界面，确认正确的操作路径"
+        }
+        "list_apps" -> "看手机里有没有这个应用"
+        "app_manager" -> when (p("action")) {
+            "create" -> "创建 MiniAPP"
+            "update" -> "更新 MiniAPP"
+            "validate" -> "检查 MiniAPP"
+            "open" -> "打开 MiniAPP"
+            else -> stage.ifBlank { "处理 MiniAPP" }
+        }
+        "ui_builder" -> when (p("action")) {
+            "create" -> "创建原生页面"
+            "update" -> "更新原生页面"
+            "validate" -> "检查原生页面"
+            "open" -> "打开原生页面"
+            else -> stage.ifBlank { "处理原生页面" }
+        }
+        "create_file" -> p("filename").takeIf { it.isNotBlank() }?.let { "把文件生出来：$it" }
+        "create_html" -> p("title").takeIf { it.isNotBlank() }?.let { "把这个网页结果做出来：$it" }
+        "generate_image" -> "把需要的图片生成出来"
+        "generate_document" -> "把文档内容生成出来"
+        "memory" -> "记忆更新"
+        "user_config" -> "用户配置更新"
+        "shell", "run_python" -> "执行命令"
+        else -> null
+    }
+    if (!concrete.isNullOrBlank()) return concrete
+    if (stage.isNotBlank()) return stage
+    return when {
+        skillId in VISUAL_SKILL_IDS -> "查看当前界面"
+        else -> ""
+    }
+}
+
+internal fun userFacingActionNext(stageText: String, skillId: String, text: String): String? {
+    val explicit = nextStepHint(skillId, text)
+    if (!explicit.isNullOrBlank()) return explicit
+    return when {
+        stageText.isNotBlank() -> stageText.trim()
+        skillId in VISUAL_SKILL_IDS -> "查看画面后继续"
+        skillId == "web_search" || skillId == "web_content" || skillId == "fetch_url" || skillId == "web_browse" ->
+            "筛选信息"
+        else -> null
+    }
+}
 
 internal fun friendlySkillDescription(skillId: String, params: Map<String, Any>): String {
     fun p(key: String) = params[key]?.toString()?.trim() ?: ""
@@ -187,20 +274,20 @@ internal fun friendlyObservationDescription(skillId: String?, text: String, hasI
         }
     }
     return when (skillId) {
-        "web_search" -> "已找到一批相关结果，接下来会筛选有用信息"
-        "fetch_url", "web_browse", "web_content", "web_js" -> "已读取网页内容，接下来会提取重点"
+        "web_search" -> "已经找到一批相关结果，接下来筛出真正有用的部分"
+        "fetch_url", "web_browse", "web_content", "web_js" -> "网页内容已经拿到了，接下来提取和当前任务直接相关的部分"
         "see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen" ->
-            if (hasImage) "已看到当前画面，接下来会判断该点哪里或是否完成" else "已理解当前界面，接下来会选择操作"
-        "tap", "long_click", "scroll", "input_text", "navigate", "bg_launch" -> "操作已执行，接下来会确认界面是否符合预期"
-        "list_apps" -> "已检查应用列表，接下来会选择正确应用"
-        "ui_builder" -> "页面处理完成，接下来会确认是否需要打开或继续修改"
-        "app_manager" -> "应用处理完成，接下来会确认结果是否可用"
-        "create_file", "create_html", "generate_document" -> "文件内容已生成，接下来会确认可打开或可保存"
-        "generate_image", "generate_icon", "generate_video" -> "生成任务已返回结果，接下来会展示给用户"
-        "memory", "user_config" -> "已更新个性化信息，后续会按这个偏好处理"
-        "shell", "run_python", "pip_install" -> "命令已返回结果，接下来会判断是否还需要修复"
-        "permission" -> "已检查权限状态，接下来会判断是否需要用户开启"
-        else -> if (text.isBlank()) "这一步已完成，正在继续判断下一步" else "已拿到这一步的结果，正在继续判断下一步"
+            if (hasImage) "已经看到当前画面了，接下来直接判断该点哪里" else "已经识别出当前界面的状态了"
+        "tap", "long_click", "scroll", "input_text", "navigate", "bg_launch" -> "这一步操作已经发出，我马上看界面有没有按预期变化"
+        "list_apps" -> "应用列表已经拿到了，接下来找出目标应用"
+        "ui_builder" -> "页面改动已经返回，接下来看看这次改动是不是对的"
+        "app_manager" -> "MiniAPP 结果已经返回，接下来看看它能不能直接运行"
+        "create_file", "create_html", "generate_document" -> "文件已经生成出来了，接下来确认它能不能直接打开"
+        "generate_image", "generate_icon", "generate_video" -> "生成结果已经回来了，接下来把能用的内容展示出来"
+        "memory", "user_config" -> "个性化信息已经更新，后面的判断会按这个来"
+        "shell", "run_python", "pip_install" -> "命令已经跑完了，接下来根据输出继续修"
+        "permission" -> "权限状态已经拿到了，接下来判断是不是缺了关键权限"
+        else -> if (text.isBlank()) "这一步已经有结果了" else "这一步的结果已经拿到了"
     }
 }
 
@@ -220,7 +307,7 @@ private fun artifactObservationSummary(skillId: String?, text: String): String? 
             action == "update" && savedAsDraft -> "MiniAPP 修改已保存，但这版还没通过检查，正在继续修正"
             action == "validate" && (runtimeIssues.isNotEmpty() || preflightIssues.isNotEmpty()) -> "MiniAPP 还存在缺项或运行问题，正在按检查结果继续修"
             action == "inspect_logs" && errorLogs.isNotEmpty() -> "MiniAPP 运行日志里还有报错，正在按日志定位并修复"
-            action == "open" -> "MiniAPP 已经打开，接下来会确认用户能不能直接使用"
+            action == "open" -> "MiniAPP 已经打开；如果你还在聊天页，会先在右下角预览验证"
             summary.isNotBlank() -> summary.take(90)
             warnings.isNotEmpty() -> "MiniAPP 已生成结果，但还有一些警告需要确认"
             else -> "MiniAPP 这一步已返回结果，正在继续确认是否可用"
@@ -244,6 +331,8 @@ internal fun nextStepHint(skillId: String?, text: String): String? {
         "app_manager" -> when {
             payload?.stringOrNull("saved_as_draft").equals("true", ignoreCase = true) ->
                 "继续看检查结果和运行日志，把没通过的部分修好后再打开"
+            payload?.stringOrNull("action") == "open" ->
+                "先看聊天右下角预览有没有正常渲染；有问题就直接查日志并修"
             payload?.stringOrNull("action") == "inspect_logs" && payload.stringListOrEmpty("error_logs").isNotEmpty() ->
                 "按日志里报错的位置修一轮，再重新检查"
             payload?.stringOrNull("action") == "validate" ->

@@ -65,6 +65,11 @@ data class MainUiState(
     // Mini-apps
     val miniApps: List<MiniApp> = emptyList(),
     val openAppId: String? = null,
+    val chatMiniAppPreviewId: String? = null,
+    val chatMiniAppPreviewMode: String = "",
+    val chatMiniAppPreviewSessionId: String? = null,
+    val chatMiniAppPreviewStatus: String = "",
+    val chatMiniAppPreviewHealthy: Boolean = true,
     // HTML attachment viewer (shown at activity level to keep addJavascriptInterface binding)
     val openHtmlAttachment: SkillAttachment.HtmlData? = null,
     val htmlAttachmentStack: List<SkillAttachment.HtmlData> = emptyList(),

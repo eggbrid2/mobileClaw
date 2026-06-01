@@ -72,6 +72,7 @@ class OverlayState {
     var compact         by mutableStateOf(false)
     var completed       by mutableStateOf(false)
     var completionSummary by mutableStateOf("")
+    var visible         by mutableStateOf(false)
 }
 
 // ── Manager ───────────────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ class AgentOverlayManager(private val context: Context) {
             state.streamingThought = ""; state.lastObservation = ""; state.isError = false
             state.compact = compact
             state.completed = false; state.completionSummary = ""
+            state.visible = true
             val frame = hostFrame
             val params = hostParams
             if (compact && frame != null && params != null) {
@@ -124,6 +126,7 @@ class AgentOverlayManager(private val context: Context) {
         state.streamingThought = ""; state.isError = false
         state.compact = compact
         state.completed = false; state.completionSummary = ""
+        state.visible = true
 
         val params = buildLayoutParams().also { hostParams = it }
         val owner  = OverlayLifecycleOwner().also { it.start(); lifecycleOwner = it }
@@ -209,6 +212,7 @@ class AgentOverlayManager(private val context: Context) {
             state.lastObservation = ""
             state.isError = false
             state.completionSummary = summary.take(180)
+            state.visible = true
             val frame = hostFrame
             val params = hostParams
             if (frame != null && params != null) {
@@ -223,12 +227,24 @@ class AgentOverlayManager(private val context: Context) {
             hostFrame = null
             lifecycleOwner?.stop(); lifecycleOwner = null
             state.streamingThought = ""
+            state.visible = false
         }
     }
 
     fun hideCompleted() {
         runOnMain {
             if (state.completed) hide()
+        }
+    }
+
+    fun collapseToCompactIfRunning() {
+        runOnMain {
+            val frame = hostFrame ?: return@runOnMain
+            val params = hostParams ?: return@runOnMain
+            if (state.completed) return@runOnMain
+            state.compact = true
+            state.visible = true
+            frame.post { snapCompactToNearestEdge(frame, params) }
         }
     }
 

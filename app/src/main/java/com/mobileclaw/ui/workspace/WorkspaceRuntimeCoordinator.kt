@@ -131,6 +131,7 @@ internal class WorkspaceRuntimeCoordinator(
     ): String {
         if (!isWorkspaceResumePrompt(userGoal)) return executionGoal
         val workspaceId = resolveSessionWorkspaceId(sessionId) ?: return executionGoal
+        val execution = workspaceStore.executionContext(workspaceId)
         val checkpoint = workspaceStore.latestCheckpointContent(workspaceId).orEmpty().take(2400)
         val notes = workspaceStore.latestNotes(workspaceId, limit = 2)
             .joinToString("\n\n") { (name, content) -> "[$name]\n${content.take(1200)}" }
@@ -138,6 +139,30 @@ internal class WorkspaceRuntimeCoordinator(
             appendLine("[workspace_resume]")
             appendLine("The user is continuing the current workspace-backed task.")
             appendLine("Resume from the latest workspace state first, not from older chat history.")
+            execution?.taskType?.takeIf { it.isNotBlank() }?.let { appendLine("Workspace task type: $it") }
+            if (!execution?.latestArtifactType.isNullOrBlank() || !execution?.latestArtifactId.isNullOrBlank()) {
+                appendLine(
+                    "Current artifact: ${execution?.latestArtifactType.orEmpty().ifBlank { "unknown" }} " +
+                        "${execution?.latestArtifactId.orEmpty()} ${execution?.latestArtifactTitle.orEmpty()}".trim()
+                )
+            }
+            execution?.latestArtifactAction?.takeIf { it.isNotBlank() }?.let { appendLine("Latest artifact action: $it") }
+            when (execution?.latestArtifactType?.lowercase()) {
+                "miniapp" -> {
+                    appendLine("Preferred artifact tool: app_manager")
+                    appendLine("artifact_type=miniapp")
+                    execution.latestArtifactId.takeIf { it.isNotBlank() }?.let { appendLine("target_id=$it") }
+                    execution.latestArtifactTitle.takeIf { it.isNotBlank() }?.let { appendLine("target_title=$it") }
+                    appendLine("mode=patch_existing")
+                }
+                "ai_native_page" -> {
+                    appendLine("Preferred artifact tool: ui_builder")
+                    appendLine("artifact_type=ai_native_page")
+                    execution.latestArtifactId.takeIf { it.isNotBlank() }?.let { appendLine("target_id=$it") }
+                    execution.latestArtifactTitle.takeIf { it.isNotBlank() }?.let { appendLine("target_title=$it") }
+                    appendLine("mode=patch_existing")
+                }
+            }
             if (checkpoint.isNotBlank()) {
                 appendLine("Latest checkpoint:")
                 appendLine(checkpoint)

@@ -25,6 +25,7 @@ class MiniAppStore(private val context: Context) {
 
     private val gson = Gson()
     private val ioLock = Any()
+    private val bridgeMarker = "window.__clawBridgeInstalled"
     private val appsDir: File get() = context.filesDir.resolve("apps").also { it.mkdirs() }
 
     fun all(): List<MiniApp> = synchronized(ioLock) {
@@ -134,6 +135,8 @@ class MiniAppStore(private val context: Context) {
     fun clawBridgeSetupJs(): String = """
 "use strict";
 (function(){
+  if(window.__clawBridgeInstalled)return;
+  window.__clawBridgeInstalled=true;
   var A=window.Android;
   // ── Async callback registry ────────────────────────────────────────────
   window._clawPending={};
@@ -168,18 +171,24 @@ class MiniAppStore(private val context: Context) {
     try{A.appendLog('error','window',msg);}catch(_){}
     console.error(msg);
   });
-  // ── Redirect native fetch() → Claw.fetch() so AI mistakes fail loudly ──
+  function _bridgeLog(level,tag,msg){
+    try{
+      if(window.Claw&&window.Claw.log&&typeof window.Claw.log[level]==='function') window.Claw.log[level](tag,msg);
+      else A.appendLog(level,tag,msg);
+    }catch(_){}
+  }
+  // ── Block native fetch() so runtime behavior matches static validation ──
   window.fetch=function(url,opts){
-    try{A.showToast('Use Claw.fetch() not fetch(). Redirecting…');}catch(_){}
-    return _async(function(u,o,id){var op=o||{};A.httpFetchAsync(u,op.method||'GET',JSON.stringify(op.headers||{}),op.body||'',id);})(url,opts).then(function(r){
-      return {ok:r.ok,status:r.status,text:function(){return Promise.resolve(r.body);},json:function(){return Promise.resolve(JSON.parse(r.body));}};
-    });
+    var msg='native fetch() blocked for '+String(url||'')+' — use await Claw.fetch(...) instead';
+    _bridgeLog('error','bridge',msg);
+    throw new Error(msg);
   };
   window.XMLHttpRequest=function(){try{A.showToast('Use Claw.fetch() instead of XHR');}catch(_){} throw new Error('XMLHttpRequest blocked — use Claw.fetch()');};
   window.Claw={
     // ── Async I/O (always use await) ──────────────────────────────────────
     fetch:_async(function(url,opts,id){
       var o=opts||{};
+      _bridgeLog('info','fetch','start '+String((o.method||'GET')).toUpperCase()+' '+String(url||''));
       A.httpFetchAsync(url,o.method||'GET',JSON.stringify(o.headers||{}),o.body||'',id);
     }),
     sql:_async(function(q,p,id){A.sqliteAsync(q,JSON.stringify(p||[]),id);}),
@@ -231,6 +240,20 @@ class MiniAppStore(private val context: Context) {
     openUrl:function(url){try{return JSON.parse(A.openUrl(String(url)));}catch(e){return{error:e.message};}},
     shareText:function(text,title){try{return JSON.parse(A.shareText(String(text),String(title||'')));}catch(e){return{error:e.message};}}
   };
+  (function(){
+    var originalCb=window._clawCb;
+    window._clawCb=function(id,enc){
+      try{
+        var parsed=JSON.parse(decodeURIComponent(enc));
+        if(parsed&&typeof parsed==='object'&&('status' in parsed || 'ok' in parsed || 'error' in parsed)){
+          if(parsed.error)_bridgeLog('error','fetch','failure '+String(parsed.error));
+          else _bridgeLog('info','fetch','done status='+(parsed.status||0)+' ok='+(!!parsed.ok));
+        }
+      }catch(_){}
+      return originalCb(id,enc);
+    };
+  })();
+  _bridgeLog('info','bridge','Claw bridge ready');
   // Inject device-accurate viewport height as CSS custom property --vh
   // Use height:calc(var(--vh)*100) instead of 100vh in your CSS for reliable full-screen layout
   (function(){
@@ -246,6 +269,7 @@ class MiniAppStore(private val context: Context) {
 """.trimIndent()
 
     fun injectBridge(html: String): String {
+        if (html.contains(bridgeMarker)) return html
         val layoutMeta = buildString {
             if (!html.contains("name=\"viewport\"", ignoreCase = true)) {
                 append("""<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">""")

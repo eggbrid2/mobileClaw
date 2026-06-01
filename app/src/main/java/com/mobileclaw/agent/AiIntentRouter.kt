@@ -133,7 +133,10 @@ Routing principles:
 - If the user wants ordinary conversation or explanation, use CHAT or GENERAL.
 - If the user attaches an image and asks what it is, use GENERAL with CHAT channel, not WEB, unless they explicitly ask for web lookup.
 - If a short follow-up like "continue" refers to the active or latest task, keep that task type.
-- Generate 2-5 short user-facing steps. These steps are what the UI shows while working, so make them meaningful and high level.
+- Generate 2-4 short user-facing steps. These steps are shown directly in the UI while working.
+- Write them like concrete things the AI is about to do, not abstract workflow labels.
+- Good: "先查找附近可用的餐厅", "打开美团并进入下单页面", "把钢琴按键代码补全并修掉报错"
+- Bad: "确认目标", "继续推进流程", "验证结果", "完善实现"
 - Tool hints are optional known tool ids; include only obvious ids. Leave empty if unsure.
 - Do not route explicit MiniAPP/program/runtime requests to ui_builder.
 - Do not route explicit native-page requests to app_manager unless the user also explicitly asks for runtime features.

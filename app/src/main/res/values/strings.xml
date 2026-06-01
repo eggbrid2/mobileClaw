@@ -1286,4 +1286,14 @@ You MUST respond in Simplified Chinese.
     <string name="workspace_no_active_memory">No task-scoped memory is active yet.</string>
     <string name="workspace_promote">Promote</string>
     <string name="workspace_delete">Delete</string>
+    <string name="chat_working_update">Still working on this.</string>
+    <string name="chat_checkpoint_done">Completed %1$d execution steps so far.</string>
+    <string name="chat_checkpoint_started">Started with: %1$s</string>
+    <string name="chat_checkpoint_now">Current outcome: %1$s</string>
+    <string name="chat_checkpoint_continue">Next I will continue from the latest result instead of restarting the whole task.</string>
+    <string name="chat_view_process">View process</string>
+    <string name="chat_plan_goals_prefix">I will start with these concrete tasks: %1$s</string>
+    <string name="chat_plan_validate">I will start with the first target and correct course first if execution drifts away from your goal.</string>
+    <string name="chat_plan_validate_running">I have aligned the target for this round and will now start from the first item.</string>
+    <string name="chat_plan_adjust_prefix">Next I will start with: %1$s</string>
 </resources>

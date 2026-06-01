@@ -120,7 +120,7 @@ internal fun fallbackGroupSummaryFromHistory(role: Role, baseMessages: List<Mess
         latestUser.contains("?", ignoreCase = true) || latestUser.contains("？") ->
             "${role.name}看法：这个问题核心是「$latestUser」。我会先把目标拆清楚，再判断需要谁继续接力。"
         latestUser.isNotBlank() ->
-            "${role.name}看法：我抓到的重点是「$latestUser」。可以顺着这个点继续聊，我先给一个明确角度。"
+            "${role.name}看法：我抓到的重点是「$latestUser」。可以顺着这个点继续聊，先给一个明确角度。"
         else ->
             "${role.name}在。可以从一个轻松的话题开始，或者直接抛一个问题给我。"
     }

@@ -38,9 +38,16 @@ class MiniAppPreflightValidator(
     private val userConfig: UserConfig,
     private val semanticMemory: SemanticMemory,
 ) {
+    enum class Mode {
+        STARTUP,
+        STRICT,
+    }
+
     private companion object {
-        const val PREVIEW_PROBE_DELAY_MS = 150L
-        const val PREVIEW_TIMEOUT_MS = 10_000L
+        const val STARTUP_PROBE_DELAY_MS = 200L
+        const val STRICT_PROBE_DELAY_MS = 450L
+        const val STARTUP_TIMEOUT_MS = 4_000L
+        const val STRICT_TIMEOUT_MS = 10_000L
     }
 
     private val appContext = context.applicationContext
@@ -51,6 +58,7 @@ class MiniAppPreflightValidator(
         appId: String,
         html: String,
         python: String?,
+        mode: Mode = Mode.STRICT,
     ): MiniAppPreflightReport {
         val issues = mutableListOf<String>()
         val warnings = mutableListOf<String>()
@@ -61,7 +69,8 @@ class MiniAppPreflightValidator(
                 store.savePython(tempId, code)
             }
             val webReport = normalizeTimeoutOnlyPreflight(
-                validateHtmlInHiddenWebView(tempId, html)
+                validateHtmlInHiddenWebView(tempId, html, mode),
+                mode,
             )
             issues += webReport.issues
             warnings += webReport.warnings
@@ -102,6 +111,7 @@ class MiniAppPreflightValidator(
     private suspend fun validateHtmlInHiddenWebView(
         tempAppId: String,
         html: String,
+        mode: Mode,
     ): MiniAppPreflightReport = suspendCancellableCoroutine { cont ->
         mainHandler.post {
             var finished = false
@@ -109,6 +119,8 @@ class MiniAppPreflightValidator(
             val warnings = mutableListOf<String>()
             var pageTitle = ""
             var timeoutPosted = false
+            val probeDelayMs = if (mode == Mode.STARTUP) STARTUP_PROBE_DELAY_MS else STRICT_PROBE_DELAY_MS
+            val timeoutMs = if (mode == Mode.STARTUP) STARTUP_TIMEOUT_MS else STRICT_TIMEOUT_MS
 
             val webView = WebView(appContext)
             val bridge = AppJsBridge(
@@ -185,15 +197,30 @@ class MiniAppPreflightValidator(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     if (finished) return
                     view?.postDelayed({
-                        val js = """
+                            val js = """
                             (function(){
                               try{
+                                var body = document.body;
+                                var bodyStyle = body ? window.getComputedStyle(body) : null;
+                                var text = body && body.innerText ? body.innerText.trim() : "";
+                                var interactive = document.querySelectorAll('button,input,select,textarea,a,[role="button"],[onclick]').length;
+                                var hasCanvas = document.querySelectorAll('canvas').length > 0;
+                                var mediaCount = document.querySelectorAll('img,svg,video').length;
+                                var bodyRect = body ? body.getBoundingClientRect() : {width:0,height:0};
                                 return JSON.stringify({
                                   title: document.title || "",
                                   readyState: document.readyState || "",
                                   hasClaw: typeof window.Claw !== "undefined",
                                   hasFetch: !!(window.Claw && typeof window.Claw.fetch === "function"),
-                                  bodyPresent: !!document.body
+                                  bodyPresent: !!body,
+                                  textLength: text.length,
+                                  elementCount: document.querySelectorAll('*').length,
+                                  interactiveCount: interactive,
+                                  hasCanvas: hasCanvas,
+                                  mediaCount: mediaCount,
+                                  bodyWidth: Math.round(bodyRect.width || 0),
+                                  bodyHeight: Math.round(bodyRect.height || 0),
+                                  bodyHidden: !!(bodyStyle && (bodyStyle.display === "none" || bodyStyle.visibility === "hidden" || bodyStyle.opacity === "0"))
                                 });
                               }catch(e){
                                 return JSON.stringify({error: e.message || String(e)});
@@ -215,27 +242,50 @@ class MiniAppPreflightValidator(
                             val hasClaw = parsed.get("hasClaw")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
                             val hasFetch = parsed.get("hasFetch")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
                             val bodyPresent = parsed.get("bodyPresent")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val textLength = parsed.get("textLength")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val elementCount = parsed.get("elementCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val interactiveCount = parsed.get("interactiveCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val hasCanvas = parsed.get("hasCanvas")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val mediaCount = parsed.get("mediaCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val bodyWidth = parsed.get("bodyWidth")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val bodyHeight = parsed.get("bodyHeight")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val bodyHidden = parsed.get("bodyHidden")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
                             val readyState = parsed.get("readyState")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
                             if (!hasClaw) issue("Preflight failed: Claw bridge was not injected.")
                             if (!hasFetch) issue("Preflight failed: Claw.fetch bridge is unavailable.")
                             if (!bodyPresent) issue("Preflight failed: document.body is missing after load.")
+                            if (bodyHidden) issue("Preflight failed: document.body is hidden by CSS, which can cause a blank screen.")
+                            if (bodyPresent && (bodyWidth <= 4 || bodyHeight <= 4)) {
+                                issue("Preflight failed: rendered body size is too small (${bodyWidth}x${bodyHeight}), likely causing a blank screen.")
+                            }
+                            if (bodyPresent && elementCount <= 1) {
+                                warn("Preflight warning: page DOM is almost empty after load.")
+                            }
+                            if (bodyPresent && textLength == 0 && interactiveCount == 0) {
+                                val visualSurfaceExists = hasCanvas || mediaCount > 0 || elementCount > 3
+                                if (mode == Mode.STRICT && !visualSurfaceExists) {
+                                    issue("Preflight failed: page rendered no visible text and no interactive controls after load, likely a blank screen.")
+                                } else {
+                                    warn("Preflight warning: page has no visible text or controls yet, but a visual surface was mounted. Allow runtime preview to continue validation.")
+                                }
+                            }
                             if (readyState != "complete" && readyState != "interactive") {
                                 warn("Document readyState is '$readyState' during preflight.")
                             }
                             finish()
                         }
-                    }, PREVIEW_PROBE_DELAY_MS)
+                    }, probeDelayMs)
                 }
             }
 
             val timeout = Runnable {
                 if (!finished) {
-                    issue("MiniAPP preflight exceeded ${PREVIEW_TIMEOUT_MS / 1000}s before startup checks completed. Possible blocking startup code or an infinite loop.")
+                    issue("MiniAPP preflight exceeded ${timeoutMs / 1000}s before startup checks completed. Possible blocking startup code or an infinite loop.")
                     finish()
                 }
             }
             timeoutPosted = true
-            mainHandler.postDelayed(timeout, PREVIEW_TIMEOUT_MS)
+            mainHandler.postDelayed(timeout, timeoutMs)
 
             cont.invokeOnCancellation {
                 if (timeoutPosted) mainHandler.removeCallbacks(timeout)
@@ -267,7 +317,10 @@ class MiniAppPreflightValidator(
         return hook + html
     }
 
-    private fun normalizeTimeoutOnlyPreflight(report: MiniAppPreflightReport): MiniAppPreflightReport {
+    private fun normalizeTimeoutOnlyPreflight(
+        report: MiniAppPreflightReport,
+        mode: Mode,
+    ): MiniAppPreflightReport {
         if (report.ok || report.issues.isEmpty()) return report
         val timeoutIssue = report.issues.firstOrNull { it.contains("preflight exceeded", ignoreCase = true) }
             ?: return report
@@ -314,7 +367,7 @@ class MiniAppPreflightValidator(
             issues = emptyList(),
             warnings = (
                 report.warnings +
-                    "MiniAPP preflight probe exceeded ${PREVIEW_TIMEOUT_MS / 1000}s, but runtime logs indicate startup completed. Allowing create/open and keeping this as a warning."
+                    "MiniAPP ${mode.name.lowercase()} preflight probe exceeded the timeout, but runtime logs indicate startup completed. Allowing create/open and keeping this as a warning."
                 ).distinct(),
         )
     }

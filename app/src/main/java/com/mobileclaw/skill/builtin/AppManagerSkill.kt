@@ -141,10 +141,11 @@ class AppManagerSkill(
                 val app = store.get(id) ?: return SkillResult(false, "App '$id' not found.")
                 val html = store.readHtml(id).orEmpty()
                 val py = store.readPython(id).orEmpty()
+                val preflight = preflightValidator.validate(id, html, py, MiniAppPreflightValidator.Mode.STRICT)
                 val body = (html + "\n" + py).lowercase()
                 val required = app.spec.requiredFeatures
                 val current = app.spec.currentFeatures.ifEmpty { summarizeAppFeatures(app, html, py) }
-                val recentLogs = store.readLogs(id, limit = 80)
+                val recentLogs = if (preflight.recentLogs.isNotEmpty()) preflight.recentLogs else store.readLogs(id, limit = 80)
                 val missingRequired = required.filter { feature ->
                     val token = feature.trim().lowercase()
                     token.isNotBlank() && token !in body
@@ -155,7 +156,10 @@ class AppManagerSkill(
                 }
                 val runtimeIssues = validateMiniAppRuntime(html, py)
                 val logReport = classifyMiniAppLogs(recentLogs)
-                val ok = missingRequired.isEmpty() && missingCurrent.isEmpty() && runtimeIssues.isEmpty()
+                val ok = missingRequired.isEmpty() &&
+                    missingCurrent.isEmpty() &&
+                    runtimeIssues.isEmpty() &&
+                    preflight.issues.isEmpty()
                 val output = linkedMapOf(
                     "artifact_type" to "miniapp",
                     "id" to app.id,
@@ -164,6 +168,8 @@ class AppManagerSkill(
                     "current_features" to current,
                     "missing_required_features" to missingRequired,
                     "missing_snapshot_features" to missingCurrent,
+                    "preflight_issues" to preflight.issues,
+                    "preflight_warnings" to preflight.warnings,
                     "runtime_issues" to runtimeIssues,
                     "recent_logs" to recentLogs,
                     "error_logs" to logReport.errors,
@@ -178,6 +184,7 @@ class AppManagerSkill(
                             append("Artifact validation failed.")
                             if (missingRequired.isNotEmpty()) append(" Missing required features: ${missingRequired.joinToString(", ")}.")
                             if (missingCurrent.isNotEmpty()) append(" Missing snapshot features: ${missingCurrent.joinToString(", ")}.")
+                            if (preflight.issues.isNotEmpty()) append(" Preflight issues: ${preflight.issues.joinToString(" | ")}.")
                             if (runtimeIssues.isNotEmpty()) append(" Runtime issues: ${runtimeIssues.joinToString(" | ")}.")
                             if (recentLogs.isNotEmpty()) append(" Recent logs are attached for debugging.")
                         }
@@ -238,9 +245,9 @@ class AppManagerSkill(
                     ),
                     history = buildHistory(null, "create", changeRequest.ifBlank { description }, description.ifBlank { title }),
                 )
-                val preflight = preflightValidator.validate(id, html, python)
+                val preflight = preflightValidator.validate(id, html, python, MiniAppPreflightValidator.Mode.STARTUP)
                 if (!preflight.ok) {
-                    store.save(app, store.injectBridge(html))
+                    store.save(app, html)
                     if (!python.isNullOrBlank()) store.savePython(id, python)
                     val saved = store.get(id) ?: app
                     val logReport = classifyMiniAppLogs(preflight.recentLogs)
@@ -264,7 +271,7 @@ class AppManagerSkill(
                     )
                     return SkillResult(true, gson.toJson(output))
                 }
-                store.save(app, store.injectBridge(html))
+                store.save(app, html)
                 if (!python.isNullOrBlank()) store.savePython(id, python)
                 openRequests.emit(id)
                 val saved = store.get(id) ?: app
@@ -282,6 +289,9 @@ class AppManagerSkill(
                     "preflight_recent_logs" to preflight.recentLogs,
                     "preflight_latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
                     "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "opened" to true,
+                    "ui_open_request_emitted" to true,
+                    "suggested_next_action" to "If the user is still in chat, use the bottom-right validation preview first. If that preview shows issues, inspect_logs -> focused repair -> validate, instead of treating the preview as the final app surface.",
                     "open_hint" to "app_manager(action=open, id=$id)",
                     "summary" to "Created MiniAPP '$id'${if (python != null) " with Python backend" else ""}."
                 )
@@ -301,7 +311,7 @@ class AppManagerSkill(
                 val changeRequest = params["change_request"] as? String ?: ""
                 val effectiveHtml = html ?: store.readHtml(id).orEmpty()
                 val effectivePython = python ?: store.readPython(id).orEmpty()
-                val preflight = preflightValidator.validate(id, effectiveHtml, effectivePython)
+                val preflight = preflightValidator.validate(id, effectiveHtml, effectivePython, MiniAppPreflightValidator.Mode.STARTUP)
                 if (!preflight.ok) {
                     val draft = app.copy(
                         title = newTitle ?: app.title,
@@ -322,7 +332,7 @@ class AppManagerSkill(
                         ),
                         history = buildHistory(app.history, "update", changeRequest.ifBlank { newDescription ?: app.description }, (newDescription ?: app.description).ifBlank { newTitle ?: app.title }),
                     )
-                    store.save(draft, store.injectBridge(effectiveHtml))
+                    store.save(draft, effectiveHtml)
                     if (!effectivePython.isNullOrBlank()) store.savePython(id, effectivePython)
                     val saved = store.get(id) ?: draft
                     val logReport = classifyMiniAppLogs(preflight.recentLogs)
@@ -366,7 +376,7 @@ class AppManagerSkill(
                     history = buildHistory(app.history, "update", changeRequest.ifBlank { newDescription ?: app.description }, (newDescription ?: app.description).ifBlank { newTitle ?: app.title }),
                 )
                 if (html != null) {
-                    store.save(updated, store.injectBridge(html))
+                    store.save(updated, html)
                 } else if (newTitle != null || newDescription != null || newIcon != null) {
                     val existingHtml = store.readHtml(id) ?: "<html></html>"
                     store.save(updated, existingHtml)
@@ -387,6 +397,9 @@ class AppManagerSkill(
                     "preflight_recent_logs" to preflight.recentLogs,
                     "preflight_latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
                     "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                    "opened" to true,
+                    "ui_open_request_emitted" to true,
+                    "suggested_next_action" to "If the user is still in chat, use the bottom-right validation preview first. If that preview shows issues, inspect_logs -> focused repair -> validate, instead of treating the preview as the final app surface.",
                     "open_hint" to "app_manager(action=open, id=$id)",
                     "summary" to "Updated MiniAPP '$id'."
                 )
@@ -404,9 +417,19 @@ class AppManagerSkill(
             "open" -> {
                 val id = params["id"] as? String
                     ?: return SkillResult(false, "id is required for open")
-                if (store.get(id) == null) return SkillResult(false, "App '$id' not found. Use action=list to see available apps.")
+                val app = store.get(id) ?: return SkillResult(false, "App '$id' not found. Use action=list to see available apps.")
                 openRequests.emit(id)
-                SkillResult(true, "Opening app '$id'.")
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "open",
+                    "id" to app.id,
+                    "title" to app.title,
+                    "opened" to true,
+                    "ui_open_request_emitted" to true,
+                    "suggested_next_action" to "If the user is still in chat, use the bottom-right validation preview first. If that preview shows issues, inspect_logs -> focused repair -> validate, instead of treating the preview as the final app surface.",
+                    "summary" to "Opening MiniAPP '${app.id}'.",
+                )
+                SkillResult(true, gson.toJson(output))
             }
 
             "set_icon" -> {

@@ -259,6 +259,12 @@ _env_info = json.dumps({
             val responseBody = response.body?.string() ?: ""
             val responseHeaders = mutableMapOf<String, String>()
             response.headers.forEach { (k, v) -> responseHeaders[k] = v }
+            val compactUrl = url.take(200)
+            when {
+                response.code >= 500 -> store.appendLog(appId, "error", "http", "${method.uppercase()} $compactUrl -> ${response.code}")
+                response.code >= 400 -> store.appendLog(appId, "warn", "http", "${method.uppercase()} $compactUrl -> ${response.code}")
+                else -> Unit
+            }
             gson.toJson(mapOf(
                 "status" to response.code,
                 "ok" to response.isSuccessful,
@@ -266,6 +272,7 @@ _env_info = json.dumps({
                 "headers" to responseHeaders,
             ))
         }.getOrElse { e ->
+            store.appendLog(appId, "error", "http", "${method.uppercase()} ${url.take(200)} failed: ${e.message ?: "network error"}")
             gson.toJson(mapOf("error" to (e.message?.take(400) ?: "Network error"), "status" to 0, "ok" to false))
         }
     }
