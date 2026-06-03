@@ -194,6 +194,130 @@ MobileClaw 可以通过 LiteRT-LM 运行部分端侧模型：
 - LAN console 提供浏览器控制台、SSE 任务事件、会话/消息 API、skill 导入导出、memory/config API，以及 OpenClaw CLI 脚本下载。
 - Agent 可以通过 `console_editor` 读取、重写或 patch 控制台页面。
 
+## Codex 手机桥、蒲公英发布和版本规则
+
+这一组能力用于“手机上的 MobileClaw 控制电脑上的 Codex”，以及把新版本发布到蒲公英后让 MobileClaw 检查和下载更新。
+
+### 手机连接电脑 Codex
+
+电脑端需要先安装并登录 Codex CLI：
+
+```bash
+npm install -g @openai/codex
+codex --login
+```
+
+然后在电脑上启动 MobileClaw Codex bridge：
+
+```bash
+CODEX_BRIDGE_TOKEN="换成自己的长随机 token" \
+CODEX_BRIDGE_HOST=0.0.0.0 \
+CODEX_BRIDGE_PORT=52734 \
+python3 scripts/codex_desktop_bridge.py
+```
+
+如果通过 Tailscale 或同一局域网访问，在 MobileClaw 的用户配置中写入：
+
+```text
+codex_desktop_endpoint = http://电脑的局域网或 Tailscale IP:52734
+codex_desktop_token = 上面设置的 CODEX_BRIDGE_TOKEN
+codex_desktop_cwd = /电脑上的/mobileClaw/项目路径
+```
+
+打开聊天页顶部的 Codex 开关后，同一个 MobileClaw 会话会绑定同一个 Codex thread。第一轮会创建 Codex 会话，后续消息会通过 `codex exec resume <thread_id>` 继续同一上下文，不会每次新开会话。
+
+当前 Codex mode 的展示方式：
+
+- 用户输入会原样发送给桌面 Codex。
+- Codex 的命令执行进度会实时返回到手机 timeline。
+- 命令完成后会展示命令结果摘要。
+- 最终正文按块渐进显示，避免一次性刷出大段文本。
+- 如果 Codex CLI 的 JSON 输出只提供 `agent_message item.completed`，最终正文不是模型 token 级流式；MobileClaw 会在 UI 层做渐进渲染。
+
+### 蒲公英发布、更新检查和下载
+
+MobileClaw 内置 `pgyer_release` skill，支持：
+
+- `status`：检查蒲公英配置是否存在。
+- `check_update` / `update`：调用蒲公英检查更新接口。
+- `download`：调用 Android `DownloadManager` 下载最新 APK 到系统 Downloads。
+- `upload`：上传一个手机本地 APK 路径到蒲公英。
+
+需要在 MobileClaw 用户配置中写入：
+
+```text
+pgyer_api_key = 蒲公英 API Key
+pgyer_app_key = 蒲公英 App Key
+pgyer_install_password = 安装密码，可选
+```
+
+聊天里可以直接说：
+
+```text
+检查蒲公英更新
+下载蒲公英最新版本
+查看蒲公英发布配置
+```
+
+Agent 会调用 `pgyer_release` 完成对应动作。
+
+电脑端也提供发布脚本，适合 Codex 在桌面构建和上传：
+
+```bash
+PGYER_API_KEY="蒲公英 API Key" \
+python3 scripts/pgyer_release.py build-upload
+```
+
+如果 APK 已经构建好，可以只上传：
+
+```bash
+PGYER_API_KEY="蒲公英 API Key" \
+python3 scripts/pgyer_release.py upload --apk app/build/outputs/apk/debug/app-debug.apk
+```
+
+也可以检查蒲公英当前版本：
+
+```bash
+PGYER_API_KEY="蒲公英 API Key" \
+PGYER_APP_KEY="蒲公英 App Key" \
+python3 scripts/pgyer_release.py check
+```
+
+脚本默认发布说明会使用当前 Git 信息，例如：
+
+```text
+MobileClaw v0.3.7-dirty (main/47226c4)
+```
+
+### 版本和 Git 保持统一
+
+Android 版本不再手写固定值，而是从 Git 生成：
+
+```text
+versionName = git describe --tags --always --dirty
+versionCode = git rev-list --count HEAD
+```
+
+同时会写入：
+
+```text
+BuildConfig.GIT_VERSION
+BuildConfig.GIT_COMMIT
+BuildConfig.GIT_BRANCH
+```
+
+这样蒲公英更新检查、App 内状态、发布脚本和 Git 版本能保持同一个来源。工作区有未提交改动时，`versionName` 会带 `-dirty`，例如 `v0.3.7-dirty`。
+
+### 构建注意事项
+
+日常代码验证可以先跑：
+
+```bash
+./gradlew compileDebugKotlin -x kaptDebugKotlin
+```
+
+完整打包需要当前项目的 kapt/JDK 链路能处理 `litertlm-android` 依赖。如果 `assembleDebug` 在 `kaptDebugKotlin` 报 class file 版本不匹配，需要先修复本机 Gradle/kapt 的 JDK 配置，再执行蒲公英 `build-upload`。
+
 ## 架构
 
 ```text

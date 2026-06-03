@@ -66,6 +66,27 @@ private val HELP_CONTENT = listOf(
             str(R.string.help_da967e),
         ),
     )),
+    HelpSection("code", "Codex 电脑模式", listOf(
+        HelpItem(
+            "用途",
+            "打开聊天页顶部的 Codex 开关后，当前会话会直接连接电脑上的 Codex CLI。你在手机里说什么，就原样发给 Codex；Codex 的执行进度和结果会回到当前聊天。",
+            "例：帮我修复当前项目的编译错误",
+        ),
+        HelpItem(
+            "电脑端准备",
+            "电脑需要先安装并登录 Codex CLI，然后启动 MobileClaw Codex bridge。建议通过同一局域网或 Tailscale 访问，并设置一个长随机 token。",
+            "CODEX_BRIDGE_TOKEN=长随机token CODEX_BRIDGE_HOST=0.0.0.0 CODEX_BRIDGE_PORT=52734 python3 scripts/codex_desktop_bridge.py",
+        ),
+        HelpItem(
+            "手机端配置",
+            "在用户配置中填写电脑桥地址、token 和项目目录。配置后回到聊天页打开 Codex 开关即可使用。",
+            "codex_desktop_endpoint = http://电脑IP:52734\ncodex_desktop_token = 长随机token\ncodex_desktop_cwd = /电脑上的项目路径",
+        ),
+        HelpItem(
+            "上下文与输出",
+            "同一个 MobileClaw 会话会绑定同一个 Codex thread，后续消息会继续同一上下文。工作步骤会实时显示，最终正文会按块渐进展示。",
+        ),
+    )),
     HelpSection("profile", str(R.string.help_19122e), listOf(
         HelpItem(
             str(R.string.help_0178ef),
@@ -78,6 +99,28 @@ private val HELP_CONTENT = listOf(
         HelpItem(
             str(R.string.help_0cb089),
             str(R.string.help_385c19),
+        ),
+    )),
+    HelpSection("download", "发布与更新", listOf(
+        HelpItem(
+            "蒲公英配置",
+            "MobileClaw 内置 pgyer_release 工具，可检查蒲公英新版本并下载 APK。先在用户配置中保存蒲公英 API Key 和 App Key。",
+            "pgyer_api_key = 蒲公英 API Key\npgyer_app_key = 蒲公英 App Key\npgyer_install_password = 安装密码，可选",
+        ),
+        HelpItem(
+            "检查更新",
+            "在聊天中直接说“检查蒲公英更新”，Agent 会调用 pgyer_release 检查当前版本和蒲公英最新版本。",
+            "检查蒲公英更新",
+        ),
+        HelpItem(
+            "下载新版",
+            "在聊天中说“下载蒲公英最新版本”，MobileClaw 会通过系统下载管理器把 APK 下载到 Downloads。",
+            "下载蒲公英最新版本",
+        ),
+        HelpItem(
+            "版本规则",
+            "App 版本跟随 Git：versionName 来自 git describe，versionCode 来自 git commit 数。工作区有未提交改动时，版本名会带 dirty。",
+            "例：v0.3.7-dirty / 46",
         ),
     )),
     HelpSection("roles", str(R.string.help_2a2735), listOf(

@@ -83,6 +83,7 @@ import com.mobileclaw.skill.builtin.NavigateSkill
 import com.mobileclaw.skill.builtin.PageControlSkill
 import com.mobileclaw.skill.builtin.PermissionSkill
 import com.mobileclaw.skill.builtin.PhoneStatusSkill
+import com.mobileclaw.skill.builtin.PgyerReleaseSkill
 import com.mobileclaw.skill.builtin.RoleManagerSkill
 import com.mobileclaw.skill.builtin.SessionManagerSkill
 import com.mobileclaw.skill.builtin.VideoGenerationTaskManager
@@ -4486,6 +4487,7 @@ $foundationalMemory
             PipInstallSkill(),
             RunPythonSkill(),
             CodexDesktopSkill(userConfig),
+            PgyerReleaseSkill(app, userConfig),
             ClipboardSkill(),
             ShowToastSkill(),
             DeviceInfoSkill(),

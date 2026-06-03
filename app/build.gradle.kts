@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.ByteArrayOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -20,6 +21,28 @@ fun localBuildConfigString(key: String): String {
     return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 }
 
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+fun gitOutput(vararg args: String): String = try {
+    val stdout = ByteArrayOutputStream()
+    exec {
+        commandLine("git", *args)
+        standardOutput = stdout
+        isIgnoreExitValue = true
+    }
+    stdout.toString().trim()
+} catch (_: Throwable) {
+    ""
+}
+
+val gitVersionName = gitOutput("describe", "--tags", "--always", "--dirty")
+    .ifBlank { "0.0.0-local" }
+    .replace(Regex("""[^0-9A-Za-z._-]"""), "-")
+val gitVersionCode = gitOutput("rev-list", "--count", "HEAD").toIntOrNull()?.coerceAtLeast(1) ?: 1
+val gitCommit = gitOutput("rev-parse", "--short", "HEAD").ifBlank { "unknown" }
+val gitBranch = gitOutput("branch", "--show-current").ifBlank { "unknown" }
+
 kapt {
     arguments {
         arg("room.schemaLocation", "$projectDir/schemas")
@@ -36,8 +59,8 @@ android {
         applicationId = "com.mobileclaw"
         minSdk = 30
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitVersionCode
+        versionName = gitVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -46,6 +69,9 @@ android {
         buildConfigField("String", "CLOUDINARY_CLOUD_NAME", localBuildConfigString("cloudinary.cloud_name"))
         buildConfigField("String", "CLOUDINARY_API_KEY", localBuildConfigString("cloudinary.api_key"))
         buildConfigField("String", "CLOUDINARY_API_SECRET", localBuildConfigString("cloudinary.api_secret"))
+        buildConfigField("String", "GIT_VERSION", buildConfigString(gitVersionName))
+        buildConfigField("String", "GIT_COMMIT", buildConfigString(gitCommit))
+        buildConfigField("String", "GIT_BRANCH", buildConfigString(gitBranch))
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
