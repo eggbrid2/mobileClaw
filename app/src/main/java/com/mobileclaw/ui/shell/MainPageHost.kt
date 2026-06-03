@@ -12,8 +12,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
 import com.mobileclaw.ClawApplication
+import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.ui.AppPage
 import com.mobileclaw.ui.MainUiState
 import com.mobileclaw.ui.MainViewModel
@@ -27,6 +30,7 @@ import com.mobileclaw.ui.chat.currentRunState
 import com.mobileclaw.ui.group.GroupChatScreen
 import com.mobileclaw.ui.group.GroupsPage
 import com.mobileclaw.ui.home.HomePage
+import com.mobileclaw.ui.image.ImageGeneratorPage
 import com.mobileclaw.ui.profile.ProfilePage
 import com.mobileclaw.ui.roles.RoleDetailPage
 import com.mobileclaw.ui.roles.RoleEditPage
@@ -39,6 +43,7 @@ import com.mobileclaw.ui.settings.HelpPage
 import com.mobileclaw.ui.settings.SettingsPage
 import com.mobileclaw.ui.settings.UserConfigPage
 import com.mobileclaw.ui.settings.VpnPage
+import com.mobileclaw.ui.video.VideoGeneratorPage
 import com.mobileclaw.ui.skills.SkillMarketPage
 import com.mobileclaw.ui.skills.SkillsPage
 import com.mobileclaw.ui.workspace.WorkspacePage
@@ -90,6 +95,7 @@ fun MainPageHost(
             onRenameSession = { id, title -> vm.renameSession(id, title) },
             onOpenDesktop = { vm.navigate(AppPage.HOME) },
             onSwitchRole = { vm.navigate(AppPage.ROLES) },
+            onCodexDesktopModeChange = { vm.setCodexDesktopMode(it) },
             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
             onLoadMoreHistory = { vm.loadMoreHistory() },
             onCloseMiniAppPreview = { vm.clearChatMiniAppPreview() },
@@ -141,6 +147,12 @@ fun MainPageHost(
             onDownloadLocalModel = { id, token, sourceUrl -> vm.downloadLocalModel(id, token, sourceUrl) },
             onImportLocalModel = { id, uri -> vm.importLocalModel(id, uri) },
             onDeleteLocalModel = { vm.deleteLocalModel(it) },
+            videoTasks = uiState.videoTasks,
+            videoTaskRefreshingIds = uiState.videoTaskRefreshingIds,
+            videoTasksRefreshing = uiState.videoTasksRefreshing,
+            onRefreshVideoTask = { vm.refreshVideoTask(it) },
+            onRefreshPendingVideoTasks = { vm.refreshPendingVideoTasks() },
+            onDeleteVideoTask = { vm.deleteVideoTask(it) },
         )
     }
     AnimatedVisibility(
@@ -206,7 +218,7 @@ fun MainPageHost(
             onActivate = { vm.setActiveRole(it) },
             onOpenDetail = { vm.openRoleDetail(it) },
             onGeneratePortrait = { vm.generateRolePortrait(it) },
-            onEdit = { vm.editRole(it) },
+            onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
             onDelete = { vm.deleteCustomRole(it) },
             onBack = { vm.navigateBack() },
         )
@@ -226,7 +238,7 @@ fun MainPageHost(
                 isGeneratingPortrait = role.id in uiState.rolePortraitGeneratingIds,
                 onActivate = { vm.setActiveRole(it) },
                 onGeneratePortrait = { vm.generateRolePortrait(it) },
-                onEdit = { vm.editRole(it) },
+                onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
                 onOpenHome = { vm.openRoleHome(it) },
                 onBack = { vm.navigateBack() },
             )
@@ -245,7 +257,7 @@ fun MainPageHost(
                 town = uiState.agentTown,
                 isWorking = role.id in uiState.groupState.workingAgents || role.id in uiState.groupState.typingAgents,
                 onBack = { vm.navigateBack() },
-                onEdit = { vm.editRole(it) },
+                onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
             )
         }
     }
@@ -324,6 +336,45 @@ fun MainPageHost(
             onRefresh = { vm.loadCurrentWorkspaceSnapshot() },
             onPromoteFact = { vm.promoteWorkspaceFact(it) },
             onDeleteFact = { vm.deleteWorkspaceFact(it) },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.IMAGE_GENERATOR,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        val configSnapshot by uiState.config.collectAsState(initial = ConfigSnapshot())
+        ImageGeneratorPage(
+            isRunning = uiState.imageGenerationRunning,
+            promptAiRunning = uiState.imagePromptAiRunning,
+            configSnapshot = configSnapshot,
+            previewBase64 = uiState.imageGenerationPreviewBase64,
+            previewPrompt = uiState.imageGenerationPreviewPrompt,
+            onBack = { vm.navigateBack() },
+            onGenerate = { request -> vm.generateImage(request) },
+            onRewritePrompt = { prompt, action, onResult -> vm.rewriteImagePrompt(prompt, action, onResult) },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.VIDEO_GENERATOR,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        val configSnapshot by uiState.config.collectAsState(initial = ConfigSnapshot())
+        VideoGeneratorPage(
+            isRunning = uiState.currentRunState.isRunning || uiState.videoGenerationRunning,
+            configSnapshot = configSnapshot,
+            videoTasks = uiState.videoTasks,
+            refreshingIds = uiState.videoTaskRefreshingIds,
+            refreshingAll = uiState.videoTasksRefreshing,
+            promptAiRunning = uiState.videoPromptAiRunning,
+            onBack = { vm.navigateBack() },
+            onGenerate = { request -> vm.generateVideo(request) },
+            onRewritePrompt = { prompt, action, onResult -> vm.rewriteVideoPrompt(prompt, action, onResult) },
+            onUploadFrameImage = { uri, onResult -> vm.uploadVideoFrameImage(uri, onResult) },
+            onRefreshTask = { vm.refreshVideoTask(it) },
+            onRefreshAll = { vm.refreshPendingVideoTasks() },
+            onDeleteTask = { vm.deleteVideoTask(it) },
         )
     }
     AnimatedVisibility(

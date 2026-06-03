@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +68,7 @@ fun DrawerContent(
     userConfigEntries: Map<String, ConfigEntry>,
     userAvatarUri: String?,
     onNewSession: () -> Unit,
+    onNewCodexSession: () -> Unit = {},
     onSelectSession: (String) -> Unit,
     onDeleteSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
@@ -187,6 +189,41 @@ fun DrawerContent(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(c.surface)
+                .border(0.5.dp, c.border, RoundedCornerShape(20.dp))
+                .clickable { onNewCodexSession() }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Terminal,
+                contentDescription = null,
+                tint = c.text,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Codex 会话",
+                fontSize = 13.sp,
+                color = c.text,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "电脑",
+                fontSize = 10.sp,
+                color = c.subtext,
+                maxLines = 1,
             )
         }
 

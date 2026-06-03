@@ -13,7 +13,11 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.RoleManager
 import com.mobileclaw.app.MiniAppStore
+import com.mobileclaw.config.AgentConfig
+import com.mobileclaw.config.capabilityApiKey
+import com.mobileclaw.config.capabilityEndpoint
 import com.mobileclaw.config.UserConfig
+import com.mobileclaw.config.capabilityModel
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillParam
@@ -48,6 +52,7 @@ import java.util.concurrent.TimeUnit
  */
 class GenerateIconSkill(
     private val context: Context,
+    private val config: AgentConfig,
     private val userConfig: UserConfig,
     private val miniAppStore: MiniAppStore,
     private val roleManager: RoleManager? = null,
@@ -88,13 +93,28 @@ class GenerateIconSkill(
         val applyToApp = params["apply_to_app"] as? String
         val applyToRole = params["apply_to_role"] as? String
         val style = params["style"] as? String ?: "flat"
+        val snapshot = config.snapshot()
+        val gatewayImageEndpoint = snapshot.activeGateway?.capabilityEndpoint("image").orEmpty()
+        val gatewayImageApiKey = snapshot.activeGateway?.capabilityApiKey("image").orEmpty()
+        val gatewayImageModel = snapshot.activeGateway?.capabilityModel("image").orEmpty()
 
-        val apiKey = userConfig.get("icon_api_key")?.trim()
-            ?: return@withContext SkillResult(false,
-                "icon_api_key not configured. Set via: user_config(action=set, key=icon_api_key, value=YOUR_KEY)")
+        val apiKey = gatewayImageApiKey.takeIf { it.isNotBlank() }
+            ?: userConfig.get("icon_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            ?: userConfig.get("image_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            ?: snapshot.apiKey.takeIf { it.isNotBlank() }
+            ?: return@withContext SkillResult(false, "icon/image API key not configured")
 
-        val provider = userConfig.get("icon_api_provider")?.trim()?.lowercase() ?: "dashscope"
-        val customEndpoint = userConfig.get("icon_api_endpoint")?.trim()
+        val customEndpoint = gatewayImageEndpoint.takeIf { it.isNotBlank() }
+            ?: userConfig.get("icon_api_endpoint")?.trim()?.takeIf { it.isNotBlank() }
+            ?: userConfig.get("image_api_endpoint")?.trim()?.takeIf { it.isNotBlank() }
+            ?: snapshot.endpoint.takeIf { it.isNotBlank() }
+        val provider = userConfig.get("icon_api_provider")?.trim()?.lowercase()
+            ?: when {
+                customEndpoint.isNullOrBlank() -> "dashscope"
+                customEndpoint.contains("dashscope", ignoreCase = true) -> "dashscope"
+                customEndpoint.contains("bigmodel", ignoreCase = true) -> "cogview"
+                else -> "openai"
+            }
 
         // Build a detailed icon prompt
         val fullPrompt = "App icon, $style style, $prompt, square format, clean design, no text, high quality"
@@ -102,7 +122,7 @@ class GenerateIconSkill(
         val imageBytes = when (provider) {
             "dashscope" -> generateDashScope(apiKey, customEndpoint, fullPrompt)
             "cogview"   -> generateCogView(apiKey, customEndpoint, fullPrompt)
-            else        -> generateOpenAiCompat(apiKey, customEndpoint, fullPrompt)
+            else        -> generateOpenAiCompat(apiKey, customEndpoint, gatewayImageModel, fullPrompt)
         } ?: return@withContext SkillResult(false,
             "Failed to generate icon from provider '$provider'. Check icon_api_key and icon_api_endpoint.")
 
@@ -226,10 +246,10 @@ class GenerateIconSkill(
         }.getOrNull()
     }
 
-    private fun generateOpenAiCompat(apiKey: String, customEndpoint: String?, prompt: String): ByteArray? {
+    private fun generateOpenAiCompat(apiKey: String, customEndpoint: String?, model: String?, prompt: String): ByteArray? {
         val base = customEndpoint?.trimEnd('/') ?: return null
         val body = JsonObject().apply {
-            addProperty("model", "dall-e-3")
+            addProperty("model", model?.takeIf { it.isNotBlank() } ?: "dall-e-3")
             addProperty("prompt", prompt)
             addProperty("n", 1)
             addProperty("size", "1024x1024")

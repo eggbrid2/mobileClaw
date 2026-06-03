@@ -77,6 +77,7 @@ data class AgentRoom(
     val toolbox: List<RoomTool> = emptyList(),
     val showcase: List<RoomArtifact> = emptyList(),
     val furniture: List<RoomFurniture> = emptyList(),
+    val roomLayout: RoomLayout? = RoomLayout(),
     val notes: List<String> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -91,6 +92,79 @@ data class RoomFurniture(
     val layer: String = "front",
     val variant: String = "",
     val color: String = "",
+    val assetId: String = "",
+)
+
+data class RoomAssetPack(
+    val id: String = "",
+    val name: String = "",
+    val version: Int = 1,
+    val tileSize: Int = 16,
+    val style: String = "",
+    val recommendedRenderer: Map<String, Any> = emptyMap(),
+    val usage: Map<String, Any> = emptyMap(),
+    val sheet: String = "",
+    val assets: List<RoomAsset> = emptyList(),
+)
+
+data class RoomAsset(
+    val id: String = "",
+    val name: String = "",
+    val category: String = "",
+    val type: String = "",
+    val path: String = "",
+    val tileWidth: Int = 1,
+    val tileHeight: Int = 1,
+    val pixelWidth: Int = 16,
+    val pixelHeight: Int = 16,
+    val anchor: String = "bottom_left",
+    val layer: String = "front",
+    val orientation: String = "any",
+    val tags: List<String> = emptyList(),
+    val description: String = "",
+) {
+    val androidAssetUri: String
+        get() = "file:///android_asset/$path"
+}
+
+data class RoomLayout(
+    val width: Int = 12,
+    val height: Int = 10,
+    val perspective: String = "pokemon_3_4_top_down",
+    val floorAssetId: String = "floor_wood_center",
+    val defaultWallAssetId: String = "wall_back_plaster_center",
+    val door: RoomDoor = RoomDoor(),
+    val zones: List<RoomZone>? = emptyList(),
+    val objects: List<RoomLayoutObject>? = emptyList(),
+)
+
+data class RoomDoor(
+    val side: String = "south",
+    val x: Int = 5,
+    val y: Int = 9,
+    val assetId: String = "door_wood_south",
+)
+
+data class RoomZone(
+    val id: String,
+    val purpose: String,
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+)
+
+data class RoomLayoutObject(
+    val id: String,
+    val assetId: String,
+    val type: String = "decor",
+    val x: Int,
+    val y: Int,
+    val width: Int = 1,
+    val height: Int = 1,
+    val layer: String = "object",
+    val facing: String = "south",
+    val zoneId: String = "",
 )
 
 data class RoomPin(

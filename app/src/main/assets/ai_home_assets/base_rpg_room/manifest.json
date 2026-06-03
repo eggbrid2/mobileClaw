@@ -1,0 +1,830 @@
+{
+  "id": "base_rpg_room",
+  "name": "Grid RPG AI Room Pack",
+  "version": 2,
+  "tileSize": 64,
+  "style": "usable Pokemon-like 3/4 top-down RPG room grid assets; deterministic transparent PNG tiles and furniture sprites",
+  "perspective": {
+    "camera": "3/4 top-down handheld RPG interior",
+    "grid": "x/y room grid, y increases toward screen bottom",
+    "depth": "floor < wall < object < character < overlay; object depth sorts by y"
+  },
+  "recommendedRenderer": {
+    "filter": "nearest",
+    "scale": "integer",
+    "allowOverflowDecor": true,
+    "background": "transparent-alpha"
+  },
+  "usage": {
+    "flow": [
+      "ai_home_assets.room_schema",
+      "ai_home_assets.search_assets",
+      "town_builder.place_furniture"
+    ],
+    "coordinates": "Room grid is 12x10 or 20x20. Use tileWidth/tileHeight as occupied grid cells. Doors/windows attach to walls, furniture occupies object cells.",
+    "grid_rule": "Structure tiles are 1x1 or 1x2; carpets provide center/edge/corner tiles; furniture is placed after room structure and validated for overlap/pathing."
+  },
+  "sheet": "ai_home_assets/base_rpg_room/room_tileset.png",
+  "assets": [
+    {
+      "id": "floor_wood_center",
+      "name": "Wood floor center",
+      "category": "floor_tile",
+      "type": "floor_center",
+      "path": "ai_home_assets/base_rpg_room/floor_wood_center.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "any",
+      "tags": [
+        "floor",
+        "wood",
+        "tileable",
+        "center"
+      ],
+      "description": "Tileable 1x1 oak plank floor."
+    },
+    {
+      "id": "floor_stone_center",
+      "name": "Stone floor center",
+      "category": "floor_tile",
+      "type": "floor_center",
+      "path": "ai_home_assets/base_rpg_room/floor_stone_center.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "any",
+      "tags": [
+        "floor",
+        "stone",
+        "tileable",
+        "center"
+      ],
+      "description": "Tileable 1x1 stone floor."
+    },
+    {
+      "id": "rug_crimson_center",
+      "name": "Crimson rug center",
+      "category": "floor_edge",
+      "type": "rug_center",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_center.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "any",
+      "tags": [
+        "rug",
+        "center",
+        "tileable"
+      ],
+      "description": "Rug center tile."
+    },
+    {
+      "id": "rug_crimson_edge_n",
+      "name": "Crimson rug edge N",
+      "category": "floor_edge",
+      "type": "rug_edge",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_edge_n.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "n",
+      "tags": [
+        "rug",
+        "edge",
+        "n"
+      ],
+      "description": "Rug edge tile."
+    },
+    {
+      "id": "rug_crimson_edge_e",
+      "name": "Crimson rug edge E",
+      "category": "floor_edge",
+      "type": "rug_edge",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_edge_e.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "e",
+      "tags": [
+        "rug",
+        "edge",
+        "e"
+      ],
+      "description": "Rug edge tile."
+    },
+    {
+      "id": "rug_crimson_edge_s",
+      "name": "Crimson rug edge S",
+      "category": "floor_edge",
+      "type": "rug_edge",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_edge_s.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "s",
+      "tags": [
+        "rug",
+        "edge",
+        "s"
+      ],
+      "description": "Rug edge tile."
+    },
+    {
+      "id": "rug_crimson_edge_w",
+      "name": "Crimson rug edge W",
+      "category": "floor_edge",
+      "type": "rug_edge",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_edge_w.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "w",
+      "tags": [
+        "rug",
+        "edge",
+        "w"
+      ],
+      "description": "Rug edge tile."
+    },
+    {
+      "id": "rug_crimson_corner_nw",
+      "name": "Crimson rug corner NW",
+      "category": "floor_edge",
+      "type": "rug_corner",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_corner_nw.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "nw",
+      "tags": [
+        "rug",
+        "corner",
+        "nw"
+      ],
+      "description": "Rug corner tile."
+    },
+    {
+      "id": "rug_crimson_corner_ne",
+      "name": "Crimson rug corner NE",
+      "category": "floor_edge",
+      "type": "rug_corner",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_corner_ne.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "ne",
+      "tags": [
+        "rug",
+        "corner",
+        "ne"
+      ],
+      "description": "Rug corner tile."
+    },
+    {
+      "id": "rug_crimson_corner_sw",
+      "name": "Crimson rug corner SW",
+      "category": "floor_edge",
+      "type": "rug_corner",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_corner_sw.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "sw",
+      "tags": [
+        "rug",
+        "corner",
+        "sw"
+      ],
+      "description": "Rug corner tile."
+    },
+    {
+      "id": "rug_crimson_corner_se",
+      "name": "Crimson rug corner SE",
+      "category": "floor_edge",
+      "type": "rug_corner",
+      "path": "ai_home_assets/base_rpg_room/rug_crimson_corner_se.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "floor",
+      "orientation": "se",
+      "tags": [
+        "rug",
+        "corner",
+        "se"
+      ],
+      "description": "Rug corner tile."
+    },
+    {
+      "id": "wall_back_plaster_center",
+      "name": "Back wall center",
+      "category": "wall_tile",
+      "type": "wall_back",
+      "path": "ai_home_assets/base_rpg_room/wall_back_plaster_center.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "north",
+      "tags": [
+        "wall",
+        "back",
+        "tileable"
+      ],
+      "description": "Back-wall tile for Pokemon-style rooms."
+    },
+    {
+      "id": "wall_side_west",
+      "name": "West side wall",
+      "category": "wall_tile",
+      "type": "wall_side",
+      "path": "ai_home_assets/base_rpg_room/wall_side_west.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "west",
+      "tags": [
+        "wall",
+        "side",
+        "west"
+      ],
+      "description": "West wall side tile."
+    },
+    {
+      "id": "wall_side_east",
+      "name": "East side wall",
+      "category": "wall_tile",
+      "type": "wall_side",
+      "path": "ai_home_assets/base_rpg_room/wall_side_east.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "east",
+      "tags": [
+        "wall",
+        "side",
+        "east"
+      ],
+      "description": "East wall side tile."
+    },
+    {
+      "id": "wall_corner_nw",
+      "name": "Wall corner NW",
+      "category": "wall_corner",
+      "type": "wall_corner",
+      "path": "ai_home_assets/base_rpg_room/wall_corner_nw.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "nw",
+      "tags": [
+        "wall",
+        "corner",
+        "nw"
+      ],
+      "description": "Wall corner connector."
+    },
+    {
+      "id": "wall_corner_ne",
+      "name": "Wall corner NE",
+      "category": "wall_corner",
+      "type": "wall_corner",
+      "path": "ai_home_assets/base_rpg_room/wall_corner_ne.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "ne",
+      "tags": [
+        "wall",
+        "corner",
+        "ne"
+      ],
+      "description": "Wall corner connector."
+    },
+    {
+      "id": "wall_corner_sw",
+      "name": "Wall corner SW",
+      "category": "wall_corner",
+      "type": "wall_corner",
+      "path": "ai_home_assets/base_rpg_room/wall_corner_sw.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "sw",
+      "tags": [
+        "wall",
+        "corner",
+        "sw"
+      ],
+      "description": "Wall corner connector."
+    },
+    {
+      "id": "wall_corner_se",
+      "name": "Wall corner SE",
+      "category": "wall_corner",
+      "type": "wall_corner",
+      "path": "ai_home_assets/base_rpg_room/wall_corner_se.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "se",
+      "tags": [
+        "wall",
+        "corner",
+        "se"
+      ],
+      "description": "Wall corner connector."
+    },
+    {
+      "id": "baseboard_wood_n",
+      "name": "Wood baseboard N",
+      "category": "wall_edge",
+      "type": "baseboard",
+      "path": "ai_home_assets/base_rpg_room/baseboard_wood_n.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "n",
+      "tags": [
+        "wall",
+        "edge",
+        "baseboard",
+        "n"
+      ],
+      "description": "Wood trim for wall/floor boundary."
+    },
+    {
+      "id": "baseboard_wood_e",
+      "name": "Wood baseboard E",
+      "category": "wall_edge",
+      "type": "baseboard",
+      "path": "ai_home_assets/base_rpg_room/baseboard_wood_e.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "e",
+      "tags": [
+        "wall",
+        "edge",
+        "baseboard",
+        "e"
+      ],
+      "description": "Wood trim for wall/floor boundary."
+    },
+    {
+      "id": "baseboard_wood_s",
+      "name": "Wood baseboard S",
+      "category": "wall_edge",
+      "type": "baseboard",
+      "path": "ai_home_assets/base_rpg_room/baseboard_wood_s.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "s",
+      "tags": [
+        "wall",
+        "edge",
+        "baseboard",
+        "s"
+      ],
+      "description": "Wood trim for wall/floor boundary."
+    },
+    {
+      "id": "baseboard_wood_w",
+      "name": "Wood baseboard W",
+      "category": "wall_edge",
+      "type": "baseboard",
+      "path": "ai_home_assets/base_rpg_room/baseboard_wood_w.png",
+      "tileWidth": 1,
+      "tileHeight": 1,
+      "pixelWidth": 64,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "w",
+      "tags": [
+        "wall",
+        "edge",
+        "baseboard",
+        "w"
+      ],
+      "description": "Wood trim for wall/floor boundary."
+    },
+    {
+      "id": "door_wood_south",
+      "name": "Wood door south",
+      "category": "structure_tile",
+      "type": "door",
+      "path": "ai_home_assets/base_rpg_room/door_wood_south.png",
+      "tileWidth": 2,
+      "tileHeight": 3,
+      "pixelWidth": 128,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "south",
+      "tags": [
+        "door",
+        "south",
+        "entry"
+      ],
+      "description": "Door for south/front wall."
+    },
+    {
+      "id": "door_wood_north",
+      "name": "Wood door north",
+      "category": "structure_tile",
+      "type": "door",
+      "path": "ai_home_assets/base_rpg_room/door_wood_north.png",
+      "tileWidth": 2,
+      "tileHeight": 3,
+      "pixelWidth": 128,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "north",
+      "tags": [
+        "door",
+        "north",
+        "entry"
+      ],
+      "description": "Door for back wall."
+    },
+    {
+      "id": "door_wood_west",
+      "name": "Wood door west",
+      "category": "structure_tile",
+      "type": "door",
+      "path": "ai_home_assets/base_rpg_room/door_wood_west.png",
+      "tileWidth": 1,
+      "tileHeight": 3,
+      "pixelWidth": 64,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "west",
+      "tags": [
+        "door",
+        "west",
+        "side"
+      ],
+      "description": "West side door."
+    },
+    {
+      "id": "door_wood_east",
+      "name": "Wood door east",
+      "category": "structure_tile",
+      "type": "door",
+      "path": "ai_home_assets/base_rpg_room/door_wood_east.png",
+      "tileWidth": 1,
+      "tileHeight": 3,
+      "pixelWidth": 64,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "east",
+      "tags": [
+        "door",
+        "east",
+        "side"
+      ],
+      "description": "East side door."
+    },
+    {
+      "id": "window_round_north",
+      "name": "Round north window",
+      "category": "structure_tile",
+      "type": "window",
+      "path": "ai_home_assets/base_rpg_room/window_round_north.png",
+      "tileWidth": 2,
+      "tileHeight": 2,
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "north",
+      "tags": [
+        "window",
+        "north"
+      ],
+      "description": "Back-wall window."
+    },
+    {
+      "id": "window_side",
+      "name": "Side window",
+      "category": "structure_tile",
+      "type": "window",
+      "path": "ai_home_assets/base_rpg_room/window_side.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "side",
+      "tags": [
+        "window",
+        "side"
+      ],
+      "description": "Side-wall window."
+    },
+    {
+      "id": "furniture_bed_single_blue",
+      "name": "Blue single bed",
+      "category": "furniture_sprite",
+      "type": "bed",
+      "path": "ai_home_assets/base_rpg_room/furniture_bed_single_blue.png",
+      "tileWidth": 3,
+      "tileHeight": 3,
+      "pixelWidth": 192,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "south",
+      "tags": [
+        "bed",
+        "sleep",
+        "3x3"
+      ],
+      "description": "3x3 bed, face south."
+    },
+    {
+      "id": "furniture_desk_writer",
+      "name": "Writer desk",
+      "category": "furniture_sprite",
+      "type": "desk",
+      "path": "ai_home_assets/base_rpg_room/furniture_desk_writer.png",
+      "tileWidth": 3,
+      "tileHeight": 2,
+      "pixelWidth": 192,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "south",
+      "tags": [
+        "desk",
+        "work",
+        "3x2"
+      ],
+      "description": "3x2 writing desk."
+    },
+    {
+      "id": "furniture_chair_wood",
+      "name": "Wood chair",
+      "category": "furniture_sprite",
+      "type": "chair",
+      "path": "ai_home_assets/base_rpg_room/furniture_chair_wood.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "south",
+      "tags": [
+        "chair",
+        "seat",
+        "1x2"
+      ],
+      "description": "1x2 chair."
+    },
+    {
+      "id": "furniture_bookcase_archive",
+      "name": "Archive bookcase",
+      "category": "furniture_sprite",
+      "type": "bookcase",
+      "path": "ai_home_assets/base_rpg_room/furniture_bookcase_archive.png",
+      "tileWidth": 3,
+      "tileHeight": 3,
+      "pixelWidth": 192,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "north",
+      "tags": [
+        "bookcase",
+        "memory",
+        "wall"
+      ],
+      "description": "Bookcase for back wall or room rear."
+    },
+    {
+      "id": "furniture_terminal_wall",
+      "name": "Wall terminal",
+      "category": "furniture_sprite",
+      "type": "terminal",
+      "path": "ai_home_assets/base_rpg_room/furniture_terminal_wall.png",
+      "tileWidth": 3,
+      "tileHeight": 3,
+      "pixelWidth": 192,
+      "pixelHeight": 192,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "north",
+      "tags": [
+        "terminal",
+        "tech",
+        "screen"
+      ],
+      "description": "Terminal display."
+    },
+    {
+      "id": "furniture_workbench_maker",
+      "name": "Maker workbench",
+      "category": "furniture_sprite",
+      "type": "bench",
+      "path": "ai_home_assets/base_rpg_room/furniture_workbench_maker.png",
+      "tileWidth": 3,
+      "tileHeight": 2,
+      "pixelWidth": 192,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "south",
+      "tags": [
+        "bench",
+        "maker",
+        "tools"
+      ],
+      "description": "Workbench for creator roles."
+    },
+    {
+      "id": "decor_plant_potted",
+      "name": "Potted plant",
+      "category": "decor_sprite",
+      "type": "plant",
+      "path": "ai_home_assets/base_rpg_room/decor_plant_potted.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "any",
+      "tags": [
+        "plant",
+        "decor"
+      ],
+      "description": "1x2 plant."
+    },
+    {
+      "id": "decor_lamp_floor",
+      "name": "Floor lamp",
+      "category": "decor_sprite",
+      "type": "lamp",
+      "path": "ai_home_assets/base_rpg_room/decor_lamp_floor.png",
+      "tileWidth": 1,
+      "tileHeight": 2,
+      "pixelWidth": 64,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "any",
+      "tags": [
+        "lamp",
+        "light"
+      ],
+      "description": "1x2 floor lamp."
+    },
+    {
+      "id": "decor_crate_tools",
+      "name": "Tool crate",
+      "category": "decor_sprite",
+      "type": "crate",
+      "path": "ai_home_assets/base_rpg_room/decor_crate_tools.png",
+      "tileWidth": 2,
+      "tileHeight": 2,
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "any",
+      "tags": [
+        "crate",
+        "storage"
+      ],
+      "description": "2x2 tool crate."
+    },
+    {
+      "id": "decor_memory_board",
+      "name": "Memory board",
+      "category": "decor_sprite",
+      "type": "board",
+      "path": "ai_home_assets/base_rpg_room/decor_memory_board.png",
+      "tileWidth": 2,
+      "tileHeight": 2,
+      "pixelWidth": 128,
+      "pixelHeight": 128,
+      "anchor": "bottom_left",
+      "layer": "wall",
+      "orientation": "north",
+      "tags": [
+        "memory",
+        "board",
+        "wall"
+      ],
+      "description": "Wall memory board."
+    },
+    {
+      "id": "decor_door_sign",
+      "name": "Door sign",
+      "category": "decor_sprite",
+      "type": "sign",
+      "path": "ai_home_assets/base_rpg_room/decor_door_sign.png",
+      "tileWidth": 2,
+      "tileHeight": 1,
+      "pixelWidth": 128,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "south",
+      "tags": [
+        "sign",
+        "identity"
+      ],
+      "description": "2x1 role sign."
+    },
+    {
+      "id": "decor_signal_cable",
+      "name": "Signal cable",
+      "category": "decor_sprite",
+      "type": "cable",
+      "path": "ai_home_assets/base_rpg_room/decor_signal_cable.png",
+      "tileWidth": 4,
+      "tileHeight": 1,
+      "pixelWidth": 256,
+      "pixelHeight": 64,
+      "anchor": "bottom_left",
+      "layer": "object",
+      "orientation": "any",
+      "tags": [
+        "cable",
+        "tech",
+        "4x1"
+      ],
+      "description": "4x1 cable decoration."
+    }
+  ]
+}

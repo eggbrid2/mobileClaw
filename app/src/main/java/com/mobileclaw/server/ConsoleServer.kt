@@ -779,6 +779,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','S
 .si.active{background:var(--accent-bg);color:var(--accent)}
 .si .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .si .ts{font-size:11px;margin-top:1px;opacity:.6}
+.codexbox{margin:8px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg)}
+.codexbox h3{font-size:12px;margin-bottom:6px;color:var(--text)}
+.codexbox p{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px}
+.codexcmd{font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:11px;color:var(--text);
+  background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px;
+  word-break:break-all;cursor:pointer;margin-bottom:6px}
+.codexcmd:hover{border-color:var(--accent)}
+.codexhint{font-size:10px;color:var(--dim);line-height:1.4}
 
 /* CHAT */
 #cw{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
@@ -842,6 +850,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','S
   <div id="sidebar">
     <div class="sh">History</div>
     <div id="slist"><div class="sysmsg" style="margin:14px 8px">Loading…</div></div>
+    <div class="codexbox">
+      <h3>Codex 下载与连接</h3>
+      <p>在电脑终端安装并登录 Codex，再到 MobileClaw 设置里的 Codex 桥接填写电脑地址和 Token。</p>
+      <div class="codexcmd" onclick="copyCodexCmd(this)">npm install -g @openai/codex</div>
+      <div class="codexcmd" onclick="copyText('codex --login',this)">codex --login</div>
+      <div class="codexhint">点击命令可复制。Codex 安装完成后，回到手机端配置桥接。</div>
+    </div>
   </div>
   <div id="cw">
     <div id="msgs">
@@ -876,6 +891,12 @@ function apiFetch(path,opts){
   if(token)next.headers['X-Claw-Token']=token;
   return fetch(apiUrl(path),next);
 }
+
+function copyText(text,el){
+  navigator.clipboard&&navigator.clipboard.writeText(text);
+  if(el){var old=el.textContent;el.textContent='Copied';setTimeout(function(){el.textContent=old;},1200);}
+}
+function copyCodexCmd(el){copyText('npm install -g @openai/codex',el);}
 
 window.addEventListener('load',function(){
   loadSessions();

@@ -109,6 +109,8 @@ private val DEFAULT_FEATURES = listOf(
     LauncherItem.Feature("skills", str(R.string.drawer_skills),   AppPage.SKILLS),
     LauncherItem.Feature("market", str(R.string.home_552cac),   AppPage.SKILL_MARKET),
     LauncherItem.Feature("page", str(R.string.home_2d20d5), AppPage.AI_PAGES),
+    LauncherItem.Feature("image", "图片生成", AppPage.IMAGE_GENERATOR),
+    LauncherItem.Feature("video", "视频生成", AppPage.VIDEO_GENERATOR),
     LauncherItem.Feature("settings", str(R.string.drawer_settings),   AppPage.SETTINGS),
     LauncherItem.Feature("console", str(R.string.drawer_console), AppPage.CONSOLE),
     LauncherItem.Feature("user", str(R.string.group_chat_1fd02a),    AppPage.USER_CONFIG),
@@ -135,6 +137,8 @@ private val ICON_GRADIENTS = mapOf(
     AppPage.SKILL_MARKET   to (Color(0xFFEC4899) to Color(0xFFF97316)),
     AppPage.AI_PAGES       to (Color(0xFF6366F1) to Color(0xFF22D3EE)),
     AppPage.VPN            to (Color(0xFF38BDF8) to Color(0xFF2563EB)),
+    AppPage.IMAGE_GENERATOR to (Color(0xFF111111) to Color(0xFF555555)),
+    AppPage.VIDEO_GENERATOR to (Color(0xFF111111) to Color(0xFF444444)),
 )
 
 private val APP_ICON_PALETTE = listOf(

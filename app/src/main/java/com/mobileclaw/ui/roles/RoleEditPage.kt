@@ -88,6 +88,7 @@ fun RoleEditPage(
     var selectedModel by remember { mutableStateOf(initial.modelOverride ?: "") }
     var selectedSkillIds by remember { mutableStateOf(initial.forcedSkillIds.toSet()) }
     var modelDropdownExpanded by remember { mutableStateOf(false) }
+    var advancedExpanded by remember { mutableStateOf(false) }
     var cropSourceUri by remember { mutableStateOf<Uri?>(null) }
 
     val isImageAvatar = isRoleImageAvatar(avatar)
@@ -115,7 +116,7 @@ fun RoleEditPage(
 
     Column(modifier = Modifier.fillMaxSize().background(c.bg)) {
         ClawPageHeader(
-            title = str(if (initial.isBuiltin) R.string.role_edit_title else R.string.role_create_title),
+            title = str(if (initial.name.isBlank() && !initial.isBuiltin) R.string.role_create_title else R.string.role_edit_title),
             onBack = onBack,
             actions = {
                 TextButton(onClick = {
@@ -186,7 +187,8 @@ fun RoleEditPage(
                 }
             }
 
-            // ── Name ──────────────────────────────────────────────────────────
+            RoleEditSectionTitle(str(R.string.role_edit_section_identity))
+
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -195,7 +197,6 @@ fun RoleEditPage(
                 singleLine = true,
             )
 
-            // ── Description ───────────────────────────────────────────────────
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
@@ -204,7 +205,26 @@ fun RoleEditPage(
                 singleLine = true,
             )
 
-            // ── Scheduler Metadata ───────────────────────────────────────────
+            RoleEditSectionTitle(str(R.string.role_edit_section_work))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(18.dp)),
+            ) {
+                TaskType.values().forEachIndexed { index, taskType ->
+                    if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
+                    val selected = taskType in selectedTaskTypes
+                    RoleTaskTypeRow(
+                        taskType = taskType,
+                        selected = selected,
+                        onToggle = {
+                            selectedTaskTypes = if (selected) selectedTaskTypes - taskType else selectedTaskTypes + taskType
+                        },
+                    )
+                }
+            }
+
             OutlinedTextField(
                 value = schedulerKeywords,
                 onValueChange = { schedulerKeywords = it },
@@ -215,175 +235,212 @@ fun RoleEditPage(
                 maxLines = 3,
             )
 
-            Text(
-                text = str(R.string.role_field_task_types),
-                fontSize = 12.sp,
-                color = c.subtext,
-            )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, c.border, RoundedCornerShape(8.dp)),
-            ) {
-                TaskType.values().forEachIndexed { index, taskType ->
-                    if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
-                    val selected = taskType in selectedTaskTypes
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedTaskTypes = if (selected)
-                                    selectedTaskTypes - taskType
-                                else
-                                    selectedTaskTypes + taskType
-                            }
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = selected,
-                            onCheckedChange = { checked ->
-                                selectedTaskTypes = if (checked)
-                                    selectedTaskTypes + taskType
-                                else
-                                    selectedTaskTypes - taskType
-                            },
-                        )
-                        Text(taskType.name, fontSize = 13.sp, color = c.text)
-                    }
-                }
+            TextButton(onClick = { advancedExpanded = !advancedExpanded }, modifier = Modifier.align(Alignment.Start)) {
+                Text(
+                    text = if (advancedExpanded) str(R.string.role_edit_advanced_hide) else str(R.string.role_edit_advanced_show),
+                    color = c.accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
 
-            // ── System Prompt Addendum ────────────────────────────────────────
-            OutlinedTextField(
-                value = addendum,
-                onValueChange = { addendum = it },
-                label = { Text(str(R.string.role_field_system_prompt)) },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-                maxLines = 6,
-            )
+            if (advancedExpanded) {
+                RoleEditSectionTitle(str(R.string.role_edit_section_advanced))
 
-            // ── Model Dropdown ────────────────────────────────────────────────
-            when {
-                modelsLoading -> {
-                    OutlinedTextField(
-                        value = str(R.string.role_edit_loading),
-                        onValueChange = {},
-                        readOnly = true,
-                        enabled = false,
-                        label = { Text(str(R.string.role_field_model)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                availableModels.isNotEmpty() -> {
-                    ExposedDropdownMenuBox(
-                        expanded = modelDropdownExpanded,
-                        onExpandedChange = { modelDropdownExpanded = it },
-                    ) {
+                OutlinedTextField(
+                    value = addendum,
+                    onValueChange = { addendum = it },
+                    label = { Text(str(R.string.role_field_system_prompt)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6,
+                )
+
+                when {
+                    modelsLoading -> {
                         OutlinedTextField(
-                            value = selectedModel.ifBlank { str(R.string.role_edit_b11de2) },
+                            value = str(R.string.role_edit_loading),
                             onValueChange = {},
                             readOnly = true,
+                            enabled = false,
                             label = { Text(str(R.string.role_field_model)) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                        ExposedDropdownMenu(
+                    }
+                    availableModels.isNotEmpty() -> {
+                        ExposedDropdownMenuBox(
                             expanded = modelDropdownExpanded,
-                            onDismissRequest = { modelDropdownExpanded = false },
+                            onExpandedChange = { modelDropdownExpanded = it },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text(str(R.string.role_edit_b11de2)) },
-                                onClick = { selectedModel = ""; modelDropdownExpanded = false },
+                            OutlinedTextField(
+                                value = selectedModel.ifBlank { str(R.string.role_edit_b11de2) },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text(str(R.string.role_field_model)) },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
+                                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
                             )
-                            availableModels.forEach { model ->
+                            ExposedDropdownMenu(
+                                expanded = modelDropdownExpanded,
+                                onDismissRequest = { modelDropdownExpanded = false },
+                            ) {
                                 DropdownMenuItem(
-                                    text = { Text(model, fontSize = 13.sp) },
-                                    onClick = { selectedModel = model; modelDropdownExpanded = false },
+                                    text = { Text(str(R.string.role_edit_b11de2)) },
+                                    onClick = { selectedModel = ""; modelDropdownExpanded = false },
                                 )
-                            }
-                        }
-                    }
-                }
-                else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = selectedModel,
-                            onValueChange = { selectedModel = it },
-                            label = { Text(str(R.string.role_field_model)) },
-                            placeholder = { Text(str(R.string.role_edit_2442c5), fontSize = 12.sp, color = c.subtext) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = onFetchModels) {
-                            Text(str(R.string.role_edit_refresh), color = c.accent, fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-
-            // ── Force-Inject Skills ───────────────────────────────────────────
-            if (allSkills.isNotEmpty()) {
-                Text(
-                    text = str(R.string.role_field_skills),
-                    fontSize = 12.sp,
-                    color = c.subtext,
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, c.border, RoundedCornerShape(8.dp)),
-                ) {
-                    allSkills.forEachIndexed { index, skill ->
-                        if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
-                        val selected = skill.id in selectedSkillIds
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedSkillIds = if (selected)
-                                        selectedSkillIds - skill.id
-                                    else
-                                        selectedSkillIds + skill.id
+                                availableModels.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text(model, fontSize = 13.sp) },
+                                        onClick = { selectedModel = model; modelDropdownExpanded = false },
+                                    )
                                 }
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = selected,
-                                onCheckedChange = { checked ->
-                                    selectedSkillIds = if (checked)
-                                        selectedSkillIds + skill.id
-                                    else
-                                        selectedSkillIds - skill.id
-                                },
+                            }
+                        }
+                    }
+                    else -> {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = selectedModel,
+                                onValueChange = { selectedModel = it },
+                                label = { Text(str(R.string.role_field_model)) },
+                                placeholder = { Text(str(R.string.role_edit_2442c5), fontSize = 12.sp, color = c.subtext) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
                             )
-                            Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                                Text(skill.name, fontSize = 13.sp, color = c.text)
-                                Text(skill.id, fontSize = 10.sp, color = c.subtext)
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = onFetchModels) {
+                                Text(str(R.string.role_edit_refresh), color = c.accent, fontSize = 13.sp)
                             }
                         }
                     }
                 }
-            }
+                Text(
+                    text = str(R.string.role_field_model_hint),
+                    fontSize = 11.sp,
+                    color = c.subtext,
+                    lineHeight = 15.sp,
+                )
 
-            // ── Restore for built-ins ─────────────────────────────────────────
-            if (onRestore != null) {
-                Spacer(Modifier.height(4.dp))
-                Button(
-                    onClick = onRestore,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = c.red.copy(alpha = 0.15f)),
-                ) {
-                    Text(str(R.string.role_edit_a2ea09), color = c.red, fontWeight = FontWeight.Medium)
+                if (allSkills.isNotEmpty()) {
+                    Text(
+                        text = str(R.string.role_field_skills),
+                        fontSize = 12.sp,
+                        color = c.subtext,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .border(1.dp, c.border, RoundedCornerShape(18.dp)),
+                    ) {
+                        allSkills.forEachIndexed { index, skill ->
+                            if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
+                            val selected = skill.id in selectedSkillIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedSkillIds = if (selected)
+                                            selectedSkillIds - skill.id
+                                        else
+                                            selectedSkillIds + skill.id
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { checked ->
+                                        selectedSkillIds = if (checked)
+                                        selectedSkillIds + skill.id
+                                        else
+                                        selectedSkillIds - skill.id
+                                    },
+                                )
+                                Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+                                    Text(skill.nameZh ?: skill.name, fontSize = 13.sp, color = c.text)
+                                    Text(skill.id, fontSize = 10.sp, color = c.subtext)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (onRestore != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Button(
+                        onClick = onRestore,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.red.copy(alpha = 0.15f)),
+                    ) {
+                        Text(str(R.string.role_edit_a2ea09), color = c.red, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
 
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+@Composable
+private fun RoleEditSectionTitle(text: String) {
+    val c = LocalClawColors.current
+    Text(
+        text = text,
+        color = c.text,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Black,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
+@Composable
+private fun RoleTaskTypeRow(
+    taskType: TaskType,
+    selected: Boolean,
+    onToggle: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = selected, onCheckedChange = { onToggle() })
+        Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
+            Text(taskType.roleTaskLabel(), fontSize = 14.sp, color = c.text, fontWeight = FontWeight.SemiBold)
+            Text(taskType.roleTaskHint(), fontSize = 11.sp, color = c.subtext, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun TaskType.roleTaskLabel(): String = when (this) {
+    TaskType.PHONE_CONTROL -> str(R.string.role_task_phone)
+    TaskType.WEB_RESEARCH -> str(R.string.role_task_web)
+    TaskType.FILE_CREATE -> str(R.string.role_task_file)
+    TaskType.APP_BUILD -> str(R.string.role_task_app)
+    TaskType.IMAGE_GENERATION -> str(R.string.role_task_image)
+    TaskType.VPN_CONTROL -> str(R.string.role_task_vpn)
+    TaskType.SKILL_MANAGEMENT -> str(R.string.role_task_skill)
+    TaskType.CODE_EXECUTION -> str(R.string.role_task_code)
+    TaskType.CHAT,
+    TaskType.GENERAL -> str(R.string.role_task_chat)
+}
+
+@Composable
+private fun TaskType.roleTaskHint(): String = when (this) {
+    TaskType.PHONE_CONTROL -> str(R.string.role_task_phone_hint)
+    TaskType.WEB_RESEARCH -> str(R.string.role_task_web_hint)
+    TaskType.FILE_CREATE -> str(R.string.role_task_file_hint)
+    TaskType.APP_BUILD -> str(R.string.role_task_app_hint)
+    TaskType.IMAGE_GENERATION -> str(R.string.role_task_image_hint)
+    TaskType.VPN_CONTROL -> str(R.string.role_task_vpn_hint)
+    TaskType.SKILL_MANAGEMENT -> str(R.string.role_task_skill_hint)
+    TaskType.CODE_EXECUTION -> str(R.string.role_task_code_hint)
+    TaskType.CHAT,
+    TaskType.GENERAL -> str(R.string.role_task_chat_hint)
 }

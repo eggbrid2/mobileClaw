@@ -160,6 +160,9 @@ class AiPageAppContext(private val context: Context) {
                 "activeGatewayId" to agent.activeGatewayId.orEmpty(),
                 "activeGatewayName" to (agent.activeGateway?.name ?: ""),
                 "activeModel" to agent.model,
+                "chatModel" to agent.chatModel,
+                "imageModel" to agent.imageModel,
+                "videoModel" to agent.videoModel,
                 "embeddingModel" to agent.embeddingModel,
                 "supportsMultimodal" to agent.supportsMultimodal,
                 "gatewayCount" to agent.gateways.size,
@@ -171,6 +174,15 @@ class AiPageAppContext(private val context: Context) {
                         "model" to it.model,
                         "embeddingModel" to it.embeddingModel,
                         "supportsMultimodal" to it.supportsMultimodal,
+                        "capabilities" to it.capabilities.map { cap ->
+                            mapOf(
+                                "type" to cap.type,
+                                "model" to cap.model,
+                                "enabled" to cap.enabled,
+                                "endpoint" to redactEndpoint(cap.endpoint),
+                                "hasApiKey" to cap.apiKey.isNotBlank(),
+                            )
+                        },
                         "hasApiKey" to it.apiKey.isNotBlank(),
                     )
                 },

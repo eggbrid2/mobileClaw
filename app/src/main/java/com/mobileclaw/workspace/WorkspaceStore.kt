@@ -150,6 +150,15 @@ class WorkspaceStore(filesDir: File) {
         file.absolutePath
     }
 
+    fun writeBytes(id: String, relativeDir: String, name: String, bytes: ByteArray): String = synchronized(ioLock) {
+        ensureDirs(id)
+        val dir = File(workspaceDir(id), sanitizeName(relativeDir)).also { it.mkdirs() }
+        val file = File(dir, sanitizeFileName(name))
+        file.writeBytes(bytes)
+        touch(id, workingSetAdd = file.relativeTo(workspaceDir(id)).path)
+        file.absolutePath
+    }
+
     fun readFile(id: String, relativePath: String): String? = synchronized(ioLock) {
         runCatching { AtomicTextFile.readOrNull(File(workspaceDir(id), relativePath)) }.getOrNull()
     }
@@ -343,4 +352,16 @@ class WorkspaceStore(filesDir: File) {
 
     private fun sanitizeName(raw: String): String =
         raw.trim().lowercase().replace(Regex("[^a-z0-9_\\-]+"), "_").trim('_').ifBlank { "untitled" }
+
+    private fun sanitizeFileName(raw: String): String {
+        val trimmed = raw.trim().lowercase()
+        val base = trimmed.substringBeforeLast('.', missingDelimiterValue = trimmed)
+        val ext = trimmed.substringAfterLast('.', missingDelimiterValue = "")
+            .replace(Regex("[^a-z0-9]+"), "")
+            .take(8)
+        return listOf(sanitizeName(base), ext.takeIf { it.isNotBlank() })
+            .filterNotNull()
+            .joinToString(".")
+            .ifBlank { "untitled" }
+    }
 }

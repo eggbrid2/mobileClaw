@@ -52,6 +52,7 @@ fun ClassicShellContent(
                             onRenameSession = { id, title -> vm.renameSession(id, title) },
                             onOpenDesktop = { vm.navigate(AppPage.HOME) },
                             onSwitchRole = { vm.navigate(AppPage.ROLES) },
+                            onCodexDesktopModeChange = { vm.setCodexDesktopMode(it) },
                             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                             onLoadMoreHistory = { vm.loadMoreHistory() },
                             onCloseMiniAppPreview = { vm.clearChatMiniAppPreview() },
@@ -156,7 +157,7 @@ fun ClassicShellContent(
                     town = uiState.agentTown,
                     isWorking = homeRole.id in uiState.groupState.workingAgents || homeRole.id in uiState.groupState.typingAgents,
                     onBack = { vm.navigateBack() },
-                    onEdit = { vm.editRole(it) },
+                    onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
                 )
             } else {
                 RolesPage(
@@ -169,7 +170,7 @@ fun ClassicShellContent(
                     onActivate = { vm.setActiveRole(it) },
                     onOpenDetail = { vm.openRoleDetail(it) },
                     onGeneratePortrait = { vm.generateRolePortrait(it) },
-                    onEdit = { vm.editRole(it) },
+                    onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
                     onDelete = { vm.deleteCustomRole(it) },
                     onBack = { vm.navigate(AppPage.CHAT) },
                     showHeader = false,

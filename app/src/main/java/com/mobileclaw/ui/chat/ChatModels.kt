@@ -7,6 +7,7 @@ import java.util.UUID
 // 单聊会话运行态独立出来，避免 UiState 文件继续承载聊天 feature 的细节模型。
 data class SessionRunState(
     val isRunning: Boolean = false,
+    val runStartedAt: Long = 0L,
     val messages: List<ChatMessage> = emptyList(),
     val activeLogLines: List<LogLine> = emptyList(),
     val streamingToken: String = "",
@@ -30,6 +31,7 @@ data class ChatMessage(
     val logLines: List<LogLine> = emptyList(),
     val imageBase64: String? = null,
     val attachments: List<SkillAttachment> = emptyList(),
+    val imageLocalPath: String = "",
     val senderRoleId: String = "",
     val senderRoleName: String = "",
     val senderRoleAvatar: String = "",

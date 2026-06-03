@@ -24,6 +24,15 @@ data class GatewayConfig(
     val model: String,
     val embeddingModel: String = "text-embedding-3-small",
     val supportsMultimodal: Boolean = true,
+    val capabilities: List<GatewayCapabilityConfig> = emptyList(),
+)
+
+data class GatewayCapabilityConfig(
+    val type: String,
+    val model: String,
+    val enabled: Boolean = true,
+    val endpoint: String = "",
+    val apiKey: String = "",
 )
 
 class AgentConfig(private val context: Context) {
@@ -96,7 +105,9 @@ class AgentConfig(private val context: Context) {
         if (json.isNullOrBlank()) return emptyList()
         return runCatching {
             val type = object : TypeToken<List<GatewayConfig>>() {}.type
-            gson.fromJson<List<GatewayConfig>>(json, type) ?: emptyList()
+            // Older persisted JSON may deserialize nullable fields into Kotlin non-null properties.
+            // Normalize each gateway immediately so later computed accessors never crash during app startup.
+            (gson.fromJson<List<GatewayConfig>>(json, type) ?: emptyList()).map { it.normalized() }
         }.getOrDefault(emptyList())
     }
 
@@ -144,9 +155,53 @@ data class ConfigSnapshot(
     // Backward-compat computed properties
     val endpoint: String get() = activeGateway?.endpoint ?: ""
     val apiKey: String get() = activeGateway?.apiKey ?: ""
-    val model: String get() = if (localModelEnabled || localNativeOnly) "local:$localModelId" else activeGateway?.model ?: "gpt-4o"
-    val cloudModel: String get() = activeGateway?.model ?: "gpt-4o"
-    val embeddingModel: String get() = activeGateway?.embeddingModel ?: "text-embedding-3-small"
+    val chatEndpoint: String get() = activeGateway?.capabilityEndpoint("chat") ?: ""
+    val chatApiKey: String get() = activeGateway?.capabilityApiKey("chat") ?: ""
+    val model: String get() = if (localModelEnabled || localNativeOnly) "local:$localModelId" else chatModel
+    val cloudModel: String get() = chatModel
+    val chatModel: String get() = activeGateway?.capabilityModel("chat") ?: activeGateway?.model ?: "gpt-4o"
+    val imageModel: String? get() = activeGateway?.capabilityModel("image")
+    val videoModel: String? get() = activeGateway?.capabilityModel("video")
+    val embeddingModel: String get() = activeGateway?.capabilityModel("embedding") ?: activeGateway?.embeddingModel ?: "text-embedding-3-small"
     val backend: String get() = "openai"
-    val supportsMultimodal: Boolean get() = activeGateway?.supportsMultimodal ?: true
+    val supportsMultimodal: Boolean get() = activeGateway?.supportsCapabilityMultimodal() ?: true
 }
+
+fun GatewayConfig.capabilityModel(type: String): String? =
+    safeCapabilities().firstOrNull {
+        it.enabled && it.type.equals(type, ignoreCase = true) && it.model.isNotBlank()
+    }?.model
+
+fun GatewayConfig.capabilityConfig(type: String): GatewayCapabilityConfig? =
+    safeCapabilities().firstOrNull {
+        it.enabled && it.type.equals(type, ignoreCase = true)
+    }
+
+fun GatewayConfig.hasCapability(type: String): Boolean =
+    safeCapabilities().any { it.enabled && it.type.equals(type, ignoreCase = true) && it.model.isNotBlank() }
+
+fun GatewayConfig.supportsCapabilityMultimodal(): Boolean =
+    supportsMultimodal || hasCapability("image") || hasCapability("video")
+
+fun GatewayConfig.capabilityEndpoint(type: String): String =
+    capabilityConfig(type)?.endpoint?.takeIf { it.isNotBlank() } ?: endpoint
+
+fun GatewayConfig.capabilityApiKey(type: String): String =
+    capabilityConfig(type)?.apiKey?.takeIf { it.isNotBlank() } ?: apiKey
+
+// Gson can still materialize null into Kotlin non-null fields from older saved config payloads.
+// Keep one normalization path for persisted data and one defensive accessor path for already-loaded objects.
+private fun GatewayConfig.normalized(): GatewayConfig = copy(
+    capabilities = safeCapabilities().map { it.normalized() }
+)
+
+private fun GatewayCapabilityConfig.normalized(): GatewayCapabilityConfig = GatewayCapabilityConfig(
+    type = type.orEmpty(),
+    model = model.orEmpty(),
+    enabled = enabled,
+    endpoint = endpoint.orEmpty(),
+    apiKey = apiKey.orEmpty(),
+)
+
+private fun GatewayConfig.safeCapabilities(): List<GatewayCapabilityConfig> =
+    runCatching { capabilities }.getOrNull().orEmpty()

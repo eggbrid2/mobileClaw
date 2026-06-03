@@ -1,9 +1,23 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.chaquopy)
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun localBuildConfigString(key: String): String {
+    val value = localProperties.getProperty(key).orEmpty()
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 }
 
 kapt {
@@ -29,6 +43,9 @@ android {
 
         multiDexEnabled = true
         multiDexKeepFile = file("src/main/multidex-keep.txt")
+        buildConfigField("String", "CLOUDINARY_CLOUD_NAME", localBuildConfigString("cloudinary.cloud_name"))
+        buildConfigField("String", "CLOUDINARY_API_KEY", localBuildConfigString("cloudinary.api_key"))
+        buildConfigField("String", "CLOUDINARY_API_SECRET", localBuildConfigString("cloudinary.api_secret"))
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -56,6 +73,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -100,6 +118,8 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
 
     // Room
     implementation(libs.androidx.room.runtime)

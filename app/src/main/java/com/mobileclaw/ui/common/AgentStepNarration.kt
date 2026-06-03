@@ -6,9 +6,30 @@ import com.mobileclaw.llm.cleanLocalGeneratedText
 
 internal val VISUAL_SKILL_IDS = setOf("screenshot", "see_screen", "bg_screenshot")
 
+internal fun sanitizeUserFacingNarration(raw: String): String {
+    val text = raw.trim()
+    if (text.isBlank()) return ""
+    val lowered = text.lowercase()
+    return when {
+        "video_api_endpoint" in lowered || "video_api_key" in lowered ->
+            "先确认视频生成能力是否已经连通"
+        "image_api_endpoint" in lowered || "image_api_key" in lowered ->
+            "先确认图片生成能力是否已经连通"
+        ("gateway" in lowered || "capability" in lowered || "endpoint" in lowered || "api key" in lowered) &&
+            ("video" in lowered || "image" in lowered || "图像" in text || "图片" in text || "视频" in text) ->
+            when {
+                "video" in lowered || "视频" in text -> "先确认视频生成能力是否已经连通"
+                else -> "先确认图片生成能力是否已经连通"
+            }
+        "已正确加载且处于活跃状态" in text ->
+            "先确认当前能力已经成功接通"
+        else -> text
+    }
+}
+
 internal fun friendlyThinkingUpdate(rawThought: String, plannedSteps: List<String>): String {
-    val clean = rawThought.cleanLocalGeneratedText().trim()
-    val planned = plannedSteps.firstOrNull { it.isNotBlank() }
+    val clean = sanitizeUserFacingNarration(rawThought.cleanLocalGeneratedText().trim())
+    val planned = plannedSteps.firstOrNull { it.isNotBlank() }?.let(::sanitizeUserFacingNarration)
     if (clean.isBlank()) return planned ?: "正在整理当前进展"
     val generic = listOf(
         "思考完成",
@@ -32,7 +53,7 @@ internal fun friendlyThinkingUpdate(rawThought: String, plannedSteps: List<Strin
 internal fun plannedStageForAction(plannedSteps: List<String>, actionIndex: Int): String {
     if (plannedSteps.isEmpty()) return ""
     val index = actionIndex.coerceIn(0, plannedSteps.lastIndex)
-    return plannedSteps[index].trim()
+    return sanitizeUserFacingNarration(plannedSteps[index].trim())
 }
 
 internal fun stageAwareSkillDescription(stage: String, skillId: String, params: Map<String, Any>): String {
@@ -63,7 +84,7 @@ internal fun userFacingActionResult(skillId: String, stageText: String): String 
     }
 
 internal fun conciseUserPlanSummary(text: String, limit: Int = 90): String {
-    val normalized = text
+    val normalized = sanitizeUserFacingNarration(text)
         .lineSequence()
         .map { it.trim().trimStart('-', '•', '*', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '、') }
         .filter { it.isNotBlank() }
@@ -97,9 +118,9 @@ internal fun userFacingInitialIntent(firstStep: String?, secondStep: String?, ch
     }
 
 internal fun userFacingThinkingResult(thought: String, plannedSteps: List<String>): String {
-    val current = plannedSteps.firstOrNull { it.isNotBlank() }.orEmpty()
-    val next = plannedSteps.drop(1).firstOrNull { it.isNotBlank() }.orEmpty()
-    val clean = thought.cleanLocalGeneratedText().trim().take(100)
+    val current = plannedSteps.firstOrNull { it.isNotBlank() }?.let(::sanitizeUserFacingNarration).orEmpty()
+    val next = plannedSteps.drop(1).firstOrNull { it.isNotBlank() }?.let(::sanitizeUserFacingNarration).orEmpty()
+    val clean = sanitizeUserFacingNarration(thought.cleanLocalGeneratedText().trim()).take(100)
     return when {
         current.isNotBlank() && next.isNotBlank() -> "$current / $next"
         current.isNotBlank() -> current
@@ -151,8 +172,8 @@ internal fun userFacingSkillStart(stageText: String, skillId: String, params: Ma
         "shell", "run_python" -> "执行命令"
         else -> null
     }
-    if (!concrete.isNullOrBlank()) return concrete
-    if (stage.isNotBlank()) return stage
+    if (!concrete.isNullOrBlank()) return sanitizeUserFacingNarration(concrete)
+    if (stage.isNotBlank()) return sanitizeUserFacingNarration(stage)
     return when {
         skillId in VISUAL_SKILL_IDS -> "查看当前界面"
         else -> ""

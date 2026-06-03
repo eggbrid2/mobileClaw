@@ -110,6 +110,8 @@ Built-in roles include:
 
 Roles are not just personas. They can declare preferred task types, keywords, scheduler priority, forced skills, and model overrides. User-created roles participate in the same scheduler.
 
+The role UI is designed around quick task assignment rather than decorative persona editing. The Roles page highlights the current role first, then lists built-in and custom roles with readable capability labels such as code, research, phone control, apps, images, VPN, and skills. Built-in roles are protected as presets: editing them creates a custom copy, while custom roles can be edited directly. Advanced fields such as system prompt addenda, model override, and pinned skills are kept behind an advanced section so normal role creation stays approachable.
+
 ### Skills
 
 MobileClaw has a native skill registry with injection levels:

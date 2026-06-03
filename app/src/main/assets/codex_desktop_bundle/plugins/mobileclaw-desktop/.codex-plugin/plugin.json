@@ -1,0 +1,18 @@
+{
+  "name": "mobileclaw-desktop",
+  "version": "0.1.0",
+  "description": "Desktop companion plugin for MobileClaw Codex bridge.",
+  "author": {
+    "name": "MobileClaw"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "MobileClaw Desktop",
+    "shortDescription": "Connect desktop Codex to MobileClaw.",
+    "longDescription": "MobileClaw Desktop provides instructions and local context for using Codex through the MobileClaw phone bridge.",
+    "developerName": "MobileClaw",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use MobileClaw Desktop bridge safely."
+  }
+}

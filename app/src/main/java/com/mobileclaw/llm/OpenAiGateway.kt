@@ -8,8 +8,11 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.mobileclaw.config.GatewayCapabilityConfig
 import com.mobileclaw.agent.NetworkTracer
 import com.mobileclaw.config.AgentConfig
+import com.mobileclaw.config.capabilityApiKey
+import com.mobileclaw.config.capabilityEndpoint
 import com.mobileclaw.vpn.AppHttpProxy
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -54,10 +57,10 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
     override suspend fun chat(request: ChatRequest): ChatResponse {
         val body = buildRequestBody(request)
         val snapshot = config.snapshot()
-        val apiBase = normalizeApiBase(snapshot.endpoint)
+        val apiBase = normalizeApiBase(snapshot.chatEndpoint)
         val httpRequest = Request.Builder()
             .url("$apiBase/chat/completions")
-            .header("Authorization", "Bearer ${snapshot.apiKey}")
+            .header("Authorization", "Bearer ${snapshot.chatApiKey}")
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
@@ -85,14 +88,16 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     override suspend fun embed(text: String): FloatArray {
         val snapshot = config.snapshot()
-        val apiBase = normalizeApiBase(snapshot.endpoint)
+        val embeddingGateway = snapshot.activeGateway
+        val apiBase = normalizeApiBase(embeddingGateway?.capabilityEndpoint("embedding") ?: snapshot.endpoint)
+        val apiKey = embeddingGateway?.capabilityApiKey("embedding")?.takeIf { it.isNotBlank() } ?: snapshot.apiKey
         val bodyJson = JsonObject().apply {
             addProperty("model", snapshot.embeddingModel)
             addProperty("input", text)
         }
         val httpRequest = Request.Builder()
             .url("$apiBase/embeddings")
-            .header("Authorization", "Bearer ${snapshot.apiKey}")
+            .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
             .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
@@ -296,29 +301,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
 
     suspend fun fetchModels(): List<String> {
         val snapshot = config.snapshot()
-        if (snapshot.endpoint.isBlank() || snapshot.apiKey.isBlank()) return emptyList()
-        val apiBase = normalizeApiBase(snapshot.endpoint)
-        val request = Request.Builder()
-            .url("$apiBase/models")
-            .header("Authorization", "Bearer ${snapshot.apiKey}")
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-            .get()
-            .build()
-        return suspendCancellableCoroutine { cont ->
-            client.newCall(request).enqueue(object : okhttp3.Callback {
-                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) = cont.resume(emptyList())
-                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                    try {
-                        val json = JsonParser.parseString(response.body!!.string()).asJsonObject
-                        val ids = json["data"].asJsonArray
-                            .mapNotNull { it.asJsonObject["id"]?.asString }
-                            .filter { it.isNotBlank() }
-                            .sorted()
-                        cont.resume(ids)
-                    } catch (_: Exception) { cont.resume(emptyList()) }
-                }
-            })
-        }
+        return fetchModels(snapshot.chatEndpoint, snapshot.chatApiKey)
     }
 
     /** Scales to ≤1920px long-edge / JPEG-85 for high fidelity while staying within typical proxy limits. */
@@ -360,7 +343,10 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
     private fun normalizeApiBase(endpoint: String): String {
         val trimmed = endpoint.trim().trimEnd('/')
         if (trimmed.isBlank()) return trimmed
-        return if (trimmed.endsWith("/v1", ignoreCase = true)) trimmed else "$trimmed/v1"
+        // Preserve provider-native versioned bases such as /v3, /v4, or already
+        // normalized OpenAI-compatible paths. Only append /v1 to bare domains.
+        val hasVersionSuffix = Regex("/v\\d+$", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+        return if (hasVersionSuffix) trimmed else "$trimmed/v1"
     }
 
     private suspend fun chatBlocking(request: Request): ChatResponse =
@@ -389,5 +375,159 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
                     } catch (e: Exception) { cont.resumeWithException(e) }
                 }
             })
+    }
+
+    companion object {
+        private val modelFetchClient = OkHttpClient.Builder()
+            .proxySelector(AppHttpProxy.proxySelector())
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .build()
+
+        suspend fun fetchModels(endpoint: String, apiKey: String): List<String> {
+            if (endpoint.isBlank() || apiKey.isBlank()) return emptyList()
+            val apiBase = normalizeApiBaseStatic(endpoint)
+            val request = Request.Builder()
+                .url("$apiBase/models")
+                .header("Authorization", "Bearer $apiKey")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .get()
+                .build()
+            return suspendCancellableCoroutine { cont ->
+                modelFetchClient.newCall(request).enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) = cont.resume(emptyList())
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        try {
+                            val json = JsonParser.parseString(response.body!!.string()).asJsonObject
+                            val ids = json["data"].asJsonArray
+                                .mapNotNull { it.asJsonObject["id"]?.asString }
+                                .filter { it.isNotBlank() }
+                                .sorted()
+                            cont.resume(ids)
+                        } catch (_: Exception) {
+                            cont.resume(emptyList())
+                        }
+                    }
+                })
+            }
         }
+
+        suspend fun planGatewayCapabilities(
+            endpoint: String,
+            apiKey: String,
+            model: String,
+            presetName: String,
+            supportsMultimodal: Boolean,
+            availableModels: List<String>,
+        ): List<GatewayCapabilityConfig> {
+            if (endpoint.isBlank() || apiKey.isBlank() || model.isBlank() || availableModels.isEmpty()) return emptyList()
+            val apiBase = normalizeApiBaseStatic(endpoint)
+            val gson = Gson()
+            val prompt = buildString {
+                appendLine("You are configuring an OpenAI-compatible gateway for an Android AI app.")
+                appendLine("Task: choose the best capability-to-model mapping for this gateway.")
+                appendLine("Preset: $presetName")
+                appendLine("Supports multimodal hint: $supportsMultimodal")
+                appendLine("Available models:")
+                availableModels.forEach { appendLine("- $it") }
+                appendLine()
+                appendLine("Return JSON only, no markdown.")
+                appendLine("Format:")
+                appendLine("""{"capabilities":[{"type":"chat","model":"..."},{"type":"embedding","model":"..."},{"type":"image","model":"..."},{"type":"video","model":"..."}]}""")
+                appendLine("Rules:")
+                appendLine("1. Only use model names from the available models list.")
+                appendLine("2. chat is required.")
+                appendLine("3. Add embedding/image/video only if a suitable model clearly exists.")
+                appendLine("4. Prefer stable general-purpose models for chat.")
+                appendLine("5. Prefer dedicated embedding/image/video models when available.")
+            }
+            val body = JsonObject().apply {
+                addProperty("model", model)
+                addProperty("stream", false)
+                add("messages", JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("role", "system")
+                        addProperty("content", "You return strict JSON only.")
+                    })
+                    add(JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", prompt)
+                    })
+                })
+                addProperty("temperature", 0.2)
+            }
+            val request = Request.Builder()
+                .url("$apiBase/chat/completions")
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            return suspendCancellableCoroutine { cont ->
+                modelFetchClient.newCall(request).enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) = cont.resume(emptyList())
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        try {
+                            val bodyStr = response.body?.string().orEmpty()
+                            if (!response.isSuccessful) {
+                                cont.resume(emptyList())
+                                return
+                            }
+                            val root = JsonParser.parseString(bodyStr).asJsonObject
+                            val message = root["choices"]?.asJsonArray
+                                ?.firstOrNull()
+                                ?.asJsonObject
+                                ?.get("message")
+                                ?.asJsonObject
+                            val content = extractMessageContent(message)
+                            val jsonBlock = extractJsonObjectBlock(content)
+                            val parsed = JsonParser.parseString(jsonBlock).asJsonObject
+                            val capabilities = parsed["capabilities"]?.asJsonArray?.mapNotNull { entry ->
+                                val obj = entry.asJsonObject
+                                val type = obj["type"]?.asString?.trim()?.lowercase().orEmpty()
+                                val chosen = obj["model"]?.asString?.trim().orEmpty()
+                                if (type.isBlank() || chosen.isBlank() || chosen !in availableModels) null
+                                else GatewayCapabilityConfig(type = type, model = chosen)
+                            }.orEmpty()
+                            cont.resume(capabilities.distinctBy { it.type })
+                        } catch (_: Exception) {
+                            cont.resume(emptyList())
+                        }
+                    }
+                })
+            }
+        }
+
+        private fun normalizeApiBaseStatic(endpoint: String): String {
+            val base = endpoint.trim().trimEnd('/')
+            if (base.endsWith("/v1") || base.endsWith("/v3") || base.endsWith("/v4")) return base
+            if (base.endsWith("/openai")) return "$base/v1"
+            return "$base/v1"
+        }
+
+        private fun extractJsonObjectBlock(text: String): String {
+            val fenced = Regex("```(?:json)?\\s*(\\{[\\s\\S]*})\\s*```", RegexOption.IGNORE_CASE).find(text)?.groupValues?.getOrNull(1)
+            if (!fenced.isNullOrBlank()) return fenced
+            val start = text.indexOf('{')
+            val end = text.lastIndexOf('}')
+            return if (start >= 0 && end > start) text.substring(start, end + 1) else text
+        }
+
+        private fun extractMessageContent(message: JsonObject?): String {
+            val contentNode = message?.get("content") ?: return ""
+            return when {
+                contentNode.isJsonNull -> ""
+                contentNode.isJsonPrimitive -> contentNode.asString
+                contentNode.isJsonArray -> buildString {
+                    contentNode.asJsonArray.forEach { part ->
+                        val obj = part.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
+                        val text = obj["text"]?.takeIf { it.isJsonPrimitive }?.asString
+                            ?: obj["content"]?.takeIf { it.isJsonPrimitive }?.asString
+                        if (!text.isNullOrBlank()) append(text)
+                    }
+                }
+                else -> contentNode.toString()
+            }
+        }
+    }
 }

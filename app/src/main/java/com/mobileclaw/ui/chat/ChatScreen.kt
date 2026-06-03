@@ -35,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -62,7 +63,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -71,7 +71,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -82,6 +81,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
@@ -97,15 +97,21 @@ import com.mobileclaw.ui.MainUiState
 import com.mobileclaw.ui.MiniAppViewport
 import com.mobileclaw.ui.common.decodeDataUriBitmap
 import com.mobileclaw.ui.common.decodeFileAttachmentBitmap
+import com.mobileclaw.ui.common.AttachmentMetaChip
+import com.mobileclaw.ui.common.DocumentAttachmentCard
 import com.mobileclaw.ui.common.formatFileSize
 import com.mobileclaw.ui.common.friendlySkillDescription
+import com.mobileclaw.ui.common.ImageFileAttachmentCard
 import com.mobileclaw.ui.common.isImageFileAttachment
 import com.mobileclaw.ui.common.isStickerFileAttachment
+import com.mobileclaw.ui.common.isVideoFileAttachment
 import com.mobileclaw.ui.common.MarkdownText
+import com.mobileclaw.ui.common.MediaAttachmentCardFrame
 import com.mobileclaw.ui.common.mimeTypeSymbol
 import com.mobileclaw.ui.common.openFileAttachment
 import com.mobileclaw.ui.common.PickedChatInput
 import com.mobileclaw.ui.common.FullscreenImageDialog
+import com.mobileclaw.ui.common.VideoAttachmentCard
 import com.mobileclaw.ui.common.buildPickedAttachment
 import com.mobileclaw.ui.common.imageUriToDataUri
 import com.mobileclaw.ui.common.stableUiSignature
@@ -125,8 +131,6 @@ private val ExampleTasks = listOf(
     str(R.string.chat_e8ab7f),
     str(R.string.chat_07f7c7),
 )
-
-private const val CHAT_MINI_APP_PREVIEW_ASPECT_RATIO = 9f / 19.5f
 
 private data class HistoryScrollAnchor(
     val index: Int,
@@ -156,6 +160,7 @@ fun ChatScreen(
     onRenameSession: (sessionId: String, title: String) -> Unit = { _, _ -> },
     onOpenDesktop: () -> Unit = {},
     onSwitchRole: () -> Unit = {},
+    onCodexDesktopModeChange: (Boolean) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
     onLoadMoreHistory: () -> Unit = {},
     onCloseMiniAppPreview: () -> Unit = {},
@@ -300,18 +305,10 @@ fun ChatScreen(
     var selectedStepLog by remember { mutableStateOf<LogLine?>(null) }
     val previewAppId = uiState.chatMiniAppPreviewId
     val previewMode = uiState.chatMiniAppPreviewMode
-    var previewExpanded by remember(previewAppId) { mutableStateOf(false) }
-    var previewMinimized by remember(previewAppId) { mutableStateOf(false) }
-    var previewOffsetX by remember(previewAppId) { mutableFloatStateOf(0f) }
-    var previewOffsetY by remember(previewAppId) { mutableFloatStateOf(0f) }
-    var previewStatusText by remember(previewAppId, uiState.chatMiniAppPreviewStatus) {
-        mutableStateOf(uiState.chatMiniAppPreviewStatus.ifBlank { "Validation preview loading" })
-    }
-    var previewHealthy by remember(previewAppId, uiState.chatMiniAppPreviewHealthy) {
-        mutableStateOf(uiState.chatMiniAppPreviewHealthy)
-    }
-    val density = LocalDensity.current
-
+    val showInlineMiniAppPreview = previewAppId != null && previewMode == "validation"
+    val codexDesktopMode = uiState.codexDesktopMode
+    val codexDesktopConfigured = uiState.userConfigEntries["codex_desktop_endpoint"]?.value.orEmpty().isNotBlank() &&
+        uiState.userConfigEntries["codex_desktop_token"]?.value.orEmpty().isNotBlank()
     Column(modifier = Modifier.fillMaxSize().background(c.bg).imePadding()) {
         if (!classicMode) {
             TopBar(
@@ -319,6 +316,9 @@ fun ChatScreen(
                 onOpenDrawer = onOpenDrawer,
                 onRenameSession = { showRenameDialog = true },
                 onOpenDesktop = onOpenDesktop,
+                codexDesktopMode = codexDesktopMode,
+                codexDesktopConfigured = codexDesktopConfigured,
+                onToggleCodexDesktop = { onCodexDesktopModeChange(!codexDesktopMode) },
             )
         }
 
@@ -360,6 +360,15 @@ fun ChatScreen(
                     when (msg.role) {
                         MessageRole.USER  -> UserBubble(msg.text, msg.imageBase64, uiState.userAvatarUri)
                         MessageRole.AGENT -> {
+                            if (msg.isCodexDesktopMessage()) {
+                                CodexOutputBubble(
+                                    text = msg.text,
+                                    logLines = msg.logLines,
+                                    isRunning = false,
+                                    success = msg.logLines.none { it.type == LogType.ERROR },
+                                )
+                                return@itemsIndexed
+                            }
                             val messageRole = remember(msg.senderRoleId, msg.senderRoleName, msg.senderRoleAvatar, uiState.availableRoles, uiState.currentRole) {
                                 msg.senderDisplayRole(uiState.availableRoles, uiState.currentRole)
                             }
@@ -417,57 +426,103 @@ fun ChatScreen(
                     }
                 }
                 if (runState.isRunning) {
-                    itemsIndexed(
-                        stableLiveMessages,
-                        key = { idx, msg ->
-                            val firstLogId = msg.logLines.firstOrNull()?.entryId
-                            val lastLogId = msg.logLines.lastOrNull()?.entryId
-                            when {
-                                firstLogId != null || lastLogId != null -> "live_logs_${firstLogId.orEmpty()}_${lastLogId.orEmpty()}_$idx"
-                                msg.attachments.isNotEmpty() -> "live_attachment_${msg.attachments.joinToString("|") { it.stableUiSignature() }.hashCode()}_$idx"
-                                else -> "live_slot_$idx"
-                            }
-                        },
-                    ) { idx, msg ->
-                        val showHeader = idx == 0
-                        if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(0.93f),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                if (showHeader) {
-                                    AgentMessageHeader(
-                                        role = uiState.currentRole,
-                                        model = uiState.currentModel,
-                                        onPickModel = { showModelPicker = true },
-                                        onSwitchRole = onSwitchRole,
+                    if (codexDesktopMode) {
+                        item(key = "codex_live_output") {
+                            CodexOutputBubble(
+                                text = runState.streamingToken,
+                                logLines = runState.activeLogLines,
+                                isRunning = true,
+                                runStartedAt = runState.runStartedAt,
+                                success = null,
+                            )
+                        }
+                    } else {
+                        itemsIndexed(
+                            stableLiveMessages,
+                            key = { idx, msg ->
+                                val firstLogId = msg.logLines.firstOrNull()?.entryId
+                                val lastLogId = msg.logLines.lastOrNull()?.entryId
+                                when {
+                                    firstLogId != null || lastLogId != null -> "live_logs_${firstLogId.orEmpty()}_${lastLogId.orEmpty()}_$idx"
+                                    msg.attachments.isNotEmpty() -> "live_attachment_${msg.attachments.joinToString("|") { it.stableUiSignature() }.hashCode()}_$idx"
+                                    else -> "live_slot_$idx"
+                                }
+                            },
+                        ) { idx, msg ->
+                            val showHeader = idx == 0
+                            if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(0.93f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    if (showHeader) {
+                                        AgentMessageHeader(
+                                            role = uiState.currentRole,
+                                            model = uiState.currentModel,
+                                            onPickModel = { showModelPicker = true },
+                                            onSwitchRole = onSwitchRole,
+                                        )
+                                    }
+                                    RunningPhaseHint(
+                                        phase = inferRunningPhaseLabel(
+                                            logLines = runState.activeLogLines,
+                                            attachments = msg.attachments,
+                                            streamingThought = runState.streamingThought,
+                                            streamingToken = runState.streamingToken,
+                                        ),
+                                        runStartedAt = runState.runStartedAt,
+                                    )
+                                    AttachmentBubble(
+                                        attachments = msg.attachments,
+                                        onOpenHtmlViewer = onOpenHtmlViewer,
+                                        onOpenBrowser = onOpenBrowser,
+                                        onSendGoal = onSendGoal,
+                                        onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                     )
                                 }
-                                AttachmentBubble(
-                                    attachments = msg.attachments,
+                            } else {
+                                AgentBubble(
+                                    summary = msg.text,
+                                    logLines = msg.logLines,
+                                    attachments = emptyList(),
+                                    currentRole = uiState.currentRole,
+                                    currentModel = uiState.currentModel,
+                                    showHeader = showHeader,
+                                    isRunning = true,
+                                    showRunningPhaseHint = idx == 0,
+                                    runStartedAt = runState.runStartedAt,
+                                    streamingThought = runState.streamingThought,
+                                    streamingToken = runState.streamingToken,
+                                    onSwitchRole = onSwitchRole,
+                                    onPickModel = { showModelPicker = true },
                                     onOpenHtmlViewer = onOpenHtmlViewer,
                                     onOpenBrowser = onOpenBrowser,
                                     onSendGoal = onSendGoal,
                                     onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                    onSelectStep = { selectedStepLog = it },
                                 )
                             }
-                        } else {
-                            AgentBubble(
-                                summary = msg.text,
-                                logLines = msg.logLines,
-                                attachments = emptyList(),
-                                currentRole = uiState.currentRole,
-                                currentModel = uiState.currentModel,
-                                showHeader = showHeader,
-                                onSwitchRole = onSwitchRole,
-                                onPickModel = { showModelPicker = true },
-                                onOpenHtmlViewer = onOpenHtmlViewer,
-                                onOpenBrowser = onOpenBrowser,
-                                onSendGoal = onSendGoal,
-                                onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                                onSelectStep = { selectedStepLog = it },
-                            )
                         }
+                    }
+                }
+                if (showInlineMiniAppPreview) {
+                    item(key = "inline_miniapp_preview_$previewAppId") {
+                        InlineMiniAppPreviewCard(
+                            appId = previewAppId!!,
+                            mode = previewMode,
+                            status = uiState.chatMiniAppPreviewStatus.ifBlank { "Validation preview loading" },
+                            healthy = uiState.chatMiniAppPreviewHealthy,
+                            runStartedAt = runState.runStartedAt,
+                            onClose = onCloseMiniAppPreview,
+                            onAskAgent = onSendGoal,
+                            onOpenExternal = {
+                                onCloseMiniAppPreview()
+                                onOpenMiniAppFullscreen(previewAppId)
+                            },
+                            onStatusChanged = { status, healthy ->
+                                onMiniAppPreviewStatusChanged(previewAppId, status, healthy)
+                            },
+                        )
                     }
                 }
             }
@@ -510,143 +565,10 @@ fun ChatScreen(
                     }
                 }
             }
-            if (previewAppId != null) {
-                val previewWidthFraction = when {
-                    previewMinimized -> 0.28f
-                    previewExpanded -> 0.68f
-                    else -> 0.5f
-                }
-                val previewTitle = uiState.miniApps.firstOrNull { it.id == previewAppId }?.title ?: previewAppId
-                val previewSurfaceTitle = if (previewMode == "validation") "$previewTitle · Validate" else previewTitle
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val horizontalMarginPx = with(density) { 14.dp.toPx() }
-                    val bottomMarginPx = with(density) { (if (showJumpToLatest) 64.dp else 14.dp).toPx() }
-                    val maxPreviewWidthPx = constraints.maxWidth - horizontalMarginPx * 2f
-                    val minY = with(density) { 72.dp.toPx() }
-                    val maxPreviewHeightPx = (constraints.maxHeight - minY - bottomMarginPx).coerceAtLeast(0f)
-                    val cardWidthPx = if (previewMinimized) {
-                        constraints.maxWidth * previewWidthFraction
-                    } else {
-                        minOf(
-                            constraints.maxWidth * previewWidthFraction,
-                            maxPreviewWidthPx,
-                            maxPreviewHeightPx * CHAT_MINI_APP_PREVIEW_ASPECT_RATIO,
-                        )
-                    }
-                    val cardHeightPx = if (previewMinimized) {
-                        with(density) { 54.dp.toPx() }
-                    } else {
-                        cardWidthPx / CHAT_MINI_APP_PREVIEW_ASPECT_RATIO
-                    }
-                    val minX = horizontalMarginPx
-                    val maxX = (constraints.maxWidth - cardWidthPx - horizontalMarginPx).coerceAtLeast(minX)
-                    val maxY = (constraints.maxHeight - cardHeightPx - bottomMarginPx).coerceAtLeast(minY)
-                    val cardWidthDp = with(density) { cardWidthPx.toDp() }
-                    val cardHeightDp = with(density) { cardHeightPx.toDp() }
-                    LaunchedEffect(previewAppId, previewExpanded, maxX, maxY, minX, minY) {
-                        if (previewOffsetX == 0f && previewOffsetY == 0f) {
-                            previewOffsetX = maxX
-                            previewOffsetY = maxY
-                        } else {
-                            previewOffsetX = previewOffsetX.coerceIn(minX, maxX)
-                            previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .width(cardWidthDp)
-                            .height(cardHeightDp)
-                            .offset {
-                                IntOffset(
-                                    x = previewOffsetX.toInt(),
-                                    y = previewOffsetY.toInt(),
-                                )
-                            }
-                            .clipToBounds()
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(if (c.isDark) Color(0xFF080808) else Color.White)
-                            .border(0.8.dp, c.border.copy(alpha = 0.9f), RoundedCornerShape(22.dp))
-                            .pointerInput(previewAppId, previewExpanded, showJumpToLatest) {
-                                detectDragGestures(
-                                    onDragEnd = {
-                                        val midX = (minX + maxX) / 2f
-                                        previewOffsetX = if (previewOffsetX < midX) minX else maxX
-                                        previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
-                                    },
-                                ) { _, dragAmount ->
-                                    previewOffsetX = (previewOffsetX + dragAmount.x).coerceIn(minX, maxX)
-                                    previewOffsetY = (previewOffsetY + dragAmount.y).coerceIn(minY, maxY)
-                                }
-                            },
-                    ) {
-                        if (previewMinimized) {
-                            MiniAppPreviewPill(
-                                title = previewSurfaceTitle,
-                                status = previewStatusText,
-                                healthy = previewHealthy,
-                                onRestore = { previewMinimized = false },
-                                onClose = onCloseMiniAppPreview,
-                            )
-                        } else {
-                            MiniAppViewport(
-                                appId = previewAppId,
-                                onClose = onCloseMiniAppPreview,
-                                onAskAgent = onSendGoal,
-                                modifier = Modifier.fillMaxSize(),
-                                compact = true,
-                                validationMode = previewMode == "validation",
-                                onStatusChange = { status, healthy ->
-                                    previewStatusText = status
-                                    previewHealthy = healthy
-                                    onMiniAppPreviewStatusChanged(previewAppId, status, healthy)
-                                },
-                                onToggleExpanded = {
-                                    previewExpanded = !previewExpanded
-                                    previewOffsetX = if (previewOffsetX < (minX + maxX) / 2f) minX else maxX
-                                    previewOffsetY = previewOffsetY.coerceIn(minY, maxY)
-                                },
-                                onOpenExternal = {
-                                    onCloseMiniAppPreview()
-                                    onOpenMiniAppFullscreen(previewAppId)
-                                },
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(start = 10.dp, bottom = 10.dp)
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(if (c.isDark) Color(0xE6111111) else Color(0xF2FFFFFF))
-                                    .border(0.6.dp, c.border.copy(alpha = 0.7f), RoundedCornerShape(999.dp))
-                                    .clickable { previewMinimized = true }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowDown,
-                                        contentDescription = null,
-                                        tint = c.subtext,
-                                        modifier = Modifier.size(14.dp),
-                                    )
-                                    Text(
-                                        if (previewMode == "validation") "Hide preview" else "Minimize",
-                                        color = c.subtext,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
         InputBar(
             input = input,
             isRunning = runState.isRunning,
+            codexDesktopMode = codexDesktopMode,
             supportsMultimodal = uiState.supportsMultimodal,
             attachedImageBase64 = uiState.inputImageBase64,
             attachedFile = uiState.inputFileAttachment,
@@ -998,6 +920,83 @@ private fun DetailLabelRow(title: String, content: String) {
 }
 
 @Composable
+private fun InlineMiniAppPreviewCard(
+    appId: String,
+    mode: String,
+    status: String,
+    healthy: Boolean,
+    runStartedAt: Long,
+    onClose: () -> Unit,
+    onAskAgent: (String) -> Unit,
+    onOpenExternal: () -> Unit,
+    onStatusChanged: (String, Boolean) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val elapsedLabel = rememberRunningElapsedLabel(runStartedAt)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (healthy) Color(0xFF56D6BA) else Color(0xFFFF8A65)),
+                )
+                Text(
+                    text = if (mode == "validation") "MiniAPP validation preview" else "MiniAPP preview",
+                    color = c.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                text = buildString {
+                    append(status)
+                    if (elapsedLabel.isNotBlank()) append(" · ").append(elapsedLabel)
+                },
+                color = c.subtext,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(296.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(if (c.isDark) Color(0xFF0B0B0B) else Color.White)
+                .border(0.8.dp, c.border.copy(alpha = 0.9f), RoundedCornerShape(24.dp)),
+        ) {
+            MiniAppViewport(
+                appId = appId,
+                onClose = onClose,
+                onAskAgent = onAskAgent,
+                modifier = Modifier.fillMaxSize(),
+                compact = true,
+                validationMode = mode == "validation",
+                onStatusChange = onStatusChanged,
+                onMinimize = onClose,
+                onToggleExpanded = onOpenExternal,
+                onOpenExternal = onOpenExternal,
+            )
+        }
+    }
+}
+
+@Composable
 private fun MiniAppPreviewPill(
     title: String,
     status: String,
@@ -1067,6 +1066,9 @@ private fun TopBar(
     onOpenDrawer: () -> Unit,
     onRenameSession: () -> Unit,
     onOpenDesktop: () -> Unit,
+    codexDesktopMode: Boolean = false,
+    codexDesktopConfigured: Boolean = false,
+    onToggleCodexDesktop: () -> Unit = {},
     classicMode: Boolean = false,
 ) {
     val c = LocalClawColors.current
@@ -1100,6 +1102,11 @@ private fun TopBar(
                 )
             }
             if (!classicMode) {
+                CodexDesktopModePill(
+                    enabled = codexDesktopMode,
+                    configured = codexDesktopConfigured,
+                    onClick = onToggleCodexDesktop,
+                )
                 IconButton(onClick = onOpenDesktop) {
                     Icon(Icons.Outlined.GridView, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
                 }
@@ -1108,6 +1115,52 @@ private fun TopBar(
             }
         }
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
+    }
+}
+
+@Composable
+private fun CodexDesktopModePill(
+    enabled: Boolean,
+    configured: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val bg = when {
+        enabled -> c.text
+        configured -> c.cardAlt
+        else -> c.cardAlt.copy(alpha = 0.55f)
+    }
+    val fg = if (enabled) c.bg else c.text
+    Row(
+        modifier = Modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(0.5.dp, if (enabled) c.text else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Box(
+            Modifier.size(6.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        enabled -> Color(0xFFC7F43A)
+                        configured -> c.subtext.copy(alpha = 0.65f)
+                        else -> c.subtext.copy(alpha = 0.3f)
+                    }
+                )
+        )
+        Text(
+            text = "Codex",
+            color = fg,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1443,6 +1496,262 @@ private fun ChatMessage.senderDisplayRole(
 private fun ChatMessage.sameSenderAs(other: ChatMessage): Boolean =
     senderRoleId.ifBlank { senderRoleName } == other.senderRoleId.ifBlank { other.senderRoleName }
 
+private fun ChatMessage.isCodexDesktopMessage(): Boolean =
+    logLines.any { it.skillId == "codex_desktop" } ||
+        senderRoleId == "codex_desktop" ||
+        senderRoleName.equals("Codex", ignoreCase = true)
+
+private data class CodexStepDisplay(
+    val label: String,
+    val detail: String,
+    val isRunning: Boolean,
+)
+
+@Composable
+private fun CodexOutputBubble(
+    text: String,
+    logLines: List<LogLine>,
+    isRunning: Boolean,
+    runStartedAt: Long = 0L,
+    success: Boolean? = null,
+) {
+    val c = LocalClawColors.current
+    val elapsed = rememberRunningElapsedLabel(runStartedAt)
+    val cleanedText = remember(text) { cleanCodexDisplayText(text) }
+    val progressLines = remember(logLines) { codexProgressLines(logLines) }
+    val progressSteps = remember(progressLines) { progressLines.map { it.toCodexStepDisplay() } }
+    val displayText = when {
+        cleanedText.isNotBlank() -> cleanedText
+        progressLines.isNotEmpty() && isRunning -> ""
+        isRunning -> "等待 Codex 输出..."
+        else -> "Codex 没有返回内容。"
+    }
+    val statusText = when {
+        isRunning -> "Working"
+        success == false -> "Failed"
+        else -> "Done"
+    }
+    val statusColor = when {
+        isRunning -> Color(0xFFC7F43A)
+        success == false -> c.red
+        else -> c.text
+    }
+    val panelShape = RoundedCornerShape(22.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.96f)
+            .padding(horizontal = 2.dp, vertical = 4.dp)
+            .clip(panelShape)
+            .background(if (c.isDark) Color(0xFF0E0E0E) else Color(0xFFFAFAF8))
+            .border(0.7.dp, if (c.isDark) Color(0xFF242424) else Color(0xFFE8E8E8), panelShape)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(statusColor),
+            )
+            Text(
+                text = "CODEX",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
+            Text(
+                text = statusText,
+                color = if (success == false) c.red else c.subtext,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (isRunning && elapsed.isNotBlank()) {
+                Text(
+                    text = elapsed,
+                    color = c.subtext.copy(alpha = 0.72f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (progressSteps.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                progressSteps.forEachIndexed { index, step ->
+                    CodexProgressRow(
+                        step = step,
+                        isFirst = index == 0,
+                        isLast = index == progressSteps.lastIndex,
+                    )
+                }
+            }
+        }
+        if (displayText.isNotBlank()) {
+            if (progressSteps.isNotEmpty()) {
+                HorizontalDivider(color = c.border.copy(alpha = 0.7f), thickness = 0.7.dp)
+            }
+            Text(
+                text = if (isRunning && cleanedText.isNotBlank()) "Streaming response" else "Response",
+                color = c.subtext,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            SelectionContainer {
+                MarkdownText(
+                    text = displayText,
+                    color = c.text,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                )
+            }
+        } else if (isRunning) {
+            Text(
+                text = "Waiting for Codex response",
+                color = c.subtext.copy(alpha = 0.74f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
+        }
+    }
+}
+
+private fun codexProgressLines(logLines: List<LogLine>): List<LogLine> =
+    logLines
+        .filter { it.skillId == "codex_desktop" && it.text.isNotBlank() }
+        .filterNot { it.text == "发送到电脑 Codex" || it.text == "电脑 Codex 已返回结果" || it.text == "电脑 Codex 执行失败" }
+        .takeLast(12)
+
+private fun LogLine.toCodexStepDisplay(): CodexStepDisplay {
+    val raw = text.trim()
+    val split = raw.split(":", limit = 2)
+    val label = split.firstOrNull()?.trim()?.ifBlank { "Working" } ?: "Working"
+    val detail = details.firstOrNull { it.isNotBlank() }?.trim()
+        ?: split.getOrNull(1)?.trim()
+        ?: ""
+    return CodexStepDisplay(
+        label = label,
+        detail = detail,
+        isRunning = isRunning,
+    )
+}
+
+@Composable
+private fun CodexProgressRow(
+    step: CodexStepDisplay,
+    isFirst: Boolean,
+    isLast: Boolean,
+) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(
+            modifier = Modifier.width(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                modifier = Modifier
+                    .height(8.dp)
+                    .width(1.dp)
+                    .background(if (isFirst) Color.Transparent else c.border.copy(alpha = 0.75f)),
+            )
+            Box(
+                modifier = Modifier
+                    .size(if (step.isRunning) 8.dp else 6.dp)
+                    .clip(CircleShape)
+                    .background(if (step.isRunning) Color(0xFFC7F43A) else c.text.copy(alpha = 0.78f)),
+            )
+            Box(
+                modifier = Modifier
+                    .height(34.dp)
+                    .width(1.dp)
+                    .background(if (isLast) Color.Transparent else c.border.copy(alpha = 0.75f)),
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = step.label,
+                color = if (step.isRunning) c.text else c.subtext.copy(alpha = 0.82f),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                fontWeight = if (step.isRunning) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (step.detail.isNotBlank()) {
+                Text(
+                    text = step.detail,
+                    color = c.subtext.copy(alpha = 0.68f),
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
+
+private fun cleanCodexDisplayText(text: String): String {
+    if (text.isBlank()) return ""
+    val timestampNoise = Regex("""^\d{4}-\d{2}-\d{2}T.*\b(WARN|INFO|DEBUG|TRACE)\b""")
+    val envKeyPattern = Regex(
+        """^(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id):\s""",
+        RegexOption.IGNORE_CASE,
+    )
+    val cleaned = mutableListOf<String>()
+    var skippingHeader = false
+    text.replace("\r\n", "\n").lineSequence().forEach { raw ->
+        val line = raw.trimEnd()
+        val trimmed = line.trim()
+        if (trimmed.isBlank()) {
+            if (cleaned.isNotEmpty()) cleaned += raw
+            return@forEach
+        }
+        when {
+            trimmed.startsWith("{\"type\":\"thread.") ||
+                trimmed.startsWith("{\"type\":\"turn.") ||
+                trimmed.startsWith("{\"type\":\"item.") -> return@forEach
+            trimmed == "Reading additional input from stdin..." -> return@forEach
+            timestampNoise.containsMatchIn(trimmed) -> return@forEach
+            trimmed.startsWith("OpenAI Codex", ignoreCase = true) -> {
+                skippingHeader = true
+                return@forEach
+            }
+            skippingHeader && (trimmed == "--------" || envKeyPattern.containsMatchIn(trimmed)) -> return@forEach
+            skippingHeader -> skippingHeader = false
+            trimmed == "user" -> return@forEach
+            trimmed == "assistant" -> {
+                cleaned.clear()
+                return@forEach
+            }
+            trimmed.startsWith("deprecated:", ignoreCase = true) -> return@forEach
+            trimmed.startsWith("Codex finished with no output", ignoreCase = true) -> return@forEach
+            envKeyPattern.containsMatchIn(trimmed) -> return@forEach
+            trimmed == "--------" -> return@forEach
+            else -> cleaned += raw
+        }
+    }
+    return cleaned.joinToString("\n").trim()
+}
+
 @Composable
 private fun AgentMessageHeader(
     role: Role,
@@ -1476,7 +1785,7 @@ private fun AgentMessageHeader(
             if (showModel && model.isNotBlank()) {
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = model.substringAfterLast("/").take(20) + " ▾",
+                    text = chatModelChipLabel(model),
                     fontSize = 10.sp,
                     color = c.subtext,
                     maxLines = 1,
@@ -1511,6 +1820,11 @@ private fun AgentBubble(
     currentRole: Role = Role.DEFAULT,
     currentModel: String = "",
     showHeader: Boolean = true,
+    isRunning: Boolean = false,
+    showRunningPhaseHint: Boolean = true,
+    runStartedAt: Long = 0L,
+    streamingThought: String = "",
+    streamingToken: String = "",
     onSwitchRole: () -> Unit = {},
     onPickModel: () -> Unit = {},
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
@@ -1528,6 +1842,15 @@ private fun AgentBubble(
     val (cleanSummary, quickReplies) = remember(summary) { parseQuickReplies(summary) }
     val shouldCollapseSummary = cleanSummary.length > 420 || uiFencePattern.containsMatchIn(cleanSummary)
     val visibleSummary = if (shouldCollapseSummary && !summaryExpanded) textPreview(cleanSummary) else cleanSummary
+    val runningElapsedLabel = rememberRunningElapsedLabel(runStartedAt)
+    val livePhaseLabel = remember(logLines, attachments, streamingThought, streamingToken) {
+        inferRunningPhaseLabel(
+            logLines = logLines,
+            attachments = attachments,
+            streamingThought = streamingThought,
+            streamingToken = streamingToken,
+        )
+    }
 
     Column(modifier = Modifier.fillMaxWidth(0.93f)) {
         // Role header: avatar + name + model chip
@@ -1627,6 +1950,14 @@ private fun AgentBubble(
             }
         }
 
+        if (isRunning && showRunningPhaseHint && steps.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            RunningPhaseHint(
+                phase = livePhaseLabel,
+                runStartedAt = runStartedAt,
+            )
+        }
+
         if (steps.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
 
@@ -1687,6 +2018,14 @@ private fun AgentBubble(
                 )
             }
 
+            if (isRunning && showRunningPhaseHint && runningElapsedLabel.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                RunningPhaseHint(
+                    phase = livePhaseLabel,
+                    runStartedAt = runStartedAt,
+                )
+            }
+
             AnimatedVisibility(
                 visible = stepsExpanded,
                 enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(150)),
@@ -1715,6 +2054,61 @@ private fun AgentBubble(
             }
         }
     }
+}
+
+@Composable
+private fun RunningPhaseHint(
+    phase: String,
+    runStartedAt: Long,
+) {
+    val c = LocalClawColors.current
+    val elapsed = rememberRunningElapsedLabel(runStartedAt)
+    if (elapsed.isBlank()) return
+    Row(
+        modifier = Modifier
+            .padding(start = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(c.accent.copy(alpha = 0.8f)),
+        )
+        Text(
+            text = "$phase $elapsed",
+            color = c.subtext,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun rememberRunningElapsedLabel(runStartedAt: Long): String {
+    if (runStartedAt <= 0L) return ""
+    val value = produceState(initialValue = formatElapsedShort((System.currentTimeMillis() - runStartedAt).coerceAtLeast(0L)), runStartedAt) {
+        while (true) {
+            value = formatElapsedShort((System.currentTimeMillis() - runStartedAt).coerceAtLeast(0L))
+            delay(1000)
+        }
+    }
+    return value.value
+}
+
+private fun inferRunningPhaseLabel(
+    logLines: List<LogLine>,
+    attachments: List<SkillAttachment>,
+    streamingThought: String,
+    streamingToken: String,
+): String {
+    if (streamingToken.isNotBlank()) return "回复中"
+    if (attachments.isNotEmpty()) return "处理中"
+    if (logLines.lastOrNull { it.isRunning }?.type == LogType.ACTION) return "执行中"
+    if (streamingThought.isNotBlank()) return "思考中"
+    if (logLines.any { it.type == LogType.THINKING }) return "思考中"
+    return "处理中"
 }
 
 @Composable
@@ -1789,7 +2183,7 @@ private fun ActiveTaskBubble(
                 Text(currentRole.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = currentModel.substringAfterLast("/").take(20) + " ▾",
+                    text = chatModelChipLabel(currentModel),
                     fontSize = 10.sp,
                     color = c.subtext,
                     modifier = Modifier.clickable { onPickModel() },
@@ -1955,6 +2349,11 @@ private fun ActiveTaskBubble(
 
         }
     }
+}
+
+private fun chatModelChipLabel(model: String): String {
+    val short = model.substringAfterLast("/").substringAfter("local:").take(20)
+    return "Chat · $short ▾"
 }
 
 // ── Log Line ──────────────────────────────────────────────────────────────────
@@ -2434,29 +2833,34 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
         val ratio = remember(bitmap) {
             (bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
         }
-        Column(
-            modifier = Modifier
-                .widthIn(max = 260.dp)
-                .clickable { showFullscreen = true },
+        MediaAttachmentCardFrame(
+            maxWidthDp = 260.dp,
+            cornerRadiusDp = 16.dp,
+            onClick = { showFullscreen = true },
         ) {
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = attachment.prompt,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(ratio)
-                    .clip(RoundedCornerShape(16.dp)),
+                    .aspectRatio(ratio),
                 contentScale = ContentScale.Fit,
             )
-            if (!attachment.prompt.isNullOrBlank()) {
-                Text(
-                    attachment.prompt,
-                    color = c.subtext,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            }
+            AttachmentMetaChip(
+                text = str(R.string.chat_20def7),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(10.dp),
+            )
+        }
+        if (!attachment.prompt.isNullOrBlank()) {
+            Text(
+                attachment.prompt,
+                color = c.subtext,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
         }
         if (showFullscreen) {
             FullscreenImageDialog(bitmap = bitmap, onDismiss = { showFullscreen = false })
@@ -2468,46 +2872,19 @@ private fun GeneratedImageCard(attachment: SkillAttachment.ImageData) {
 private fun FileAttachmentCard(attachment: SkillAttachment.FileData, context: android.content.Context) {
     val c = LocalClawColors.current
     val isImage = isImageFileAttachment(attachment)
+    val isVideo = isVideoFileAttachment(attachment)
 
     if (isImage) {
         ImageAttachmentCard(attachment, context, c)
+    } else if (isVideo) {
+        VideoAttachmentCard(
+            attachment = attachment,
+            maxWidthDp = 260.dp,
+            cornerRadiusDp = 16.dp,
+            onOpenExternally = { openFileAttachment(context, attachment) },
+        )
     } else {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
-                .background(if (c.isDark) Color(0xFF141414) else Color.White)
-                .clickable { openFileAttachment(context, attachment) }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.blue.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                ClawSymbolIcon(
-                    symbol = mimeTypeSymbol(attachment.mimeType),
-                    tint = c.blue,
-                    modifier = Modifier.size(19.dp),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(attachment.name, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    "${formatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}",
-                    color = c.subtext,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            ClawSymbolIcon("link", tint = c.subtext, modifier = Modifier.size(17.dp))
-        }
+        DocumentAttachmentCard(attachment = attachment, context = context, c = c)
     }
 }
 
@@ -2609,53 +2986,14 @@ private fun ImageAttachmentCard(
     context: android.content.Context,
     c: ClawColors,
 ) {
-    val bitmap by produceState<Bitmap?>(null, attachment.path) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            decodeFileAttachmentBitmap(context, attachment, maxPx = 1200)
-        }
-    }
-    var showFullscreen by remember { mutableStateOf(false) }
     val isSticker = isStickerFileAttachment(attachment)
     val maxThumbWidth = if (isSticker) 144.dp else 220.dp
-
-    Box(
-        modifier = Modifier
-            .widthIn(max = maxThumbWidth)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { if (bitmap != null) showFullscreen = true else openFileAttachment(context, attachment) },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            val ratio = remember(bitmap) {
-                (bitmap!!.width.toFloat() / bitmap!!.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
-            }
-            Image(
-                bitmap = bitmap!!.asImageBitmap(),
-                contentDescription = attachment.name,
-                modifier = Modifier
-                    .width(maxThumbWidth)
-                    .aspectRatio(ratio)
-                    .clip(RoundedCornerShape(if (isSticker) 8.dp else 14.dp)),
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(if (c.isDark) Color(0xFF141414) else Color.White)
-                    .border(0.6.dp, c.border.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ClawSymbolIcon("image", tint = c.subtext, modifier = Modifier.size(18.dp))
-                Text(str(R.string.chat_image_unavailable), color = c.subtext, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-    }
-    if (bitmap != null && showFullscreen) {
-        FullscreenImageDialog(bitmap = bitmap!!, onDismiss = { showFullscreen = false })
-    }
+    ImageFileAttachmentCard(
+        attachment = attachment,
+        context = context,
+        maxThumbWidth = maxThumbWidth,
+        cornerRadiusDp = if (isSticker) 8.dp else 14.dp,
+    )
 }
 
 @Composable
@@ -3056,6 +3394,7 @@ private fun stabilizeRunningMessages(
 private fun InputBar(
     input: String,
     isRunning: Boolean,
+    codexDesktopMode: Boolean,
     supportsMultimodal: Boolean,
     attachedImageBase64: String?,
     attachedFile: FileAttachment?,
@@ -3172,7 +3511,8 @@ private fun InputBar(
                 onValueChange = onInputChange,
                 placeholder = {
                     Text(
-                        if (isRunning) str(R.string.input_placeholder_running)
+                        if (isRunning && codexDesktopMode) "Codex 正在工作中..."
+                        else if (isRunning) str(R.string.input_placeholder_running)
                         else str(R.string.input_placeholder),
                         color = c.subtext,
                         fontSize = 13.sp,

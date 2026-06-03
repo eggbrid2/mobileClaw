@@ -2,6 +2,7 @@ package com.mobileclaw.ui.chat
 
 import com.mobileclaw.R
 import com.mobileclaw.skill.SkillAttachment
+import com.mobileclaw.ui.common.sanitizeUserFacingNarration
 import com.mobileclaw.str
 
 data class AgentSenderMeta(
@@ -26,7 +27,7 @@ internal fun buildNarrativeAgentMessages(
     var hasStartedExecution = false
 
     fun addTextMessage(text: String, lines: List<LogLine> = emptyList()) {
-        val clean = text.trim()
+        val clean = sanitizeUserFacingNarration(text.trim())
         if (clean.isBlank() && lines.isEmpty()) return
         messages += ChatMessage(
             role = MessageRole.AGENT,
@@ -150,7 +151,7 @@ private fun composePlanningNarratives(
         .distinctBy { it.normalizeMeaning() }
     val nextSteps = lines
         .flatMap { line -> line.details.filter { it.startsWith("接下来：") || it.startsWith("后续计划：") } }
-        .map { it.substringAfter("：").trim() }
+        .map { sanitizeUserFacingNarration(it.substringAfter("：").trim()) }
         .flatMap { it.split('；', '\n').map(String::trim) }
         .filter { it.isNotBlank() }
         .filterNot { isGenericProcessSentence(it) }
@@ -192,21 +193,21 @@ private fun composeActionNarrative(lines: List<LogLine>, isRunning: Boolean): St
     val purpose = lines.firstDetailValue("本步目的")
     val result = lines.lastMeaningfulResult()
     val next = lines.firstDetailValue("接下来")
-    val fallback = action?.text?.trim().orEmpty()
+    val fallback = sanitizeUserFacingNarration(action?.text?.trim().orEmpty())
 
     return buildString {
-        append(purpose.ifBlank { fallback }.ifBlank { str(R.string.chat_working_update) })
+        append(sanitizeUserFacingNarration(purpose.ifBlank { fallback }.ifBlank { str(R.string.chat_working_update) }))
         if (result.isNotBlank() &&
             !sameMeaning(result, purpose) &&
             !sameMeaning(result, fallback) &&
             !isGenericProcessSentence(result)
         ) {
             append("\n")
-            append(result)
+            append(sanitizeUserFacingNarration(result))
         }
         if (!isRunning && next.isNotBlank() && !isGenericProcessSentence(next) && !sameMeaning(next, purpose)) {
             append("\n")
-            append(next)
+            append(sanitizeUserFacingNarration(next))
         }
     }.trim()
 }
@@ -214,12 +215,12 @@ private fun composeActionNarrative(lines: List<LogLine>, isRunning: Boolean): St
 private fun composeStandaloneNarrative(line: LogLine): String {
     val purpose = line.details.firstValue("本步目的")
     val result = line.details.firstValue("本步结果")
-    return when (line.type) {
+    return sanitizeUserFacingNarration(when (line.type) {
         LogType.THINKING, LogType.INFO -> purpose.ifBlank { line.text }
         LogType.OBSERVATION -> result.ifBlank { line.text }
         LogType.ERROR, LogType.SUCCESS -> line.text.ifBlank { result }
         LogType.ACTION -> purpose.ifBlank { line.text }
-    }.trim()
+    }.trim())
 }
 
 private fun composeCheckpointNarrative(

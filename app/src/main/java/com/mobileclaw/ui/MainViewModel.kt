@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.ClawApplication
@@ -29,6 +30,13 @@ import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.agent.TaskToolPolicy
 import com.mobileclaw.agent.TaskType
 import com.mobileclaw.config.ConfigSnapshot
+import com.mobileclaw.config.GatewayConfig
+import com.mobileclaw.config.GatewayCapabilityConfig
+import com.mobileclaw.config.capabilityApiKey
+import com.mobileclaw.config.capabilityEndpoint
+import com.mobileclaw.config.capabilityModel
+import com.mobileclaw.config.hasCapability
+import com.mobileclaw.config.supportsCapabilityMultimodal
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.Message
 import com.mobileclaw.llm.OpenAiGateway
@@ -52,6 +60,8 @@ import com.mobileclaw.skill.builtin.VirtualDisplaySetupSkill
 import com.mobileclaw.skill.builtin.ClipboardSkill
 import com.mobileclaw.skill.builtin.ChineseBqbStickerSkill
 import com.mobileclaw.skill.builtin.ChineseBqbStickerRepository
+import com.mobileclaw.skill.builtin.CloudinaryImageUploader
+import com.mobileclaw.skill.builtin.CodexDesktopSkill
 import com.mobileclaw.skill.builtin.CreateFileSkill
 import com.mobileclaw.skill.builtin.CreateHtmlSkill
 import com.mobileclaw.skill.builtin.DeviceInfoSkill
@@ -75,6 +85,8 @@ import com.mobileclaw.skill.builtin.PermissionSkill
 import com.mobileclaw.skill.builtin.PhoneStatusSkill
 import com.mobileclaw.skill.builtin.RoleManagerSkill
 import com.mobileclaw.skill.builtin.SessionManagerSkill
+import com.mobileclaw.skill.builtin.VideoGenerationTaskManager
+import com.mobileclaw.skill.builtin.VideoTaskStatuses
 import com.mobileclaw.skill.builtin.WorkspaceManagerSkill
 import com.mobileclaw.ui.chat.AiQuizQuestion
 import com.mobileclaw.ui.chat.AgentSenderMeta
@@ -107,6 +119,10 @@ import com.mobileclaw.ui.chat.SessionRunState
 import com.mobileclaw.ui.chat.currentRunState
 import com.mobileclaw.ui.group.buildGroupTurnInstruction
 import com.mobileclaw.ui.group.fallbackGroupReply
+import com.mobileclaw.ui.image.ImageGenerationRequest
+import com.mobileclaw.ui.image.ImagePromptAiAction
+import com.mobileclaw.ui.video.VideoGenerationRequest
+import com.mobileclaw.ui.video.VideoPromptAiAction
 import com.mobileclaw.workspace.WorkspaceArtifactState
 import com.mobileclaw.workspace.WorkspaceCheckpoint
 import com.mobileclaw.workspace.WorkspaceEvent
@@ -120,6 +136,7 @@ import com.mobileclaw.skill.builtin.SeeScreenSkill
 import com.mobileclaw.skill.builtin.SkillCheckSkill
 import com.mobileclaw.skill.builtin.SkillMarketSkill
 import com.mobileclaw.skill.builtin.AppManagerSkill
+import com.mobileclaw.skill.builtin.AiHomeAssetSkill
 import com.mobileclaw.skill.builtin.SwitchModelSkill
 import com.mobileclaw.skill.builtin.SwitchRoleSkill
 import com.mobileclaw.skill.builtin.TapSkill
@@ -163,6 +180,7 @@ import com.mobileclaw.ui.profile.ProfileDimension
 import com.mobileclaw.ui.workspace.SemanticFactLike
 import com.mobileclaw.ui.workspace.WorkspaceRuntimeCoordinator
 import com.mobileclaw.ui.workspace.WorkspaceRuntimeRecorder
+import com.mobileclaw.vpn.AppHttpProxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -175,8 +193,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 import java.util.UUID
 import com.mobileclaw.R
 import com.mobileclaw.str
@@ -186,6 +209,7 @@ private const val ROLE_SPRITE_STYLE_VERSION = "role_self_sprite_v1"
 private const val TAG = "MainViewModel"
 private const val MINI_APP_AUTO_REPAIR_MAX_ATTEMPTS = 2
 private const val LLM_RETRY_MAX_ATTEMPTS = 2
+private const val VIDEO_TASK_AUTO_REFRESH_INTERVAL_MS = 12_000L
 
 // 聊天内 MiniAPP 预览如果暴露出运行问题，这里把“继续修”的意图挂起到 session 级队列里。
 // 这样不用把 UI 状态硬塞回正在执行的 runtime，也不会要求用户手动再说一次“继续”。
@@ -197,6 +221,19 @@ private data class PendingMiniAppAutoRepair(
     val enqueuedAt: Long = System.currentTimeMillis(),
 )
 
+private fun codexDesktopExecutionGoal(userGoal: String): String = """
+Use the codex_desktop tool to run this task on the user's desktop Codex CLI.
+
+Required behavior:
+- Call codex_desktop with action="run".
+- Put the user's request in the prompt parameter.
+- Do not use Android shell, Android files, phone UI control, or local Python for this task.
+- If the bridge is not configured or unreachable, report that clearly and ask the user to configure Codex Bridge.
+
+User request:
+$userGoal
+""".trimIndent()
+
 class MainViewModel : ViewModel() {
 
     private val app = ClawApplication.instance
@@ -205,6 +242,7 @@ class MainViewModel : ViewModel() {
     private val loader = SkillLoader(app, registry)
     private val overlay = app.overlayManager
     private val auroraOverlay = app.auroraOverlayManager
+    private val miniAppValidationOverlay = app.miniAppValidationOverlayManager
     private val episodicMemory = EpisodicMemory(app.database.episodeDao(), app.createLlmGateway())
     private val conversationMemory = app.conversationMemory
     private val profileExtractor = app.userProfileExtractor
@@ -219,13 +257,18 @@ class MainViewModel : ViewModel() {
     // 只对模型异常做轻量重试，避免正常业务失败也被机械重复执行。
     private fun shouldRetryAfterAgentRun(result: com.mobileclaw.agent.AgentResult?, error: Throwable?): Boolean {
         if (error is kotlinx.coroutines.CancellationException) return false
+        if (isNonRetryableLlmFailure(error?.message ?: result?.summary.orEmpty())) return false
         if (error != null) return true
-        return result?.success == false && result.summary.trim().startsWith("LLM error:")
+        return result?.success == false &&
+            result.summary.trim().startsWith("LLM error:") &&
+            !isNonRetryableLlmFailure(result.summary)
     }
 
     // 直接聊天没有工具链保护，所以同样补一层模型异常重试。
     private fun shouldRetryDirectChat(error: Throwable?): Boolean =
-        error != null && error !is kotlinx.coroutines.CancellationException
+        error != null &&
+            error !is kotlinx.coroutines.CancellationException &&
+            !isNonRetryableLlmFailure(error.message.orEmpty())
 
     // 每次重试前都显式告诉用户当前不是卡死，而是在重新发起这一轮模型请求。
     private fun appendRetryLogLine(sessionId: String, message: String) {
@@ -305,6 +348,18 @@ class MainViewModel : ViewModel() {
         )
     }
     private val taskOrchestrator = TaskOrchestrator()
+    private val videoTaskManager = VideoGenerationTaskManager(app, database.videoGenerationTaskDao())
+    private val videoImageUploader = CloudinaryImageUploader(app, app.userConfig)
+    private val videoPromptLlmClient = OkHttpClient.Builder()
+        .proxySelector(AppHttpProxy.proxySelector())
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .build()
+    private val codexBridgeStreamClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     // Mini-app open requests emitted by AppManagerSkill
     private val appOpenRequests = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -348,6 +403,7 @@ class MainViewModel : ViewModel() {
     private val autoPortraitRequestedRoleIds = mutableSetOf<String>()
     private val autoPortraitQueue = ArrayDeque<Role>()
     private var autoPortraitJob: Job? = null
+    private var videoTaskAutoRefreshJob: Job? = null
 
     private fun updateSession(sessionId: String, transform: (SessionRunState) -> SessionRunState) {
         _uiState.update { state ->
@@ -362,11 +418,12 @@ class MainViewModel : ViewModel() {
         _uiState.update { it.copy(allSkills = registry.userVisibleMetasWithTaxonomy()) }
         loadMiniApps()
         loadUserAvatar()
+        loadVideoTasks()
 
         viewModelScope.launch {
             config.configFlow.collect { snap ->
                 _uiState.update { it.copy(
-                    isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
+                    isConfigured = (snap.chatEndpoint.isNotBlank() && snap.chatApiKey.isNotBlank()) ||
                         ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
                     currentModel = snap.model,
                     supportsMultimodal = supportsCurrentMultimodal(snap),
@@ -379,7 +436,7 @@ class MainViewModel : ViewModel() {
                 val snap = config.snapshot()
                 _uiState.update { it.copy(
                     localModels = models,
-                    isConfigured = (snap.endpoint.isNotBlank() && snap.apiKey.isNotBlank()) ||
+                    isConfigured = (snap.chatEndpoint.isNotBlank() && snap.chatApiKey.isNotBlank()) ||
                         ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
                     supportsMultimodal = supportsCurrentMultimodal(snap),
                 ) }
@@ -389,6 +446,16 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             app.appForeground.collect { foreground ->
                 onAppForegroundChanged(foreground)
+            }
+        }
+
+        miniAppValidationOverlay.onStatusChanged = { appId, status, healthy ->
+            updateChatMiniAppPreviewStatus(appId, status, healthy)
+        }
+        miniAppValidationOverlay.onDismissed = { appId ->
+            val snapshot = _uiState.value
+            if (snapshot.chatMiniAppPreviewId == appId) {
+                clearChatMiniAppPreview()
             }
         }
 
@@ -407,12 +474,12 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             appOpenRequests.collect { appId ->
                 loadMiniApps()
-                val shouldPreviewInChat = app.isAppForeground() && _uiState.value.currentPage == AppPage.CHAT
+                val shownInOverlay = miniAppValidationOverlay.show(appId, validationMode = true)
                 _uiState.update {
-                    if (shouldPreviewInChat) {
+                    if (shownInOverlay) {
                         it.copy(
                             chatMiniAppPreviewId = appId,
-                            chatMiniAppPreviewMode = "validation",
+                            chatMiniAppPreviewMode = "overlay_validation",
                             chatMiniAppPreviewSessionId = it.currentSessionId,
                             chatMiniAppPreviewStatus = "Validation preview loading",
                             chatMiniAppPreviewHealthy = true,
@@ -420,11 +487,11 @@ class MainViewModel : ViewModel() {
                         )
                     } else {
                         it.copy(
-                            openAppId = appId,
-                            chatMiniAppPreviewId = null,
-                            chatMiniAppPreviewMode = "",
-                            chatMiniAppPreviewSessionId = null,
-                            chatMiniAppPreviewStatus = "",
+                            openAppId = null,
+                            chatMiniAppPreviewId = appId,
+                            chatMiniAppPreviewMode = "validation",
+                            chatMiniAppPreviewSessionId = it.currentSessionId,
+                            chatMiniAppPreviewStatus = "Validation preview loading",
                             chatMiniAppPreviewHealthy = true,
                         )
                     }
@@ -576,21 +643,50 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    private suspend fun createNewSessionInternal() {
+    fun createNewCodexDesktopSession() {
+        viewModelScope.launch(Dispatchers.IO) {
+            createNewSessionInternal(codexDesktopMode = true)
+        }
+    }
+
+    fun setCodexDesktopMode(enabled: Boolean) {
+        val sessionId = _uiState.value.currentSessionId
+        _uiState.update { state ->
+            state.copy(
+                codexDesktopMode = enabled,
+                codexDesktopSessionIds = if (enabled) {
+                    if (sessionId.isBlank()) state.codexDesktopSessionIds else state.codexDesktopSessionIds + sessionId
+                } else {
+                    if (sessionId.isBlank()) state.codexDesktopSessionIds else state.codexDesktopSessionIds - sessionId
+                },
+            )
+        }
+    }
+
+    private suspend fun createNewSessionInternal(codexDesktopMode: Boolean = false) {
         val id = UUID.randomUUID().toString()
         val roleId = _uiState.value.currentRole.id
         database.sessionDao().insert(SessionEntity(
             id = id,
-            title = str(R.string.vm_new_),
+            title = if (codexDesktopMode) "Codex 会话" else str(R.string.vm_new_),
             roleId = roleId,
         ))
-        _uiState.update { it.copy(currentSessionId = id) }
+        _uiState.update {
+            it.copy(
+                currentSessionId = id,
+                codexDesktopMode = codexDesktopMode,
+                codexDesktopSessionIds = if (codexDesktopMode) it.codexDesktopSessionIds + id else it.codexDesktopSessionIds - id,
+            )
+        }
         loadSessions()
     }
 
     fun loadSession(sessionId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            _uiState.update { it.copy(currentSessionId = sessionId) }
+            _uiState.update { it.copy(
+                currentSessionId = sessionId,
+                codexDesktopMode = sessionId in it.codexDesktopSessionIds,
+            ) }
             // Only load DB messages if the session is NOT currently running (running state is live)
             val isAlreadyRunning = _uiState.value.sessionStates[sessionId]?.isRunning == true
             if (!isAlreadyRunning) {
@@ -608,6 +704,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             database.sessionDao().delete(sessionId)
             database.sessionMessageDao().deleteForSession(sessionId)
+            _uiState.update { it.copy(codexDesktopSessionIds = it.codexDesktopSessionIds - sessionId) }
             if (_uiState.value.currentSessionId == sessionId) {
                 createNewSessionInternal()
             } else {
@@ -674,6 +771,7 @@ class MainViewModel : ViewModel() {
                 sessionId = sessionId,
                 role = "user",
                 text = userMsg.text,
+                attachmentsJson = serializeAttachments(userMsg.attachments),
                 imageBase64 = userMsg.imageBase64,
             ))
         }
@@ -713,6 +811,7 @@ class MainViewModel : ViewModel() {
             sessionId = sessionId,
             role = "user",
             text = userMsg.text,
+            attachmentsJson = serializeAttachments(userMsg.attachments),
             imageBase64 = userMsg.imageBase64,
         ))
 
@@ -832,6 +931,17 @@ class MainViewModel : ViewModel() {
         _uiState.update { it.copy(editingRole = role) }
         navigate(AppPage.ROLE_EDIT)
         if (_uiState.value.availableModels.isEmpty()) fetchModels()
+    }
+
+    fun copyBuiltinRoleForEditing(role: Role) {
+        val copyName = role.name.ifBlank { role.id } + str(R.string.role_copy_suffix)
+        editRole(
+            role.copy(
+                id = "custom_${UUID.randomUUID().toString().take(8)}",
+                name = copyName,
+                isBuiltin = false,
+            )
+        )
     }
 
     fun openRoleDetail(role: Role) {
@@ -1082,7 +1192,14 @@ class MainViewModel : ViewModel() {
             ?.takeIf { it.isNotBlank() && it.isSupportedImageModel() }
             ?.let { return it }
         val snap = config.snapshot()
-        val endpoint = (userConfig.get("image_api_endpoint")?.takeIf { it.isNotBlank() } ?: snap.endpoint).lowercase()
+        snap.imageModel
+            ?.takeIf { it.isNotBlank() && it.isSupportedImageModel() }
+            ?.let { return it }
+        val endpoint = (
+            snap.activeGateway?.capabilityEndpoint("image")?.takeIf { it.isNotBlank() }
+                ?: userConfig.get("image_api_endpoint")?.takeIf { it.isNotBlank() }
+                ?: snap.endpoint
+            ).lowercase()
         val currentModel = snap.model.takeIf { it.isNotBlank() }.orEmpty()
         return when {
             currentModel.isSupportedImageModel() -> currentModel
@@ -1284,6 +1401,11 @@ class MainViewModel : ViewModel() {
 
     fun runTask(goal: String) {
         val trimmed = goal.trim()
+        if (trimmed.isBlank()) return
+        if (_uiState.value.codexDesktopMode) {
+            runTaskInternal(trimmed)
+            return
+        }
         when {
             trimmed.startsWith(OPEN_ACCESSIBILITY_PREFIX) -> {
                 val originalGoal = trimmed.removePrefix(OPEN_ACCESSIBILITY_PREFIX).trim()
@@ -1448,6 +1570,7 @@ class MainViewModel : ViewModel() {
         val sessionId: String,
         val userMessage: ChatMessage,
         val imageBase64: String?,
+        val imageLocalPath: String,
         val fileAttachment: FileAttachment?,
     )
 
@@ -1456,17 +1579,23 @@ class MainViewModel : ViewModel() {
         if (goal.isBlank() || _uiState.value.sessionStates[sessionId]?.isRunning == true) return null
         val attachedImage = _uiState.value.inputImageBase64
         val attachedFile = _uiState.value.inputFileAttachment
+        val imageLocalPath = attachedImage?.let { persistUserImageForWorkspace(sessionId, it) }.orEmpty()
         val userMessage = ChatMessage(
             role = MessageRole.USER,
             text = goal,
             imageBase64 = if (attachedImage != null) attachedImage
             else if (attachedFile != null && !attachedFile.isText) attachedFile.content
             else null,
+            attachments = if (imageLocalPath.isNotBlank()) {
+                listOf(SkillAttachment.ImageData(attachedImage.orEmpty(), prompt = "user image", localPath = imageLocalPath))
+            } else emptyList(),
+            imageLocalPath = imageLocalPath,
         )
         _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
         updateSession(sessionId) { s ->
             s.copy(
                 isRunning = true,
+                runStartedAt = System.currentTimeMillis(),
                 messages = s.messages + userMessage,
                 activeLogLines = listOf(
                     LogLine(
@@ -1480,13 +1609,14 @@ class MainViewModel : ViewModel() {
                 streamingThought = "",
             )
         }
-        return PendingUserTurn(sessionId, userMessage, attachedImage, attachedFile)
+        return PendingUserTurn(sessionId, userMessage, attachedImage, imageLocalPath, attachedFile)
     }
 
     private fun removePendingVisibleTurn(turn: PendingUserTurn) {
         updateSession(turn.sessionId) { s ->
             s.copy(
                 isRunning = false,
+                runStartedAt = 0L,
                 messages = s.messages.dropLastWhile { it === turn.userMessage || it == turn.userMessage }.ifEmpty { s.messages },
                 activeLogLines = emptyList(),
                 activeAttachments = emptyList(),
@@ -1573,21 +1703,67 @@ class MainViewModel : ViewModel() {
     ) {
         val currentSessionId = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
         if (goal.isBlank() || (pendingTurn == null && _uiState.value.sessionStates[currentSessionId]?.isRunning == true)) return
+        val codexDesktopMode = _uiState.value.codexDesktopMode || currentSessionId in _uiState.value.codexDesktopSessionIds
+        val goalForRouting = if (codexDesktopMode) codexDesktopExecutionGoal(goal) else goal
 
         val attachedImage = imageOverride ?: pendingTurn?.imageBase64 ?: _uiState.value.inputImageBase64
         val attachedFile = pendingTurn?.fileAttachment ?: _uiState.value.inputFileAttachment
         val sessionIdAtStart = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
+        val attachedImageLocalPath = pendingTurn?.imageLocalPath
+            ?: attachedImage?.let { persistUserImageForWorkspace(sessionIdAtStart, it) }
+            ?: ""
         // Prepend text file content directly into the LLM goal
         val effectiveGoal = if (attachedFile != null && attachedFile.isText) {
-            "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goal"
-        } else goal
-        val route = routeOverride ?: taskRouter.resolve(
-            goal = goal,
-            effectiveGoal = effectiveGoal,
-            hasImage = attachedImage != null,
-            hasFile = attachedFile != null,
-            activeWorkflow = activeWorkflowForCurrentSession(),
+            "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goalForRouting"
+        } else if (attachedImageLocalPath.isNotBlank()) {
+            "[图片已保存到本地工作区]\npath: $attachedImageLocalPath\n后续需要引用这张图片时，直接把这个 path 传给相关工具，例如 generate_video.image。不要要求用户重新发送图片，也不要说只能使用 HTTP 链接；系统会自动上传本地图片。\n\n$goalForRouting"
+        } else goalForRouting
+        val userMessage = pendingTurn?.userMessage ?: ChatMessage(
+            role = MessageRole.USER,
+            text = visibleUserText,
+            imageBase64 = if (attachedImage != null) attachedImage
+                          else if (attachedFile != null && !attachedFile.isText) attachedFile.content
+                          else null,
+            attachments = if (attachedImageLocalPath.isNotBlank()) {
+                listOf(SkillAttachment.ImageData(attachedImage.orEmpty(), prompt = "user image", localPath = attachedImageLocalPath))
+            } else emptyList(),
+            imageLocalPath = attachedImageLocalPath,
         )
+        if (codexDesktopMode && routeOverride == null) {
+            runCodexDesktopDirect(
+                sessionId = sessionIdAtStart,
+                userMessage = userMessage,
+                userGoal = goal,
+                prompt = goal,
+                showUserMessage = showUserMessage,
+                persistUserMessage = pendingTurn != null || showUserMessage,
+            )
+            return
+        }
+        val route = routeOverride ?: if (codexDesktopMode) {
+            TaskRoute(
+                taskType = TaskType.CODE_EXECUTION,
+                contextualIntent = ContextualTaskIntent(
+                    classificationGoal = goalForRouting,
+                    taskTypeOverride = TaskType.CODE_EXECUTION,
+                    aiPrimaryChannel = ChannelType.CODE,
+                    aiToolHints = listOf("codex_desktop"),
+                    userVisibleSteps = listOf("连接电脑 Codex", "发送任务", "返回结果"),
+                ),
+                goalForExecution = effectiveGoal,
+                source = TaskRouteSource.CLASSIFIER,
+                goalToRemember = goal,
+                debugReason = "Codex desktop session mode enabled.",
+            )
+        } else {
+            taskRouter.resolve(
+                goal = goal,
+                effectiveGoal = effectiveGoal,
+                hasImage = attachedImage != null,
+                hasFile = attachedFile != null,
+                activeWorkflow = activeWorkflowForCurrentSession(),
+            )
+        }
         val contextualIntent = route.contextualIntent
         val inferredAiPageTarget = contextualIntent.aiPage
         val taskType = route.taskType
@@ -1654,14 +1830,6 @@ class MainViewModel : ViewModel() {
         )
         val allowedToolIds = resolveAllowedToolIds(route, orchestration.channelDecision.toolHints, contextualGoal)
         val executionContext = orchestration.toPromptBlock()
-        // Build the user message once so we have a stable reference for persisting
-        val userMessage = pendingTurn?.userMessage ?: ChatMessage(
-            role = MessageRole.USER,
-            text = visibleUserText,
-            imageBase64 = if (attachedImage != null) attachedImage
-                          else if (attachedFile != null && !attachedFile.isText) attachedFile.content
-                          else null,
-        )
         val visibleGoalLabel = visibleUserText.ifBlank {
             if (attachedImage != null) str(R.string.sticker_button) else goal
         }
@@ -1670,6 +1838,7 @@ class MainViewModel : ViewModel() {
             _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
             updateSession(sessionIdAtStart) { s -> s.copy(
                 isRunning = true,
+                runStartedAt = System.currentTimeMillis(),
                 messages = if (showUserMessage) s.messages + userMessage else s.messages,
                 activeLogLines = emptyList(),
                 activeAttachments = emptyList(),
@@ -2032,6 +2201,7 @@ class MainViewModel : ViewModel() {
                 updateSession(resolvedSessionId) { s ->
                     s.copy(
                         isRunning = false,
+                        runStartedAt = 0L,
                         streamingToken = "",
                         streamingThought = "",
                         activeLogLines = emptyList(),
@@ -2044,7 +2214,9 @@ class MainViewModel : ViewModel() {
 
             if (isPhoneControlTask) auroraOverlay.endTask()
 
-            val summary = result.getOrNull()?.summary ?: result.exceptionOrNull()?.message ?: "Task failed."
+            val summary = result.getOrNull()?.summary?.let { raw ->
+                if (raw.trim().startsWith("LLM error:")) friendlyRuntimeNotice(raw) else raw
+            } ?: result.exceptionOrNull()?.message?.let(::friendlyLlmFailureMessage) ?: "Task failed."
             consoleServer.broadcast("task_completed", summary)
             showCompletionOverlayIfNeeded(summary)
 
@@ -2132,6 +2304,7 @@ class MainViewModel : ViewModel() {
             }
             updateSession(resolvedSessionId) { s -> s.copy(
                 isRunning = false,
+                runStartedAt = 0L,
                 streamingToken = "",
                 streamingThought = "",
                 messages = s.messages + finalAgentMessages,
@@ -2293,7 +2466,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
             val summary = (result.getOrNull()?.content
                 ?: _uiState.value.sessionStates[resolvedSessionId]?.streamingToken?.ifBlank { null }
-                ?: result.exceptionOrNull()?.message ?: "Error.").cleanLocalTurnTokens()
+                ?: result.exceptionOrNull()?.message?.let(::friendlyLlmFailureMessage) ?: "Error.").cleanLocalTurnTokens()
             persistRuntimeWorkspaceUpdate(
                 sessionId = resolvedSessionId,
                 goal = goal,
@@ -2349,13 +2522,14 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 val cleanupSessionId = resolvedSessionId.ifBlank { sessionIdAtStart }
                 if (e is kotlinx.coroutines.CancellationException) {
                     updateSession(cleanupSessionId) { s ->
-                        s.copy(isRunning = false, streamingToken = "", streamingThought = "")
+                        s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
                     }
                     return@launch
                 }
                 updateSession(cleanupSessionId) { s ->
                     s.copy(
                         isRunning = false,
+                        runStartedAt = 0L,
                         streamingToken = "",
                         streamingThought = "",
                         messages = s.messages + ChatMessage(
@@ -2471,6 +2645,200 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         )
     }
 
+    private fun runCodexDesktopDirect(
+        sessionId: String,
+        userMessage: ChatMessage,
+        userGoal: String,
+        prompt: String,
+        showUserMessage: Boolean,
+        persistUserMessage: Boolean,
+    ) {
+        if (sessionId.isBlank()) return
+        _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
+        updateSession(sessionId) { state ->
+            state.copy(
+                isRunning = true,
+                runStartedAt = System.currentTimeMillis(),
+                messages = if (showUserMessage) state.messages + userMessage else state.messages,
+                activeLogLines = listOf(
+                    LogLine(
+                        type = LogType.ACTION,
+                        text = "发送到电脑 Codex",
+                        skillId = "codex_desktop",
+                        details = listOf("目标：${userGoal.take(500)}"),
+                    ).withLifecycle(running = true),
+                ),
+                activeAttachments = emptyList(),
+                streamingToken = "",
+                streamingThought = "",
+            )
+        }
+        overlay.show(userGoal)
+        consoleServer.broadcast("task_started", userGoal)
+
+        val job = viewModelScope.launch {
+            val result = streamCodexDesktop(
+                sessionId = sessionId,
+                prompt = prompt,
+            )
+            val finishedAt = System.currentTimeMillis()
+            val statusLine = LogLine(
+                type = if (result.success) LogType.SUCCESS else LogType.ERROR,
+                text = if (result.success) "电脑 Codex 已返回结果" else "电脑 Codex 执行失败",
+                skillId = "codex_desktop",
+                details = listOf(result.output.take(2000)),
+                finishedAt = finishedAt,
+            )
+            val progressLines = _uiState.value.sessionStates[sessionId]
+                ?.activeLogLines
+                ?.finishLatestRunningLine()
+                ?.filter { it.skillId == "codex_desktop" && it.text.isNotBlank() }
+                .orEmpty()
+            val agentMessage = ChatMessage(
+                role = MessageRole.AGENT,
+                text = result.output.ifBlank { if (result.success) "电脑 Codex 已完成。" else "电脑 Codex 没有返回内容。" },
+                logLines = progressLines + statusLine,
+                senderRoleId = _uiState.value.currentRole.id,
+                senderRoleName = _uiState.value.currentRole.name,
+                senderRoleAvatar = _uiState.value.currentRole.avatar,
+            )
+            updateSession(sessionId) { state ->
+                state.copy(
+                    isRunning = false,
+                    runStartedAt = 0L,
+                    messages = state.messages + agentMessage,
+                    activeLogLines = emptyList(),
+                    activeAttachments = emptyList(),
+                    streamingToken = "",
+                    streamingThought = "",
+                )
+            }
+            taskJobs.remove(sessionId)
+            overlay.hide()
+            consoleServer.broadcast("task_completed", result.output.take(500))
+            withContext(Dispatchers.IO) {
+                persistMessages(sessionId, userMessage.takeIf { persistUserMessage }, listOf(agentMessage))
+                database.sessionDao().updateTitle(sessionId, userGoal.take(40).ifBlank { "Codex 会话" })
+                loadSessions()
+            }
+        }
+        taskJobs[sessionId] = job
+    }
+
+    private suspend fun streamCodexDesktop(
+        sessionId: String,
+        prompt: String,
+    ): com.mobileclaw.skill.SkillResult = withContext(Dispatchers.IO) {
+        val endpoint = userConfig.get("codex_desktop_endpoint")?.trim()?.trimEnd('/').orEmpty()
+        val token = userConfig.get("codex_desktop_token")?.trim().orEmpty()
+        val cwd = userConfig.get("codex_desktop_cwd").orEmpty()
+        val model = userConfig.get("codex_desktop_model").orEmpty()
+        val provider = userConfig.get("codex_desktop_provider").orEmpty()
+        val approval = userConfig.get("codex_desktop_approval").orEmpty()
+        val sandbox = userConfig.get("codex_desktop_sandbox").orEmpty()
+        if (endpoint.isBlank() || token.isBlank()) {
+            return@withContext com.mobileclaw.skill.SkillResult(
+                false,
+                "Codex desktop bridge is not configured. Please set Bridge URL and Token in Codex Bridge settings.",
+            )
+        }
+
+        val body = JsonObject().apply {
+            addProperty("prompt", prompt)
+            addProperty("mobile_session_id", sessionId)
+            addProperty("cwd", cwd)
+            add("config", JsonObject().apply {
+                addProperty("cwd", cwd)
+                addProperty("model", model)
+                addProperty("provider", provider)
+                addProperty("approval", approval)
+                addProperty("sandbox", sandbox)
+            })
+        }
+        val req = Request.Builder()
+            .url("$endpoint/run_stream")
+            .header("Authorization", "Bearer $token")
+            .post(gson.toJson(body).toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        runCatching {
+            codexBridgeStreamClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val text = resp.body?.string().orEmpty()
+                    return@use com.mobileclaw.skill.SkillResult(false, "Codex bridge HTTP ${resp.code}: ${text.take(2000)}")
+                }
+                val output = StringBuilder()
+                var ok = true
+                var finalOutput = ""
+                resp.body?.byteStream()?.bufferedReader()?.useLines { lines ->
+                    lines.forEach { rawLine ->
+                        if (rawLine.isBlank()) return@forEach
+                        val json = runCatching { JsonParser.parseString(rawLine).asJsonObject }.getOrNull()
+                        when (json?.get("type")?.asString) {
+                            "output" -> {
+                                val text = json.get("text")?.asString.orEmpty()
+                                val chunkSize = when {
+                                    text.length > 8_000 -> 160
+                                    text.length > 3_000 -> 96
+                                    else -> 36
+                                }
+                                val chunkDelayMs = when {
+                                    text.length > 8_000 -> 3L
+                                    text.length > 3_000 -> 6L
+                                    else -> 12L
+                                }
+                                text.chunked(chunkSize).forEach { chunk ->
+                                    output.append(chunk)
+                                    val visible = output.toString().cleanCodexDesktopOutput(prompt).takeLast(24_000)
+                                    updateSession(sessionId) { state ->
+                                        state.copy(streamingToken = visible)
+                                    }
+                                    overlay.onToken(chunk)
+                                    if (chunkDelayMs > 0L && text.length > chunkSize) {
+                                        Thread.sleep(chunkDelayMs)
+                                    }
+                                }
+                            }
+                            "progress" -> {
+                                val fallbackText = json.get("text")?.asString.orEmpty()
+                                val text = json.get("label")?.asString?.ifBlank { null } ?: fallbackText
+                                val detail = json.get("detail")?.asString?.ifBlank { null }
+                                    ?: json.get("output")?.asString?.ifBlank { null }
+                                    ?: json.get("command")?.asString?.ifBlank { null }
+                                    ?: ""
+                                val running = json.get("status")?.asString == "running"
+                                if (text.isNotBlank()) {
+                                    val line = LogLine(
+                                        type = LogType.ACTION,
+                                        text = text,
+                                        skillId = "codex_desktop",
+                                        details = listOf(detail).filter { it.isNotBlank() },
+                                    ).withLifecycle(running = running)
+                                    updateSession(sessionId) { state ->
+                                        state.copy(
+                                            activeLogLines = state.activeLogLines.finishLatestRunningLine() + line,
+                                        )
+                                    }
+                                }
+                            }
+                            "done" -> {
+                                ok = json.get("ok")?.asBoolean ?: true
+                                finalOutput = json.get("output")?.asString.orEmpty()
+                            }
+                        }
+                    }
+                }
+                val resolvedOutput = finalOutput.ifBlank { output.toString().trim() }.cleanCodexDesktopOutput(prompt)
+                com.mobileclaw.skill.SkillResult(
+                    ok,
+                    resolvedOutput.ifBlank { if (ok) "Codex finished with no output." else "Codex failed with no output." },
+                )
+            } ?: com.mobileclaw.skill.SkillResult(false, "Codex bridge returned an empty response.")
+        }.getOrElse {
+            com.mobileclaw.skill.SkillResult(false, "Codex bridge stream failed: ${it.message}")
+        }
+    }
+
     private fun shouldAnswerImageDirectly(goal: String): Boolean {
         val text = goal.trim().lowercase()
         if (text.isBlank()) return true
@@ -2490,9 +2858,17 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     fun stopTask() {
         val sessionId = _uiState.value.currentSessionId
+        val shouldStopDesktopCodex = _uiState.value.codexDesktopMode || sessionId in _uiState.value.codexDesktopSessionIds
         taskJobs[sessionId]?.cancel()
         taskJobs.remove(sessionId)
         runtimes.remove(sessionId)
+        if (shouldStopDesktopCodex) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    registry.get("codex_desktop")?.execute(mapOf("action" to "stop"))
+                }
+            }
+        }
         overlay.hide()
         auroraOverlay.hide()
         consoleServer.broadcast("task_stopped", "")
@@ -2508,6 +2884,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             } else emptyList()
             state.copy(
                 isRunning = false,
+                runStartedAt = 0L,
                 streamingToken = "",
                 streamingThought = "",
                 messages = state.messages + agentMsgs,
@@ -2538,7 +2915,11 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         val targetPage = page
         if (targetPage == AppPage.SKILLS) refreshPromotableSkills()
         if (targetPage == AppPage.PROFILE) loadProfileData()
-        if (targetPage == AppPage.SETTINGS) checkPrivServer()
+        if (targetPage == AppPage.SETTINGS) {
+            checkPrivServer()
+            loadVideoTasks()
+        }
+        if (targetPage == AppPage.VIDEO_GENERATOR) loadVideoTasks()
         if (targetPage == AppPage.WORKSPACE) loadCurrentWorkspaceSnapshot()
         if (targetPage == AppPage.APPS || targetPage == AppPage.HOME) loadMiniApps()
         if (targetPage == AppPage.ROLES || targetPage == AppPage.ROLE_DETAIL || targetPage == AppPage.AI_TOWN) townStore.ensureRooms(roleManager.all())
@@ -2600,6 +2981,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     }
 
     fun clearChatMiniAppPreview() {
+        miniAppValidationOverlay.hide(notifyDismissed = false)
         _uiState.update {
             it.copy(
                 chatMiniAppPreviewId = null,
@@ -2617,7 +2999,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
         val snapshot = _uiState.value
         if (snapshot.chatMiniAppPreviewId != appId) return
-        val isValidationPreview = snapshot.chatMiniAppPreviewMode == "validation"
+        val isValidationPreview = snapshot.chatMiniAppPreviewMode == "validation" || snapshot.chatMiniAppPreviewMode == "overlay_validation"
         val previewSessionId = snapshot.chatMiniAppPreviewSessionId ?: snapshot.currentSessionId
         val changed = snapshot.chatMiniAppPreviewStatus != normalized || snapshot.chatMiniAppPreviewHealthy != healthy
         _uiState.update {
@@ -2643,6 +3025,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             else state.copy(activeLogLines = state.activeLogLines + line)
         }
         if (isValidationPreview) {
+            miniAppValidationOverlay.hide(notifyDismissed = false)
             _uiState.update {
                 if (it.chatMiniAppPreviewId != appId) it
                 else it.copy(
@@ -3601,9 +3984,13 @@ $foundationalMemory
                 return@launch
             }
             val updatedGateways = snap.gateways.map {
-                if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
-                    it.copy(model = model)
-                else it
+                if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull())) {
+                    val existingCapabilities = it.capabilities.filterNot { cap -> cap.type.equals("chat", ignoreCase = true) }
+                    it.copy(
+                        model = model,
+                        capabilities = existingCapabilities + GatewayCapabilityConfig(type = "chat", model = model),
+                    )
+                } else it
             }
             config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false, localNativeOnly = false))
             _uiState.update { it.copy(currentModel = model) }
@@ -3653,7 +4040,7 @@ $foundationalMemory
             val remoteModels = if (snap.localNativeOnly) {
                 emptyList()
             } else {
-                runCatching { OpenAiGateway(config).fetchModels() }.getOrDefault(emptyList())
+                runCatching { OpenAiGateway.fetchModels(snap.chatEndpoint, snap.chatApiKey) }.getOrDefault(emptyList())
             }
             val localModels = app.localModelManager.models.value
                 .filter { it.supportsChatRuntime }
@@ -4080,9 +4467,9 @@ $foundationalMemory
             WebJsSkill(app.webViewManager),
             // Content creation
             GenerateImageSkill(config, app.userConfig),
-            GenerateIconSkill(app, app.userConfig, app.miniAppStore, roleManager),
+            GenerateIconSkill(app, config, app.userConfig, app.miniAppStore, roleManager),
             GenerateDocumentSkill(app),
-            GenerateVideoSkill(config, app, app.userConfig),
+            GenerateVideoSkill(config, app, app.userConfig, videoTaskManager),
             CreateFileSkill(app),
             ReadFileSkill(app),
             ListFilesSkill(app),
@@ -4098,6 +4485,7 @@ $foundationalMemory
             ShellSkill(),
             PipInstallSkill(),
             RunPythonSkill(),
+            CodexDesktopSkill(userConfig),
             ClipboardSkill(),
             ShowToastSkill(),
             DeviceInfoSkill(),
@@ -4115,6 +4503,7 @@ $foundationalMemory
             switchRoleSkill,
             RoleManagerSkill(roleManager, roleRequests),
             HouseArtistSkill(townStore, roleManager),
+            AiHomeAssetSkill(townStore, roleManager),
             TownBuilderSkill(townStore, roleManager),
             // Session management
             SessionManagerSkill(database.sessionDao(), sessionRequests),
@@ -4135,6 +4524,322 @@ $foundationalMemory
             // LAN console page editor (千人千面)
             com.mobileclaw.skill.builtin.ConsoleEditorSkill(consoleServer),
         ).forEach { registry.register(it) }
+    }
+
+    fun loadVideoTasks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val tasks = runCatching { videoTaskManager.recent() }.getOrDefault(emptyList())
+            _uiState.update { it.copy(videoTasks = tasks) }
+            scheduleVideoTaskAutoRefresh(tasks)
+        }
+    }
+
+    fun refreshVideoTask(taskId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(videoTaskRefreshingIds = it.videoTaskRefreshingIds + taskId) }
+            runCatching { videoTaskManager.refresh(taskId) }
+            val tasks = runCatching { videoTaskManager.recent() }.getOrDefault(_uiState.value.videoTasks)
+            _uiState.update {
+                it.copy(
+                    videoTasks = tasks,
+                    videoTaskRefreshingIds = it.videoTaskRefreshingIds - taskId,
+                )
+            }
+            scheduleVideoTaskAutoRefresh(tasks)
+        }
+    }
+
+    fun refreshPendingVideoTasks() {
+        refreshPendingVideoTasksInternal(showSpinner = true)
+    }
+
+    fun generateImage(request: ImageGenerationRequest) {
+        if (_uiState.value.imageGenerationRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(imageGenerationRunning = true) }
+            try {
+                val result = GenerateImageSkill(config, app.userConfig)
+                    .execute(request.toSkillParams())
+                if (result.success && !result.imageBase64.isNullOrBlank()) {
+                    _uiState.update {
+                        it.copy(
+                            imageGenerationPreviewBase64 = result.imageBase64,
+                            imageGenerationPreviewPrompt = request.prompt,
+                        )
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        app,
+                        if (result.success) result.output.ifBlank { "图片已生成" } else result.output.ifBlank { "图片生成失败" },
+                        if (result.success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "图片生成失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _uiState.update { it.copy(imageGenerationRunning = false) }
+            }
+        }
+    }
+
+    fun rewriteImagePrompt(prompt: String, action: ImagePromptAiAction, onResult: (String) -> Unit) {
+        if (_uiState.value.imagePromptAiRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(imagePromptAiRunning = true) }
+            try {
+                val rewritten = rewriteImagePromptInternal(prompt, action)
+                withContext(Dispatchers.Main) { onResult(rewritten) }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "LLM 处理失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _uiState.update { it.copy(imagePromptAiRunning = false) }
+            }
+        }
+    }
+
+    private fun rewriteImagePromptInternal(prompt: String, action: ImagePromptAiAction): String {
+        val raw = prompt.trim()
+        if (raw.isBlank()) return raw
+        val systemPrompt = when (action) {
+            ImagePromptAiAction.ENRICH -> """
+                You enrich short user ideas into a strong image generation prompt.
+                Return only one concise English prompt.
+                Preserve the user's intent and add helpful subject details, composition, lighting, material, style, and visual constraints.
+                Do not add explanations, markdown, JSON, quotes, or safety commentary.
+            """.trimIndent()
+            ImagePromptAiAction.TRANSLATE -> """
+                You translate prompts for image generation models.
+                Return only one concise English prompt.
+                Preserve the user's exact intent, subject, style, composition, and constraints.
+                Do not add new creative details.
+                Do not add explanations, markdown, JSON, quotes, or safety commentary.
+            """.trimIndent()
+        }
+        return callVideoPromptLlm(systemPrompt = systemPrompt, userPrompt = raw)
+            .trim()
+            .trim('"')
+            .takeIf { it.isNotBlank() } ?: raw
+    }
+
+    fun generateVideo(request: VideoGenerationRequest) {
+        if (_uiState.value.videoGenerationRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(videoGenerationRunning = true) }
+            try {
+                val result = GenerateVideoSkill(config, app, app.userConfig, videoTaskManager)
+                    .execute(request.toSkillParams())
+                loadVideoTasks()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        app,
+                        if (result.success) result.output.ifBlank { "视频任务已提交" } else result.output.ifBlank { "视频生成失败" },
+                        if (result.success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "视频生成失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _uiState.update { it.copy(videoGenerationRunning = false) }
+            }
+        }
+    }
+
+    fun rewriteVideoPrompt(prompt: String, action: VideoPromptAiAction, onResult: (String) -> Unit) {
+        if (_uiState.value.videoPromptAiRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(videoPromptAiRunning = true) }
+            try {
+                val rewritten = rewriteVideoPromptInternal(prompt, action)
+                withContext(Dispatchers.Main) {
+                    onResult(rewritten)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "LLM 处理失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _uiState.update { it.copy(videoPromptAiRunning = false) }
+            }
+        }
+    }
+
+    private suspend fun rewriteVideoPromptInternal(prompt: String, action: VideoPromptAiAction): String {
+        val raw = prompt.trim()
+        if (raw.isBlank()) return raw
+        val systemPrompt = when (action) {
+            VideoPromptAiAction.ENRICH -> """
+                You enrich short user ideas into a strong video generation prompt.
+                Return only one concise English prompt.
+                Preserve the user's intent and add helpful visual details, subject action, camera movement, lighting, atmosphere, and style.
+                Do not add explanations, markdown, JSON, quotes, or safety commentary.
+            """.trimIndent()
+            VideoPromptAiAction.TRANSLATE -> """
+                You translate prompts for video generation models.
+                Return only one concise English prompt.
+                Preserve the user's exact intent, subject, motion, style, camera, and constraints.
+                Do not add new creative details.
+                Do not add explanations, markdown, JSON, quotes, or safety commentary.
+            """.trimIndent()
+        }
+        return callVideoPromptLlm(systemPrompt = systemPrompt, userPrompt = raw)
+            .trim()
+            .trim('"')
+            .takeIf { it.isNotBlank() } ?: raw
+    }
+
+    private fun callVideoPromptLlm(systemPrompt: String, userPrompt: String): String {
+        val snapshot = config.snapshot()
+        val gateway = selectVideoPromptChatGateway(snapshot)
+            ?: throw IllegalStateException("没有可用于 AI 丰富/翻译的 chat 网关，请配置一个带 chat 能力的网关。")
+        val endpoint = gateway.capabilityEndpoint("chat").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("chat 网关 endpoint 为空。")
+        val apiKey = gateway.capabilityApiKey("chat").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("chat 网关 apiKey 为空。")
+        val model = gateway.capabilityModel("chat") ?: gateway.model.takeIf { it.isNotBlank() } ?: "gpt-4o"
+        val body = JsonObject().apply {
+            addProperty("model", model)
+            addProperty("stream", false)
+            add("messages", JsonArray().apply {
+                add(JsonObject().apply {
+                    addProperty("role", "system")
+                    addProperty("content", systemPrompt)
+                })
+                add(JsonObject().apply {
+                    addProperty("role", "user")
+                    addProperty("content", userPrompt)
+                })
+            })
+        }
+        val req = Request.Builder()
+            .url("${normalizeOpenAiBase(endpoint)}/chat/completions")
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        return videoPromptLlmClient.newCall(req).execute().use { resp ->
+            val raw = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                throw IllegalStateException("chat 网关调用失败 HTTP ${resp.code}: ${extractLlmError(raw)}")
+            }
+            val json = JsonParser.parseString(raw).asJsonObject
+            json["choices"]?.asJsonArray?.firstOrNull()
+                ?.asJsonObject?.get("message")?.asJsonObject?.get("content")?.asString
+                ?: throw IllegalStateException("chat 网关没有返回内容。")
+        }
+    }
+
+    private fun selectVideoPromptChatGateway(snapshot: ConfigSnapshot): GatewayConfig? {
+        val active = snapshot.activeGateway
+        return active?.takeIf { it.isUsableExplicitChatGateway() }
+            ?: snapshot.gateways.firstOrNull { it.isUsableExplicitChatGateway() }
+            ?: active?.takeIf { it.isLegacyChatGatewayCandidate() }
+            ?: snapshot.gateways.firstOrNull { it.isLegacyChatGatewayCandidate() }
+    }
+
+    private fun GatewayConfig.isUsableExplicitChatGateway(): Boolean =
+        hasCapability("chat") && capabilityEndpoint("chat").isNotBlank() && capabilityApiKey("chat").isNotBlank()
+
+    private fun GatewayConfig.isLegacyChatGatewayCandidate(): Boolean {
+        val explicitCapabilities = runCatching { capabilities }.getOrNull().orEmpty()
+        return explicitCapabilities.isEmpty() && endpoint.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
+    }
+
+    private fun normalizeOpenAiBase(endpoint: String): String {
+        val trimmed = endpoint.trim()
+            .removeSuffix("/")
+            .removeSuffix("/chat/completions")
+            .trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        val hasVersionSuffix = Regex("/v\\d+$", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+        return if (hasVersionSuffix) trimmed else "$trimmed/v1"
+    }
+
+    private fun extractLlmError(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return ""
+        return runCatching {
+            val obj = JsonParser.parseString(trimmed).asJsonObject
+            val error = obj["error"]
+            when {
+                error == null || error.isJsonNull -> trimmed.take(240)
+                error.isJsonObject -> error.asJsonObject["message"]?.asString ?: error.toString().take(240)
+                error.isJsonPrimitive -> error.asString
+                else -> error.toString().take(240)
+            }
+        }.getOrDefault(trimmed.take(240))
+    }
+
+    fun uploadVideoFrameImage(imageUri: String, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { videoImageUploader.uploadIfNeeded(imageUri) }
+            withContext(Dispatchers.Main) {
+                onResult(result)
+            }
+        }
+    }
+
+    private fun refreshPendingVideoTasksInternal(showSpinner: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (showSpinner) {
+                _uiState.update { it.copy(videoTasksRefreshing = true) }
+            }
+            runCatching { videoTaskManager.refreshPendingTasks() }
+            val tasks = runCatching { videoTaskManager.recent() }.getOrDefault(_uiState.value.videoTasks)
+            _uiState.update {
+                it.copy(
+                    videoTasks = tasks,
+                    videoTasksRefreshing = if (showSpinner) false else it.videoTasksRefreshing,
+                    videoTaskRefreshingIds = emptySet(),
+                )
+            }
+            scheduleVideoTaskAutoRefresh(tasks)
+        }
+    }
+
+    fun deleteVideoTask(taskId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { videoTaskManager.delete(taskId) }
+            val tasks = runCatching { videoTaskManager.recent() }.getOrDefault(emptyList())
+            _uiState.update { it.copy(videoTasks = tasks, videoTaskRefreshingIds = it.videoTaskRefreshingIds - taskId) }
+            scheduleVideoTaskAutoRefresh(tasks)
+        }
+    }
+
+    private fun scheduleVideoTaskAutoRefresh(tasks: List<com.mobileclaw.memory.db.VideoGenerationTaskEntity>) {
+        val hasPending = tasks.any { task ->
+            task.status == VideoTaskStatuses.SUBMITTED ||
+                task.status == VideoTaskStatuses.RUNNING ||
+                task.status == VideoTaskStatuses.TIMED_OUT
+        }
+        if (!hasPending) {
+            videoTaskAutoRefreshJob?.cancel()
+            videoTaskAutoRefreshJob = null
+            return
+        }
+        if (videoTaskAutoRefreshJob?.isActive == true) return
+        videoTaskAutoRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(VIDEO_TASK_AUTO_REFRESH_INTERVAL_MS)
+                refreshPendingVideoTasksInternal(showSpinner = false)
+                val latestTasks = _uiState.value.videoTasks
+                val stillPending = latestTasks.any { task ->
+                    task.status == VideoTaskStatuses.SUBMITTED ||
+                        task.status == VideoTaskStatuses.RUNNING ||
+                        task.status == VideoTaskStatuses.TIMED_OUT
+                }
+                if (!stillPending) {
+                    videoTaskAutoRefreshJob = null
+                    break
+                }
+            }
+        }
     }
 
     private fun loadDynamicSkills() {
@@ -4238,6 +4943,7 @@ $foundationalMemory
                     "image" -> SkillAttachment.ImageData(
                         base64 = o["base64"]?.asString ?: "",
                         prompt = o["prompt"]?.asString?.ifBlank { null },
+                        localPath = o["localPath"]?.asString ?: "",
                     )
                     "file" -> SkillAttachment.FileData(
                         path = o["path"]?.asString ?: "",
@@ -4334,6 +5040,14 @@ $foundationalMemory
     }
 
     private fun serializeImageAttachment(att: SkillAttachment.ImageData): Map<String, String> {
+        if (att.localPath.isNotBlank()) {
+            return mapOf(
+                "type" to "image",
+                "base64" to att.base64,
+                "prompt" to (att.prompt ?: ""),
+                "localPath" to att.localPath,
+            )
+        }
         if (att.base64.length <= 500_000) {
             return mapOf("type" to "image", "base64" to att.base64, "prompt" to (att.prompt ?: ""))
         }
@@ -4362,6 +5076,33 @@ $foundationalMemory
         }
         val dir = File(app.filesDir, "chat_images").also { it.mkdirs() }
         File(dir, "img_${System.currentTimeMillis()}_${UUID.randomUUID()}.$ext").also { it.writeBytes(bytes) }
+    }.getOrNull()
+
+    private fun persistUserImageForWorkspace(sessionId: String, dataUri: String): String? = runCatching {
+        val raw = dataUri.substringAfter("base64,", missingDelimiterValue = dataUri.substringAfter(",", dataUri))
+        val bytes = Base64.decode(raw, Base64.DEFAULT)
+        val mime = mimeTypeFromDataUri(dataUri)
+        val ext = when {
+            mime.contains("png") -> "png"
+            mime.contains("webp") -> "webp"
+            else -> "jpg"
+        }
+        val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(sessionId)
+        val path = if (workspaceId != null) {
+            app.workspaceStore.writeBytes(
+                id = workspaceId,
+                relativeDir = "inputs",
+                name = "user_image_${System.currentTimeMillis()}.$ext",
+                bytes = bytes,
+            )
+        } else {
+            val dir = File(app.filesDir, "workspace_image_inputs").also { it.mkdirs() }
+            File(dir, "user_image_${System.currentTimeMillis()}_${UUID.randomUUID()}.$ext").also { it.writeBytes(bytes) }.absolutePath
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { userConfig.set("latest_image_local_path", path, "Most recent user-attached image local path for image-to-video and media tools") }
+        }
+        path
     }.getOrNull()
 
     private fun mimeTypeFromDataUri(dataUri: String): String =
@@ -4396,6 +5137,7 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                 "image" -> SkillAttachment.ImageData(
                     base64 = o["base64"]?.asString ?: "",
                     prompt = o["prompt"]?.asString?.ifBlank { null },
+                    localPath = o["localPath"]?.asString ?: "",
                 )
                 "file" -> SkillAttachment.FileData(
                     path = o["path"]?.asString ?: "",
@@ -4455,6 +5197,9 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
         logLines = logLines,
         imageBase64 = imageBase64,
         attachments = attachments,
+        imageLocalPath = attachments.firstOrNull { it is SkillAttachment.ImageData && it.localPath.isNotBlank() }
+            ?.let { (it as SkillAttachment.ImageData).localPath }
+            ?: "",
         senderRoleId = senderRoleId,
         senderRoleName = senderRoleName,
         senderRoleAvatar = senderRoleAvatar,
@@ -4511,12 +5256,33 @@ private fun friendlyRuntimeNotice(message: String): String {
         normalized.startsWith("Guard blocked ") ->
             "这一步当前不适合直接执行，正在换一种更合适的处理方式"
         normalized.startsWith("LLM error:") ->
-            "模型这一步返回异常，正在重新组织请求后继续"
+            friendlyLlmFailureMessage(normalized.removePrefix("LLM error:").trim())
         normalized.contains("skill '", ignoreCase = true) && normalized.contains("not found", ignoreCase = true) ->
             "这一步工具调用没有成功，正在改走别的处理方式"
         normalized.startsWith("Error executing ") ->
             "这一步执行时出了问题，正在根据返回结果继续修正"
         else -> normalized
+    }
+}
+
+private fun isNonRetryableLlmFailure(message: String): Boolean {
+    val normalized = message.lowercase()
+    return normalized.contains("authentication error") ||
+        normalized.contains("api error 401") ||
+        normalized.contains("not connected to the query engine") ||
+        normalized.contains("must call connect() before attempting to query data")
+}
+
+private fun friendlyLlmFailureMessage(raw: String): String {
+    val normalized = raw.trim()
+    val lowered = normalized.lowercase()
+    return when {
+        lowered.contains("not connected to the query engine") ||
+            lowered.contains("must call connect() before attempting to query data") ->
+            "当前聊天网关没有接到可直接对话的查询引擎，chat 能力配置错了，不能继续拿它做回复总结"
+        lowered.contains("authentication error") || lowered.contains("api error 401") ->
+            "当前聊天网关鉴权失败，或者你填的接口并不是可直接对话的 chat 入口"
+        else -> "模型这一步返回异常，当前请求没有完成"
     }
 }
 
@@ -4549,13 +5315,64 @@ private fun summarizeTechnicalResultForUser(skillId: String?, rawText: String): 
 
 
 private fun supportsCurrentMultimodal(snapshot: ConfigSnapshot): Boolean {
-    if (!snapshot.localModelEnabled && !snapshot.localNativeOnly) return snapshot.supportsMultimodal
+    if (!snapshot.localModelEnabled && !snapshot.localNativeOnly) return snapshot.activeGateway?.supportsCapabilityMultimodal() ?: snapshot.supportsMultimodal
     val manager = ClawApplication.instance.localModelManager
     val model = manager.modelInfo(snapshot.localModelId) ?: return false
     return model.supportsVision && manager.visionModelPathFor(snapshot.localModelId) != null
 }
 
 private fun String.cleanLocalTurnTokens(): String = cleanLocalGeneratedText()
+
+private fun String.cleanCodexDesktopOutput(prompt: String): String {
+    val promptLines = prompt
+        .trim()
+        .lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .toSet()
+    val envKeyPattern = Regex(
+        """^(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id):\s""",
+        RegexOption.IGNORE_CASE,
+    )
+    val timestampWarnPattern = Regex("""^\d{4}-\d{2}-\d{2}T.*\bWARN\b""")
+    val cleaned = mutableListOf<String>()
+    var skippingHeader = false
+    var sawRoleMarker = false
+    replace("\r\n", "\n").lineSequence().forEach { raw ->
+        val line = raw.trimEnd()
+        val trimmed = line.trim()
+        if (trimmed.isBlank()) {
+            if (cleaned.isNotEmpty()) cleaned += raw
+            return@forEach
+        }
+        when {
+            timestampWarnPattern.containsMatchIn(trimmed) -> return@forEach
+            trimmed.startsWith("OpenAI Codex", ignoreCase = true) -> {
+                skippingHeader = true
+                return@forEach
+            }
+            skippingHeader && (trimmed == "--------" || envKeyPattern.containsMatchIn(trimmed)) -> return@forEach
+            skippingHeader -> skippingHeader = false
+        }
+        when {
+            trimmed == "user" -> {
+                sawRoleMarker = true
+                return@forEach
+            }
+            trimmed == "assistant" -> {
+                sawRoleMarker = true
+                cleaned.clear()
+                return@forEach
+            }
+            sawRoleMarker && trimmed in promptLines -> return@forEach
+            trimmed.startsWith("deprecated:", ignoreCase = true) -> return@forEach
+            envKeyPattern.containsMatchIn(trimmed) -> return@forEach
+            trimmed == "--------" -> return@forEach
+            else -> cleaned += raw
+        }
+    }
+    return cleaned.joinToString("\n").trim()
+}
 
 private fun String.isSupportedImageModel(): Boolean {
     val value = trim()

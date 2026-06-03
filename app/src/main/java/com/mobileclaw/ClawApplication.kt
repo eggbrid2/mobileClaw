@@ -34,6 +34,7 @@ import com.mobileclaw.town.AgentTownStore
 import com.mobileclaw.ui.AgentOverlayManager
 import com.mobileclaw.ui.AuroraOverlayManager
 import com.mobileclaw.ui.InAppWebViewManager
+import com.mobileclaw.ui.MiniAppValidationOverlayManager
 import com.mobileclaw.ui.aipage.AiPageStore
 import com.mobileclaw.workspace.WorkspaceStore
 import kotlinx.coroutines.runBlocking
@@ -54,6 +55,9 @@ class ClawApplication : Application() {
         private set
 
     lateinit var auroraOverlayManager: AuroraOverlayManager
+        private set
+
+    lateinit var miniAppValidationOverlayManager: MiniAppValidationOverlayManager
         private set
 
     lateinit var permissionManager: PermissionManager
@@ -136,6 +140,7 @@ class ClawApplication : Application() {
         skillRegistry = SkillRegistry()
         overlayManager = AgentOverlayManager(this)
         auroraOverlayManager = AuroraOverlayManager(this)
+        miniAppValidationOverlayManager = MiniAppValidationOverlayManager(this)
         permissionManager = PermissionManager(this)
         semanticMemory = SemanticMemory(database.semanticDao())
         conversationMemory = ConversationMemory(database.conversationDao())

@@ -143,6 +143,35 @@ private val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+private val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS video_generation_tasks (" +
+                "taskId TEXT PRIMARY KEY NOT NULL, " +
+                "prompt TEXT NOT NULL, " +
+                "provider TEXT NOT NULL, " +
+                "endpoint TEXT NOT NULL, " +
+                "apiKey TEXT NOT NULL, " +
+                "model TEXT NOT NULL, " +
+                "status TEXT NOT NULL, " +
+                "videoUrl TEXT NOT NULL, " +
+                "filePath TEXT NOT NULL, " +
+                "errorMessage TEXT NOT NULL, " +
+                "createdAt INTEGER NOT NULL, " +
+                "updatedAt INTEGER NOT NULL)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_video_generation_tasks_status_updatedAt ON video_generation_tasks(status, updatedAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_video_generation_tasks_createdAt ON video_generation_tasks(createdAt)")
+    }
+}
+
+private val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.addColumnIfMissing("video_generation_tasks", "submitResponseRaw", "TEXT NOT NULL DEFAULT ''")
+        db.addColumnIfMissing("video_generation_tasks", "pollResponseRaw", "TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, definition: String) {
     query("PRAGMA table_info(`$table`)").use { cursor ->
         val nameIndex = cursor.getColumnIndex("name")
@@ -201,8 +230,9 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         SessionMessageEntity::class,
         GroupMessageEntity::class,
         SubscriptionEntity::class,
+        VideoGenerationTaskEntity::class,
     ],
-    version = 10,
+    version = 12,
     exportSchema = true,
 )
 abstract class ClawDatabase : RoomDatabase() {
@@ -213,6 +243,7 @@ abstract class ClawDatabase : RoomDatabase() {
     abstract fun sessionMessageDao(): SessionMessageDao
     abstract fun groupMessageDao(): GroupMessageDao
     abstract fun subscriptionDao(): SubscriptionDao
+    abstract fun videoGenerationTaskDao(): VideoGenerationTaskDao
 
     companion object {
         @Volatile private var INSTANCE: ClawDatabase? = null
@@ -224,7 +255,18 @@ abstract class ClawDatabase : RoomDatabase() {
                     ClawDatabase::class.java,
                     "claw.db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
+                    MIGRATION_10_11,
+                    MIGRATION_11_12,
+                )
                 .build().also { INSTANCE = it }
             }
     }

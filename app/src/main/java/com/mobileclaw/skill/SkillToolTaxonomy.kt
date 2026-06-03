@@ -47,6 +47,7 @@ object SkillToolTaxonomy {
             "page_control",
             "house_artist",
             "town_builder",
+            "ai_home_assets",
         ),
         SkillToolCategory.ARTIFACT to setOf(
             "ui_builder",
@@ -59,6 +60,7 @@ object SkillToolTaxonomy {
             "user_storage",
             "house_artist",
             "town_builder",
+            "ai_home_assets",
             "workspace_manager",
         ),
         SkillToolCategory.PHONE to setOf(
@@ -91,6 +93,7 @@ object SkillToolTaxonomy {
             "generate_icon",
             "generate_video",
             "house_artist",
+            "ai_home_assets",
         ),
         SkillToolCategory.VPN to setOf(
             "vpn_control",
@@ -99,6 +102,7 @@ object SkillToolTaxonomy {
             "shell",
             "run_python",
             "pip_install",
+            "codex_desktop",
         ),
         SkillToolCategory.SYSTEM to setOf(
             "device_info",

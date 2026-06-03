@@ -414,7 +414,11 @@ class TaskRouter(
         if (attachments.isEmpty()) return ""
         return attachments.joinToString("; ") { attachment ->
             when (attachment) {
-                is SkillAttachment.ImageData -> "image(prompt=${attachment.prompt.orEmpty().take(60)})"
+                is SkillAttachment.ImageData -> buildString {
+                    append("image(prompt=${attachment.prompt.orEmpty().take(60)}")
+                    if (attachment.localPath.isNotBlank()) append(", local_path=${attachment.localPath}")
+                    append(")")
+                }
                 is SkillAttachment.FileData -> "file(name=${attachment.name}, path=${attachment.path}, mime=${attachment.mimeType}, size=${attachment.sizeBytes})"
                 is SkillAttachment.HtmlData -> "html(title=${attachment.title}, path=${attachment.path})"
                 is SkillAttachment.WebPage -> "webpage(title=${attachment.title}, url=${attachment.url})"

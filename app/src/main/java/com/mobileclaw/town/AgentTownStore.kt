@@ -24,6 +24,24 @@ class AgentTownStore(private val context: Context) {
 
     fun assetRoot(): File = assetDir
 
+    fun roomAssetPacks(): List<RoomAssetPack> =
+        runCatching {
+            context.assets.list("ai_home_assets").orEmpty()
+                .mapNotNull { packId ->
+                    runCatching {
+                        context.assets.open("ai_home_assets/$packId/manifest.json").bufferedReader(Charsets.UTF_8).use { reader ->
+                            gson.fromJson(reader, RoomAssetPack::class.java)
+                        }
+                    }.getOrNull()
+                }
+        }.getOrDefault(emptyList())
+
+    fun roomAssets(): List<RoomAsset> =
+        roomAssetPacks().flatMap { pack -> pack.assets.map { it.normalizedAsset() } }
+
+    fun findRoomAsset(assetId: String): RoomAsset? =
+        roomAssets().firstOrNull { it.id == assetId }
+
     fun ensureRooms(roles: List<Role>) {
         val current = _state.value
         val nextRooms = current.rooms.toMutableMap()
@@ -355,73 +373,152 @@ class AgentTownStore(private val context: Context) {
             toolbox = safeList(toolbox).takeLast(12),
             showcase = safeList(showcase).takeLast(16),
             furniture = safeList(furniture).takeLast(24).map { it.normalizedFurniture() },
-            notes = safeList(notes).takeLast(8).map { it.take(160) },
+            roomLayout = (roomLayout ?: RoomLayout()).normalizedRoomLayout(),
+            notes = safeList(notes).takeLast(8).map { it.orEmpty().take(160) },
             updatedAt = System.currentTimeMillis(),
         )
     }
 
-    private fun RoomFurniture.normalizedFurniture(): RoomFurniture =
-        copy(
-            id = id.ifBlank { stableId("furniture", "$type-$x-$y") }.take(80),
-            type = type.ifBlank { "decor" }.take(32),
+    private fun RoomFurniture.normalizedFurniture(): RoomFurniture {
+        fun safe(value: String?): String = value.orEmpty()
+        val safeType = safe(type).ifBlank { "decor" }.take(32)
+        return copy(
+            id = safe(id).ifBlank { stableId("furniture", "$safeType-$x-$y") }.take(80),
+            type = safeType,
             x = x.coerceIn(0, 19),
             y = y.coerceIn(0, 19),
             width = width.coerceIn(1, 8),
             height = height.coerceIn(1, 8),
-            layer = layer.ifBlank { "front" }.take(16),
-            variant = variant.take(40),
-            color = color.take(16),
+            layer = safe(layer).ifBlank { "front" }.take(16),
+            variant = safe(variant).take(40),
+            assetId = safe(assetId).take(80),
+            color = safe(color).take(16),
+        )
+    }
+
+    private fun RoomAsset.normalizedAsset(): RoomAsset {
+        fun safe(value: String?): String = value.orEmpty()
+        return copy(
+            id = safe(id).take(100),
+            name = safe(name).take(80),
+            category = safe(category).take(32),
+            type = safe(type).take(32),
+            path = safe(path).take(240),
+            tileWidth = tileWidth.coerceIn(1, 8),
+            tileHeight = tileHeight.coerceIn(1, 8),
+            pixelWidth = pixelWidth.coerceAtLeast(1),
+            pixelHeight = pixelHeight.coerceAtLeast(1),
+            anchor = safe(anchor).take(32),
+            layer = safe(layer).take(16),
+            orientation = safe(orientation).take(24),
+            tags = tags.orEmpty().take(20).map { it.orEmpty().take(32) },
+            description = safe(description).take(180),
+        )
+    }
+
+    private fun RoomLayout.normalizedRoomLayout(): RoomLayout {
+        val safeWidth = width.coerceIn(8, 24)
+        val safeHeight = height.coerceIn(6, 20)
+        return copy(
+            width = safeWidth,
+            height = safeHeight,
+            perspective = perspective.orEmpty().ifBlank { "pokemon_3_4_top_down" }.take(40),
+            floorAssetId = floorAssetId.orEmpty().ifBlank { "floor_wood_center" }.take(100),
+            defaultWallAssetId = defaultWallAssetId.orEmpty().ifBlank { "wall_back_plaster_center" }.take(100),
+            door = door.normalizedDoor(safeWidth, safeHeight),
+            zones = zones.orEmpty().take(8).map { it.normalizedZone(safeWidth, safeHeight) },
+            objects = objects.orEmpty().take(40).map { it.normalizedLayoutObject(safeWidth, safeHeight) },
+        )
+    }
+
+    private fun RoomDoor.normalizedDoor(width: Int, height: Int): RoomDoor =
+        copy(
+            side = side.orEmpty().ifBlank { "south" }.take(16),
+            x = x.coerceIn(0, width - 1),
+            y = y.coerceIn(0, height - 1),
+            assetId = assetId.orEmpty().ifBlank { "door_wood_south" }.take(100),
         )
 
-    private fun TownMapDocument.normalized(): TownMapDocument = copy(
-        version = version.coerceAtLeast(1),
-        tileSize = tileSize.coerceIn(8, 48),
-        width = width.coerceIn(12, 80),
-        height = height.coerceIn(12, 120),
-        theme = theme.ifBlank { "classic_rpg_town" }.take(60),
-        layers = layers.map { layer ->
+    private fun RoomZone.normalizedZone(roomWidth: Int, roomHeight: Int): RoomZone =
+        copy(
+            id = id.orEmpty().ifBlank { stableId("zone", purpose.orEmpty()) }.take(60),
+            purpose = purpose.orEmpty().ifBlank { "room" }.take(60),
+            x = x.coerceIn(0, roomWidth - 1),
+            y = y.coerceIn(0, roomHeight - 1),
+            width = width.coerceIn(1, roomWidth),
+            height = height.coerceIn(1, roomHeight),
+        )
+
+    private fun RoomLayoutObject.normalizedLayoutObject(roomWidth: Int, roomHeight: Int): RoomLayoutObject =
+        copy(
+            id = id.orEmpty().ifBlank { stableId("object", "${assetId.orEmpty()}-$x-$y") }.take(80),
+            assetId = assetId.orEmpty().take(100),
+            type = type.orEmpty().ifBlank { "decor" }.take(32),
+            x = x.coerceIn(0, roomWidth - 1),
+            y = y.coerceIn(0, roomHeight - 1),
+            width = width.coerceIn(1, 8),
+            height = height.coerceIn(1, 8),
+            layer = layer.orEmpty().ifBlank { "object" }.take(16),
+            facing = facing.orEmpty().ifBlank { "south" }.take(16),
+            zoneId = zoneId.orEmpty().take(60),
+        )
+
+    private fun TownMapDocument.normalized(): TownMapDocument {
+        fun safe(value: String?): String = value.orEmpty()
+        val safeWidth = width.coerceIn(12, 80)
+        val safeHeight = height.coerceIn(12, 120)
+        return copy(
+            version = version.coerceAtLeast(1),
+            tileSize = tileSize.coerceIn(8, 48),
+            width = safeWidth,
+            height = safeHeight,
+            theme = safe(theme).ifBlank { "classic_rpg_town" }.take(60),
+            layers = layers.orEmpty().map { layer ->
             layer.copy(
-                name = layer.name.ifBlank { "layer" }.take(40),
-                data = layer.data.take(height).map { row ->
-                    row.padEnd(width, '.').take(width)
+                name = safe(layer.name).ifBlank { "layer" }.take(40),
+                data = layer.data.orEmpty().take(safeHeight).map { row ->
+                    safe(row).padEnd(safeWidth, '.').take(safeWidth)
                 },
             )
         }.ifEmpty { defaultTownLayers() },
-        sprites = sprites.take(80).map { sprite ->
+            sprites = sprites.orEmpty().take(80).map { sprite ->
             sprite.copy(
-                id = sprite.id.take(80),
-                type = sprite.type.take(40),
-                roleId = sprite.roleId.take(80),
-                x = sprite.x.coerceIn(0, width - 1),
-                y = sprite.y.coerceIn(0, height - 1),
-                variant = sprite.variant.take(40),
+                id = safe(sprite.id).take(80),
+                type = safe(sprite.type).take(40),
+                roleId = safe(sprite.roleId).take(80),
+                x = sprite.x.coerceIn(0, safeWidth - 1),
+                y = sprite.y.coerceIn(0, safeHeight - 1),
+                variant = safe(sprite.variant).take(40),
             )
         },
-    )
+        )
+    }
 
     private fun AgentSpritePack.normalized(): AgentSpritePack {
-        val cleanId = stableId("sprite", id.ifBlank { name.ifBlank { "agent" } }).take(80)
+        fun safe(value: String?): String = value.orEmpty()
+        val cleanId = stableId("sprite", safe(id).ifBlank { safe(name).ifBlank { "agent" } }).take(80)
         val cleanColumns = columns.coerceIn(1, 16)
         val cleanRows = rows.coerceIn(1, 16)
         return copy(
             id = cleanId,
-            name = name.ifBlank { cleanId }.take(60),
-            kind = kind.ifBlank { "character" }.take(32),
-            imagePath = imagePath.take(260),
+            name = safe(name).ifBlank { cleanId }.take(60),
+            kind = safe(kind).ifBlank { "character" }.take(32),
+            imagePath = safe(imagePath).take(260),
             frameWidth = frameWidth.coerceIn(8, 512),
             frameHeight = frameHeight.coerceIn(8, 512),
             columns = cleanColumns,
             rows = cleanRows,
-            states = states.mapValues { (_, state) ->
-                state.copy(
-                    row = state.row.coerceIn(0, cleanRows - 1),
-                    startColumn = state.startColumn.coerceIn(0, cleanColumns - 1),
-                    frames = state.frames.coerceIn(1, cleanColumns),
-                    durationMs = state.durationMs.coerceIn(80, 6000),
+            states = states.orEmpty().mapValues { (_, state) ->
+                val safeState = state ?: SpriteAnimationState()
+                safeState.copy(
+                    row = safeState.row.coerceIn(0, cleanRows - 1),
+                    startColumn = safeState.startColumn.coerceIn(0, cleanColumns - 1),
+                    frames = safeState.frames.coerceIn(1, cleanColumns),
+                    durationMs = safeState.durationMs.coerceIn(80, 6000),
                 )
             }.ifEmpty { defaultSpriteStates() },
-            palette = palette.take(12).map { it.take(16) },
-            notes = notes.take(240),
+            palette = palette.orEmpty().take(12).map { it.orEmpty().take(16) },
+            notes = safe(notes).take(240),
             updatedAt = System.currentTimeMillis(),
         )
     }
@@ -450,11 +547,11 @@ class AgentTownStore(private val context: Context) {
 
     private fun AgentSpritePack.isPortraitPack(): Boolean =
         // 静态肖像必须同时满足 portrait 标记或单帧结构，避免把 character spritesheet 误判成角色图。
-        kind == "portrait" || notes.contains("role_self_portrait_") || (columns == 1 && rows == 1)
+        kind.orEmpty() == "portrait" || notes.orEmpty().contains("role_self_portrait_") || (columns == 1 && rows == 1)
 
     private fun AgentSpritePack.isCharacterPack(): Boolean =
         // 动态角色必须明确是 character 或多帧结构，避免把静态图误送进房间动画位。
-        kind == "character" || notes.contains("role_self_sprite_") || columns > 1 || rows > 1
+        kind.orEmpty() == "character" || notes.orEmpty().contains("role_self_sprite_") || columns > 1 || rows > 1
 
     private fun removeChromaKeyBackground(source: Bitmap): Bitmap {
         val output = source.copy(Bitmap.Config.ARGB_8888, true)

@@ -51,6 +51,7 @@ class TownBuilderSkill(
             SkillParam("height", "number", "Furniture height in room-grid cells.", required = false),
             SkillParam("layer_name", "string", "Furniture layer: back | front.", required = false),
             SkillParam("variant", "string", "Furniture visual variant.", required = false),
+            SkillParam("asset_id", "string", "Exact image asset id from ai_home_assets. Mirror it into variant for older renderers when needed.", required = false),
             SkillParam("color", "string", "Furniture accent color hex.", required = false),
             SkillParam("map_json", "string", "Complete TownMapDocument JSON for replace_map.", required = false),
             SkillParam("layer", "string", "Map layer name for patch_tile, usually ground or objects.", required = false),
@@ -162,6 +163,7 @@ class TownBuilderSkill(
                     height = (params["height"] as? Number)?.toInt() ?: 2,
                     layer = params["layer_name"] as? String ?: params["layer"] as? String ?: "front",
                     variant = params["variant"] as? String ?: params["style"] as? String ?: "",
+                    assetId = params["asset_id"] as? String ?: "",
                     color = params["color"] as? String ?: "",
                 )
                 val room = townStore.placeFurniture(roleId, furniture)

@@ -110,15 +110,18 @@ import com.mobileclaw.ui.ClawSymbolIcon
 import com.mobileclaw.ui.GradientAvatar
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.chat.StickerSearchSheet
-import com.mobileclaw.ui.common.decodeFileAttachmentBitmap
+import com.mobileclaw.ui.common.DocumentAttachmentCard
 import com.mobileclaw.ui.common.formatFileSize
 import com.mobileclaw.ui.common.buildGroupPickedAttachment
 import com.mobileclaw.ui.common.FullscreenImageDialog
+import com.mobileclaw.ui.common.ImageFileAttachmentCard
 import com.mobileclaw.ui.common.isImageFileAttachment
 import com.mobileclaw.ui.common.isStickerFileAttachment
+import com.mobileclaw.ui.common.isVideoFileAttachment
 import com.mobileclaw.ui.common.MarkdownText
 import com.mobileclaw.ui.common.mimeTypeEmoji
 import com.mobileclaw.ui.common.openFileAttachment
+import com.mobileclaw.ui.common.VideoAttachmentCard
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -561,63 +564,71 @@ fun GroupChatScreen(
                 }
                 HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
-                // User row
-                MemberDrawerRow(avatar = userAvatarUri.orEmpty(), name = str(R.string.group_chat_df1fd9), color = c.green, description = str(R.string.group_chat_1fd02a), c = c)
-                HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
-
-                // Agent rows
-                memberRoles.forEachIndexed { i, role ->
-                    MemberDrawerRow(
-                        avatar = role.avatar,
-                        name = role.name,
-                        color = agentColor(i),
-                        description = role.description.take(60),
-                        isTyping = role.id in typingAgentIds,
-                        isWorking = role.id in workingAgentIds,
-                        trailing = if (memberEditMode && memberRoles.size > 1) {
-                            {
-                                MemberEditPill(
-                                    label = str(R.string.sticker_unfavorite_action),
-                                    primary = false,
-                                    c = c,
-                                    onClick = { onUpdateGroupMembers(group.memberRoleIds.filterNot { it == role.id }) },
-                                )
-                            }
-                        } else null,
-                        c = c,
-                    )
-                    if (i < memberRoles.lastIndex) {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    item {
+                        MemberDrawerRow(
+                            avatar = userAvatarUri.orEmpty(),
+                            name = str(R.string.group_chat_df1fd9),
+                            color = c.green,
+                            description = str(R.string.group_chat_1fd02a),
+                            c = c,
+                        )
                         HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
                     }
-                }
-                if (memberEditMode) {
-                    val addableRoles = availableRoles.filter { role -> role.id !in group.memberRoleIds }
-                    if (addableRoles.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            str(R.string.group_members_addable),
-                            color = c.subtext,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        )
-                        addableRoles.forEachIndexed { index, role ->
-                            MemberDrawerRow(
-                                avatar = role.avatar,
-                                name = role.name,
-                                color = c.subtext,
-                                description = role.description.take(48),
-                                trailing = {
+
+                    items(memberRoles, key = { it.id }) { role ->
+                        val index = memberRoles.indexOfFirst { it.id == role.id }.coerceAtLeast(0)
+                        MemberDrawerRow(
+                            avatar = role.avatar,
+                            name = role.name,
+                            color = agentColor(index),
+                            description = role.description.take(60),
+                            isTyping = role.id in typingAgentIds,
+                            isWorking = role.id in workingAgentIds,
+                            trailing = if (memberEditMode && memberRoles.size > 1) {
+                                {
                                     MemberEditPill(
-                                        label = str(R.string.user_config_add),
-                                        primary = true,
+                                        label = str(R.string.sticker_unfavorite_action),
+                                        primary = false,
                                         c = c,
-                                        onClick = { onUpdateGroupMembers(group.memberRoleIds + role.id) },
+                                        onClick = { onUpdateGroupMembers(group.memberRoleIds.filterNot { it == role.id }) },
                                     )
-                                },
-                                c = c,
-                            )
-                            if (index < addableRoles.lastIndex) {
+                                }
+                            } else null,
+                            c = c,
+                        )
+                        HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    }
+
+                    if (memberEditMode) {
+                        val addableRoles = availableRoles.filter { role -> role.id !in group.memberRoleIds }
+                        if (addableRoles.isNotEmpty()) {
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    str(R.string.group_members_addable),
+                                    color = c.subtext,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                )
+                            }
+                            items(addableRoles, key = { it.id }) { role ->
+                                MemberDrawerRow(
+                                    avatar = role.avatar,
+                                    name = role.name,
+                                    color = c.subtext,
+                                    description = role.description.take(48),
+                                    trailing = {
+                                        MemberEditPill(
+                                            label = str(R.string.user_config_add),
+                                            primary = true,
+                                            c = c,
+                                            onClick = { onUpdateGroupMembers(group.memberRoleIds + role.id) },
+                                        )
+                                    },
+                                    c = c,
+                                )
                                 HorizontalDivider(color = c.border.copy(alpha = 0.32f), thickness = 0.5.dp)
                             }
                         }
@@ -2146,28 +2157,21 @@ private fun GroupFileAttachmentCard(
     c: ClawColors,
 ) {
     val isImage = isImageFileAttachment(attachment)
+    val isVideo = isVideoFileAttachment(attachment)
     if (isImage) {
         GroupImageFileCard(attachment, context, c)
         return
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(c.cardAlt)
-            .border(1.dp, c.border, RoundedCornerShape(8.dp))
-            .clickable { openFileAttachment(context, attachment) }
-            .padding(horizontal = 9.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        Text(mimeTypeEmoji(attachment.mimeType), fontSize = 15.sp)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(attachment.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text("${formatFileSize(attachment.sizeBytes)} · ${attachment.mimeType}", color = c.subtext, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        }
-        Text(str(R.string.perm_open), color = c.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    if (isVideo) {
+        VideoAttachmentCard(
+            attachment = attachment,
+            maxWidthDp = 210.dp,
+            cornerRadiusDp = 14.dp,
+            onOpenExternally = { openFileAttachment(context, attachment) },
+        )
+        return
     }
+    DocumentAttachmentCard(attachment = attachment, context = context, c = c)
 }
 
 @Composable
@@ -2176,39 +2180,14 @@ private fun GroupImageFileCard(
     context: android.content.Context,
     c: ClawColors,
 ) {
-    val bitmap = remember(attachment.path) {
-        decodeFileAttachmentBitmap(context, attachment, maxPx = 900)
-    }
-    var showFullscreen by remember { mutableStateOf(false) }
     val isSticker = isStickerFileAttachment(attachment)
     val maxThumbWidth = if (isSticker) 144.dp else 210.dp
-    Box(
-        modifier = Modifier
-            .widthIn(max = maxThumbWidth)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable { if (bitmap != null) showFullscreen = true else openFileAttachment(context, attachment) },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            val ratio = remember(bitmap) {
-                (bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1).toFloat()).coerceIn(0.55f, 1.8f)
-            }
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = attachment.name,
-                modifier = Modifier
-                    .width(maxThumbWidth)
-                    .aspectRatio(ratio)
-                    .clip(RoundedCornerShape(if (isSticker) 8.dp else 14.dp)),
-                contentScale = ContentScale.Fit,
-            )
-        } else {
-            Text("图", color = c.subtext, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(28.dp))
-        }
-    }
-    if (bitmap != null && showFullscreen) {
-        FullscreenImageDialog(bitmap = bitmap, onDismiss = { showFullscreen = false })
-    }
+    ImageFileAttachmentCard(
+        attachment = attachment,
+        context = context,
+        maxThumbWidth = maxThumbWidth,
+        cornerRadiusDp = if (isSticker) 8.dp else 14.dp,
+    )
 }
 
 @Composable

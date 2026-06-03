@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,6 +65,7 @@ import com.mobileclaw.ui.shell.MainPageHost
 import com.mobileclaw.ui.shell.ClassicScaffold
 import com.mobileclaw.ui.shell.ClassicSessionAction
 import com.mobileclaw.ui.shell.ClassicAddGroupAction
+import com.mobileclaw.ui.shell.ClassicCodexAction
 import com.mobileclaw.ui.shell.ClassicSkillTab
 import com.mobileclaw.ui.shell.ClassicTab
 import com.mobileclaw.ui.shell.ClassicShellContent
@@ -223,6 +225,10 @@ class MainActivity : ComponentActivity() {
                                     vm.createNewSession()
                                     scope.launch { drawerState.close() }
                                 },
+                                onNewCodexSession = {
+                                    vm.createNewCodexDesktopSession()
+                                    scope.launch { drawerState.close() }
+                                },
                                 onSelectSession = { sessionId ->
                                     vm.loadSession(sessionId)
                                     scope.launch { drawerState.close() }
@@ -258,7 +264,9 @@ class MainActivity : ComponentActivity() {
                                     leadingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.SINGLE) {
                                         { ClassicSessionAction { scope.launch { drawerState.open() } } }
                                     } else null,
-                                    trailingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.GROUP) {
+                                    trailingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.SINGLE) {
+                                        { ClassicCodexAction(enabled = uiState.codexDesktopMode) { vm.setCodexDesktopMode(!uiState.codexDesktopMode) } }
+                                    } else if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.GROUP) {
                                         { ClassicAddGroupAction { classicShell.createGroupRequestKey += 1 } }
                                     } else null,
                                 ) {

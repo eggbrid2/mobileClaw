@@ -6,6 +6,7 @@ import com.mobileclaw.config.ConfigEntry
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.memory.db.SessionEntity
+import com.mobileclaw.memory.db.VideoGenerationTaskEntity
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.town.AgentTownState
@@ -19,7 +20,7 @@ import com.mobileclaw.vpn.VpnSubscription
 import com.mobileclaw.ui.workspace.WorkspaceUiState
 import kotlinx.coroutines.flow.Flow
 
-enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_DETAIL, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN, AI_TOWN, WORKSPACE }
+enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_DETAIL, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN, AI_TOWN, WORKSPACE, IMAGE_GENERATOR, VIDEO_GENERATOR }
 
 const val LATENCY_TESTING = -1L
 const val LATENCY_ERROR   = -2L
@@ -53,6 +54,8 @@ data class MainUiState(
     // Sessions
     val currentSessionId: String = "",
     val sessions: List<SessionEntity> = emptyList(),
+    val codexDesktopMode: Boolean = false,
+    val codexDesktopSessionIds: Set<String> = emptySet(),
     // Roles
     val currentRole: Role = Role.DEFAULT,
     val availableRoles: List<Role> = emptyList(),
@@ -98,4 +101,13 @@ data class MainUiState(
     val vpnLatencies: Map<String, Long> = emptyMap(),
     // Group chat
     val groupState: GroupUiState = GroupUiState(),
+    val videoTasks: List<VideoGenerationTaskEntity> = emptyList(),
+    val videoTaskRefreshingIds: Set<String> = emptySet(),
+    val videoTasksRefreshing: Boolean = false,
+    val videoGenerationRunning: Boolean = false,
+    val videoPromptAiRunning: Boolean = false,
+    val imageGenerationRunning: Boolean = false,
+    val imagePromptAiRunning: Boolean = false,
+    val imageGenerationPreviewBase64: String = "",
+    val imageGenerationPreviewPrompt: String = "",
 )

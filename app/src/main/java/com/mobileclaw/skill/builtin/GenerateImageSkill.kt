@@ -4,6 +4,9 @@ import android.util.Base64
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.config.AgentConfig
+import com.mobileclaw.config.capabilityApiKey
+import com.mobileclaw.config.capabilityEndpoint
+import com.mobileclaw.config.capabilityModel
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillMeta
@@ -48,6 +51,8 @@ class GenerateImageSkill(
             "Set 'image_api_key' in user_config if the image provider uses a different key from the LLM.",
         parameters = listOf(
             SkillParam("prompt", "string", "Detailed description of the image to generate"),
+            SkillParam("gateway_id", "string", "Optional configured gateway id to use for image generation", required = false),
+            SkillParam("gateway_name", "string", "Optional configured gateway name to use for image generation", required = false),
             SkillParam(
                 "model", "string",
                 "Model to use. " +
@@ -85,11 +90,32 @@ class GenerateImageSkill(
         val size = params["size"] as? String ?: "1024x1024"
         val quality = (params["quality"] as? String)?.takeIf { it.isNotBlank() } ?: "auto"
         val snapshot = config.snapshot()
+        val selectedGateway = selectGateway(
+            snapshot = snapshot,
+            gatewayId = params["gateway_id"] as? String,
+            gatewayName = params["gateway_name"] as? String,
+        )
         val hasHfToken = userConfig?.get("huggingface_api_key")?.isNotBlank() == true
+        val gatewayImageBase = selectedGateway?.capabilityEndpoint("image").orEmpty()
+        val gatewayImageApiKey = selectedGateway?.capabilityApiKey("image").orEmpty()
+        val gatewayImageModel = selectedGateway?.capabilityModel("image")
+        val configuredImageBase = gatewayImageBase
+            .takeIf { it.isNotBlank() }
+            ?.let(::normalizeOpenAiCompatibleBase)
+            ?: userConfig?.get("image_api_endpoint")?.trim()?.takeIf { it.isNotBlank() }
+                ?.let(::normalizeOpenAiCompatibleBase)
+            ?: snapshot.endpoint.takeIf { it.isNotBlank() }
+                ?.let(::normalizeOpenAiCompatibleBase)
+            .orEmpty()
+        val configuredImageApiKey = gatewayImageApiKey.takeIf { it.isNotBlank() }
+            ?: userConfig?.get("image_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            ?: snapshot.apiKey.takeIf { it.isNotBlank() }
+            .orEmpty()
         val model = resolveImageModel(
             requested = (params["model"] as? String)?.takeIf { it.isNotBlank() },
-            endpoint = userConfig?.get("image_api_endpoint")?.trim().orEmpty().ifBlank { snapshot.endpoint },
+            endpoint = configuredImageBase,
             hasHfToken = hasHfToken,
+            fallbackModel = gatewayImageModel ?: userConfig?.get("image_api_model")?.trim()?.takeIf { it.isNotBlank() },
         )
 
         // Pollinations.ai: free, no API key needed
@@ -100,22 +126,20 @@ class GenerateImageSkill(
             return@withContext generateViaHuggingFace(prompt, size, model)
         }
 
-        if (snapshot.endpoint.isBlank() || snapshot.apiKey.isBlank()) {
-            return@withContext SkillResult(false, "LLM endpoint or API key not configured")
-        }
-
         // image_api_endpoint: dedicated endpoint for image generation (optional)
         // Falls back to the LLM base endpoint. Claude/Gemini don't support images —
         // set this to SiliconFlow/Together.ai/OpenAI if your LLM provider doesn't have images.
-        val imageBase = userConfig?.get("image_api_endpoint")?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: snapshot.endpoint.trimEnd('/').removeSuffix("/v1")
-        val imageUrl = "$imageBase/v1/images/generations"
+        val imageBase = configuredImageBase
+        if (imageBase.isBlank()) {
+            return@withContext SkillResult(false, "Image endpoint not configured")
+        }
+        val imageUrl = "$imageBase/images/generations"
 
         // image_api_key: separate API key for image provider (optional, falls back to LLM key)
-        val imageApiKey = userConfig?.get("image_api_key")?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: snapshot.apiKey
+        val imageApiKey = configuredImageApiKey
+        if (imageApiKey.isBlank()) {
+            return@withContext SkillResult(false, "Image API key not configured")
+        }
 
         val isGptImage2 = model.startsWith("gpt-image-")
         val bodyJson = JsonObject().apply {
@@ -128,7 +152,7 @@ class GenerateImageSkill(
                 addProperty("output_format", "png")
                 addProperty("quality", quality)
                 addProperty("moderation", "auto")
-            } else {
+            } else if (supportsImageResponseFormat(imageBase, model)) {
                 addProperty("response_format", "b64_json")
             }
         }
@@ -153,8 +177,8 @@ class GenerateImageSkill(
                 }
                 val json = JsonParser.parseString(body).asJsonObject
                 val dataObj = json["data"]?.asJsonArray?.get(0)?.asJsonObject
-                val b64 = dataObj?.get("b64_json")?.asString
-                val imgUrl = dataObj?.get("url")?.asString
+                val b64 = dataObj?.stringOrNull("b64_json")
+                val imgUrl = dataObj?.stringOrNull("url")
 
                 when {
                     b64 != null -> {
@@ -283,9 +307,16 @@ class GenerateImageSkill(
                 (it.getOrNull(1)?.toIntOrNull() ?: 1024)
         }
 
-    private fun resolveImageModel(requested: String?, endpoint: String, hasHfToken: Boolean): String {
+    private fun resolveImageModel(
+        requested: String?,
+        endpoint: String,
+        hasHfToken: Boolean,
+        fallbackModel: String?,
+    ): String {
         val cleanRequested = requested?.trim().orEmpty()
         if (cleanRequested.isNotBlank() && isSupportedImageModel(cleanRequested)) return cleanRequested
+        val cleanFallback = fallbackModel?.trim().orEmpty()
+        if (cleanFallback.isNotBlank()) return cleanFallback
         val lowerEndpoint = endpoint.lowercase()
         return when {
             "api.openai.com" in lowerEndpoint || "openai" in lowerEndpoint -> "gpt-image-2"
@@ -305,6 +336,19 @@ class GenerateImageSkill(
             value.startsWith("gpt-image-") ||
             value.startsWith("dall-e-") ||
             value.startsWith("black-forest-labs/FLUX.1")
+    }
+
+    private fun supportsImageResponseFormat(endpoint: String, model: String): Boolean {
+        val lowerEndpoint = endpoint.lowercase()
+        val lowerModel = model.lowercase()
+        if ("agnes" in lowerEndpoint || lowerModel.startsWith("agnes-")) return false
+        return true
+    }
+
+    private fun JsonObject.stringOrNull(key: String): String? {
+        val value = get(key) ?: return null
+        if (value.isJsonNull || !value.isJsonPrimitive) return null
+        return value.asString.takeIf { it.isNotBlank() }
     }
 
     private fun fetchImageAsBase64(url: String): String? = runCatching {
@@ -337,5 +381,24 @@ class GenerateImageSkill(
                 "\n\n💡 端点不存在，请确认 image_api_endpoint 和模型名称正确。"
             else -> ""
         }
+    }
+
+    private fun selectGateway(
+        snapshot: com.mobileclaw.config.ConfigSnapshot,
+        gatewayId: String?,
+        gatewayName: String?,
+    ): com.mobileclaw.config.GatewayConfig? {
+        val id = gatewayId?.trim()?.takeIf { it.isNotBlank() }
+        val name = gatewayName?.trim()?.takeIf { it.isNotBlank() }
+        return snapshot.gateways.firstOrNull { gateway -> id != null && gateway.id == id }
+            ?: snapshot.gateways.firstOrNull { gateway -> name != null && gateway.name.equals(name, ignoreCase = true) }
+            ?: snapshot.activeGateway
+    }
+
+    private fun normalizeOpenAiCompatibleBase(endpoint: String): String {
+        val trimmed = endpoint.trim().trimEnd('/')
+        if (trimmed.isBlank()) return trimmed
+        val hasVersionSuffix = Regex("/v\\d+$", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+        return if (hasVersionSuffix) trimmed else "$trimmed/v1"
     }
 }

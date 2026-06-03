@@ -36,8 +36,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -45,6 +43,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.HorizontalDivider
@@ -62,9 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -147,11 +145,10 @@ fun MiniAppViewport(
     compact: Boolean = false,
     validationMode: Boolean = false,
     onStatusChange: ((String, Boolean) -> Unit)? = null,
+    onMinimize: (() -> Unit)? = null,
     onToggleExpanded: (() -> Unit)? = null,
     onOpenExternal: (() -> Unit)? = null,
 ) {
-    val previewReferenceWidth = 390.dp
-    val previewReferenceHeight = 844.dp
     val context = LocalContext.current
     val claw = ClawApplication.instance
     val miniApp = remember(appId) { claw.miniAppStore.get(appId) }
@@ -367,28 +364,8 @@ fun MiniAppViewport(
         onDispose { webView.destroy() }
     }
 
-    Box(modifier = modifier.background(c.bg)) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val widthScale = maxWidth / previewReferenceWidth
-            val heightScale = maxHeight / previewReferenceHeight
-            val viewportScale = if (compact) minOf(widthScale, heightScale) else 1f
-            Column(
-                Modifier
-                    .then(
-                        if (compact) {
-                            Modifier
-                                .requiredWidth(previewReferenceWidth)
-                                .requiredHeight(previewReferenceHeight)
-                                .graphicsLayer(
-                                    scaleX = viewportScale,
-                                    scaleY = viewportScale,
-                                    transformOrigin = TransformOrigin(0f, 0f),
-                                )
-                        } else {
-                            Modifier.fillMaxSize()
-                        }
-                    ),
-            ) {
+    Box(modifier = modifier.background(c.bg).clipToBounds()) {
+        Column(Modifier.fillMaxSize()) {
             // ── Top bar ───────────────────────────────────────────────────────
             Column(
                 Modifier
@@ -412,6 +389,18 @@ fun MiniAppViewport(
                         modifier = Modifier.weight(1f),
                     )
                     if (compact) {
+                        IconButton(
+                            onClick = { onMinimize?.invoke() },
+                            enabled = onMinimize != null,
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = if (onMinimize != null) c.subtext else c.subtext.copy(alpha = 0.38f),
+                                modifier = Modifier.size(15.dp),
+                            )
+                        }
                         IconButton(
                             onClick = { onToggleExpanded?.invoke() },
                             enabled = onToggleExpanded != null,
@@ -459,8 +448,12 @@ fun MiniAppViewport(
             }
 
             // ── WebView ───────────────────────────────────────────────────────
-            AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
-        }
+            AndroidView(
+                factory = { webView },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
         }
 
         AnimatedVisibility(

@@ -68,7 +68,9 @@ class ClassicShellController internal constructor() {
             AppPage.VPN,
             AppPage.SETTINGS,
             AppPage.USER_CONFIG,
-            AppPage.WORKSPACE -> ClassicTab.ME
+            AppPage.WORKSPACE,
+            AppPage.IMAGE_GENERATOR,
+            AppPage.VIDEO_GENERATOR -> ClassicTab.ME
             else -> tab
         }
         if (currentPage == AppPage.GROUPS || currentPage == AppPage.GROUP_CHAT) {
@@ -133,6 +135,8 @@ class ClassicShellController internal constructor() {
             AppPage.SETTINGS,
             AppPage.USER_CONFIG,
             AppPage.WORKSPACE,
+            AppPage.IMAGE_GENERATOR,
+            AppPage.VIDEO_GENERATOR,
             AppPage.HELP,
             AppPage.BROWSER,
         )

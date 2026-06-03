@@ -212,6 +212,28 @@ fun ClassicSessionAction(onClick: () -> Unit) {
 }
 
 @Composable
+fun ClassicCodexAction(enabled: Boolean, onClick: () -> Unit) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(if (enabled) c.text else if (c.isDark) c.cardAlt else Color(0xFFF2F2EF))
+            .border(0.5.dp, if (enabled) c.text else c.border, CircleShape)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            Icons.Filled.Terminal,
+            contentDescription = "Codex",
+            tint = if (enabled) c.bg else c.text,
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
+
+@Composable
 fun ClassicAddGroupAction(onClick: () -> Unit) {
     val c = LocalClawColors.current
     Box(

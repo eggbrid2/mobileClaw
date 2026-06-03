@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -63,6 +65,7 @@ fun ConsolePage(
 ) {
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
+    var codexCopied by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -101,7 +104,8 @@ fun ConsolePage(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -186,7 +190,7 @@ fun ConsolePage(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(40.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Status row
                 Row(
@@ -211,7 +215,18 @@ fun ConsolePage(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                CodexGuideCard(
+                    serverUrl = serverUrl,
+                    copied = codexCopied,
+                    onCopy = {
+                        copyToClipboard(context, CODEX_INSTALL_COMMAND)
+                        codexCopied = true
+                    },
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Port info
                 Text(
@@ -220,6 +235,106 @@ fun ConsolePage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center,
                 )
+            }
+        }
+    }
+}
+
+private const val CODEX_INSTALL_COMMAND = "npm install -g @openai/codex"
+
+@Composable
+private fun CodexGuideCard(
+    serverUrl: String,
+    copied: Boolean,
+    onCopy: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(18.dp),
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Codex 下载与连接",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "在电脑终端安装并登录 Codex，然后回到 MobileClaw 的「设置 > Codex 桥接」填写电脑地址和 Token。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 17.sp,
+        )
+        ConsoleStep("1", "安装 Codex", CODEX_INSTALL_COMMAND, onCopy)
+        ConsoleStep("2", "登录 Codex", "codex --login", onCopy = null)
+        ConsoleStep("3", "连接 MobileClaw", "控制台地址: $serverUrl", onCopy = null)
+        Text(
+            text = if (copied) "安装命令已复制" else "点击安装命令右侧按钮可复制",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+        )
+    }
+}
+
+@Composable
+private fun ConsoleStep(
+    number: String,
+    title: String,
+    command: String,
+    onCopy: (() -> Unit)?,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(number, color = MaterialTheme.colorScheme.surface, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = command,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onCopy != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = str(R.string.console_copy),
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable { onCopy() },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

@@ -135,6 +135,8 @@ Routing principles:
 - If a short follow-up like "continue" refers to the active or latest task, keep that task type.
 - Generate 2-4 short user-facing steps. These steps are shown directly in the UI while working.
 - Write them like concrete things the AI is about to do, not abstract workflow labels.
+- Never mention internal config keys, endpoint names, gateway field names, API key fields, capability ids, or raw parameter names in user_visible_steps unless the user is explicitly debugging configuration.
+- Say "确认视频生成能力是否可用" or "确认图片生成能力是否可用", not "验证 video_api_endpoint / api_key / gateway.video".
 - Good: "先查找附近可用的餐厅", "打开美团并进入下单页面", "把钢琴按键代码补全并修掉报错"
 - Bad: "确认目标", "继续推进流程", "验证结果", "完善实现"
 - Tool hints are optional known tool ids; include only obvious ids. Leave empty if unsure.

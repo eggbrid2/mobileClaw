@@ -79,6 +79,8 @@ fun clawIconForPage(page: AppPage): ImageVector = when (page) {
     AppPage.VPN -> Icons.Outlined.Lock
     AppPage.AI_TOWN -> Icons.Outlined.TheaterComedy
     AppPage.WORKSPACE -> Icons.Outlined.Folder
+    AppPage.IMAGE_GENERATOR -> Icons.Outlined.Image
+    AppPage.VIDEO_GENERATOR -> Icons.Outlined.Movie
 }
 
 fun clawIconForSymbol(symbol: String?): ImageVector {

@@ -1,0 +1,20 @@
+{
+  "name": "mobileclaw-local",
+  "interface": {
+    "displayName": "MobileClaw Local"
+  },
+  "plugins": [
+    {
+      "name": "mobileclaw-desktop",
+      "source": {
+        "source": "local",
+        "path": "./plugins/mobileclaw-desktop"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

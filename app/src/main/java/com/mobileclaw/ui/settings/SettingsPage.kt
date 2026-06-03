@@ -1,6 +1,9 @@
 package com.mobileclaw.ui.settings
 
 import android.os.Build
+import android.widget.Toast
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,15 +16,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,8 +50,13 @@ import com.mobileclaw.R
 import com.mobileclaw.config.CacheCategory
 import com.mobileclaw.config.CacheCleaner
 import com.mobileclaw.config.ConfigSnapshot
+import com.mobileclaw.config.GatewayCapabilityConfig
 import com.mobileclaw.config.GatewayConfig
+import com.mobileclaw.config.capabilityModel
+import com.mobileclaw.config.supportsCapabilityMultimodal
 import com.mobileclaw.llm.LocalModelInfo
+import com.mobileclaw.llm.OpenAiGateway
+import com.mobileclaw.memory.db.VideoGenerationTaskEntity
 import com.mobileclaw.perception.VirtualDisplayManager
 import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.ClawIconTile
@@ -51,19 +64,133 @@ import com.mobileclaw.ui.ClawPageHeader
 import com.mobileclaw.ui.ClawSymbolIcon
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.ThemePresets
+import com.mobileclaw.ui.common.openFileAttachment
+import com.mobileclaw.ui.common.VideoAttachmentCard
+import com.mobileclaw.skill.SkillAttachment
+import com.mobileclaw.skill.builtin.VideoTaskStatuses
+import com.mobileclaw.skill.builtin.VIDEO_DOWNLOAD_URL_PENDING_MESSAGE
+import com.mobileclaw.skill.builtin.isVideoDownloadUrlPending
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import com.mobileclaw.str
 
-private data class GatewayPreset(val name: String, val endpoint: String, val model: String, val supportsMultimodal: Boolean = true)
+// Gateway presets are grouped by actual compatibility so the quick-add UI can
+// expose real providers first and leave non-standard coding products as templates.
+private data class GatewayPreset(
+    val name: String,
+    val endpoint: String,
+    val model: String,
+    val embeddingModel: String = "text-embedding-3-small",
+    val imageModel: String = "",
+    val videoModel: String = "",
+    val supportsMultimodal: Boolean = true,
+    val hint: String = "",
+    val group: GatewayPresetGroup = GatewayPresetGroup.DIRECT,
+)
+
+private enum class GatewayPresetGroup {
+    DIRECT,
+    TEMPLATE,
+}
+
+private val GATEWAY_CAPABILITY_TYPES = listOf("chat", "embedding", "image", "video")
 
 private val GATEWAY_PRESETS = listOf(
-    GatewayPreset("OpenAI", "https://api.openai.com", "gpt-4o"),
-    GatewayPreset("Groq", "https://api.groq.com/openai", "llama-3.3-70b-versatile", supportsMultimodal = false),
-    GatewayPreset("Ollama", "http://localhost:11434/v1", "llama3.2", supportsMultimodal = false),
-    GatewayPreset("Codex (o3)", "https://api.openai.com", "o3", supportsMultimodal = false),
+    GatewayPreset(
+        name = "OpenAI / GPT",
+        endpoint = "https://api.openai.com",
+        model = "gpt-4o",
+        imageModel = "gpt-image-1",
+        hint = "Official OpenAI-compatible endpoint. Good default for text, vision, and tools.",
+    ),
+    GatewayPreset(
+        name = "Qwen / DashScope",
+        endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model = "qwen-plus",
+        embeddingModel = "text-embedding-v4",
+        hint = "Alibaba DashScope OpenAI-compatible base URL.",
+    ),
+    GatewayPreset(
+        name = "Volcengine Ark",
+        endpoint = "https://ark.cn-beijing.volces.com/api/v3",
+        model = "doubao-seed-1-6-250615",
+        hint = "Volcengine Ark OpenAI-compatible endpoint on /api/v3.",
+    ),
+    GatewayPreset(
+        name = "DeepSeek",
+        endpoint = "https://api.deepseek.com",
+        model = "deepseek-chat",
+        hint = "Official DeepSeek OpenAI-compatible API base.",
+        supportsMultimodal = false,
+    ),
+    GatewayPreset(
+        name = "Moonshot / Kimi",
+        endpoint = "https://api.moonshot.cn/v1",
+        model = "kimi-k2.5",
+        hint = "Kimi official OpenAI-compatible API with multimodal support.",
+    ),
+    GatewayPreset(
+        name = "Zhipu / GLM",
+        endpoint = "https://open.bigmodel.cn/api/paas/v4",
+        model = "glm-5.1",
+        hint = "Zhipu OpenAI-compatible Base URL for general API scenarios.",
+    ),
+    GatewayPreset(
+        name = "Groq",
+        endpoint = "https://api.groq.com/openai",
+        model = "llama-3.3-70b-versatile",
+        supportsMultimodal = false,
+        hint = "Fast OpenAI-compatible text gateway.",
+    ),
+    GatewayPreset(
+        name = "Ollama",
+        endpoint = "http://localhost:11434/v1",
+        model = "llama3.2",
+        supportsMultimodal = false,
+        hint = "Local OpenAI-compatible runtime on the device or LAN.",
+    ),
+    GatewayPreset(
+        name = "Agnes",
+        endpoint = "https://apihub.agnes-ai.com",
+        model = "agnes-2.0-flash",
+        imageModel = "agnes-image-2.0-flash",
+        videoModel = "agnes-video-v2.0",
+        hint = "Template for Agnes APIHub. Recommended defaults: agnes-2.0-flash, agnes-image-2.0-flash, agnes-video-v2.0.",
+        group = GatewayPresetGroup.TEMPLATE,
+    ),
+    GatewayPreset(
+        name = "Claude Code / CC",
+        endpoint = "",
+        model = "claude-sonnet-4",
+        hint = "Template only. Use this when you have a compatible relay or coding gateway endpoint.",
+        group = GatewayPresetGroup.TEMPLATE,
+    ),
+    GatewayPreset(
+        name = "Cursor",
+        endpoint = "",
+        model = "gpt-4.1",
+        hint = "Template only. Paste your compatible relay or workspace gateway endpoint after selecting it.",
+        group = GatewayPresetGroup.TEMPLATE,
+    ),
+    GatewayPreset(
+        name = "Custom",
+        endpoint = "",
+        model = "gpt-4o",
+        hint = "Start from a blank OpenAI-style gateway.",
+        group = GatewayPresetGroup.TEMPLATE,
+    ),
 )
 
 private val LANGUAGES = listOf(
@@ -71,7 +198,155 @@ private val LANGUAGES = listOf(
     "en"   to R.string.lang_en,
 )
 
-private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CACHE }
+private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CODEX_DESKTOP, CACHE, TASKS }
+
+private const val CODEX_DESKTOP_ENDPOINT_KEY = "codex_desktop_endpoint"
+private const val CODEX_DESKTOP_TOKEN_KEY = "codex_desktop_token"
+private const val CODEX_DESKTOP_CWD_KEY = "codex_desktop_cwd"
+private const val CODEX_DESKTOP_MODEL_KEY = "codex_desktop_model"
+private const val CODEX_DESKTOP_PROVIDER_KEY = "codex_desktop_provider"
+private const val CODEX_DESKTOP_APPROVAL_KEY = "codex_desktop_approval"
+private const val CODEX_DESKTOP_SANDBOX_KEY = "codex_desktop_sandbox"
+
+@Composable
+private fun gatewayPresetTypeLabel(preset: GatewayPreset): String = when {
+    preset.group == GatewayPresetGroup.TEMPLATE -> str(R.string.gateway_preset_template)
+    preset.supportsMultimodal -> str(R.string.gateway_preset_multimodal)
+    else -> str(R.string.gateway_preset_text_only)
+}
+
+@Composable
+private fun gatewayCapabilityTypeLabel(type: String): String = when (type) {
+    "chat" -> str(R.string.gateway_capability_chat)
+    "embedding" -> str(R.string.gateway_capability_embedding)
+    "image" -> str(R.string.gateway_capability_image)
+    "video" -> str(R.string.gateway_capability_video)
+    else -> type
+}
+
+@Composable
+private fun gatewayHostLabel(endpoint: String): String =
+    endpoint.removePrefix("https://").removePrefix("http://").trimEnd('/').ifBlank { str(R.string.status_not_configured) }
+
+@Composable
+private fun GatewayPill(
+    text: String,
+    c: ClawColors,
+    active: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (active) c.text else c.cardAlt)
+            .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text,
+            color = if (active) c.bg else c.text,
+            fontSize = 10.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+private fun buildPresetCapabilities(
+    preset: GatewayPreset,
+    fallbackEmbeddingModel: String = "text-embedding-3-small",
+): List<GatewayCapabilityConfig> = buildList {
+    add(GatewayCapabilityConfig(type = "chat", model = preset.model))
+    add(
+        GatewayCapabilityConfig(
+            type = "embedding",
+            model = preset.embeddingModel.ifBlank { fallbackEmbeddingModel },
+        )
+    )
+    if (preset.imageModel.isNotBlank()) {
+        add(GatewayCapabilityConfig(type = "image", model = preset.imageModel))
+    }
+    if (preset.videoModel.isNotBlank()) {
+        add(GatewayCapabilityConfig(type = "video", model = preset.videoModel))
+    }
+}
+
+private fun String.normalizedModelKey(): String =
+    lowercase().replace('_', '-').replace(' ', '-')
+
+private fun chooseRecommendedModel(
+    type: String,
+    preset: GatewayPreset,
+    fetchedModels: List<String>,
+): String? {
+    if (fetchedModels.isEmpty()) return null
+    val normalized = fetchedModels.associateBy { it.normalizedModelKey() }
+    val preferred = when (type) {
+        "chat" -> listOf(preset.model)
+        "embedding" -> listOf(preset.embeddingModel, "text-embedding-3-small", "text-embedding-v4")
+        "image" -> listOf(preset.imageModel, "agnes-image-2.0-flash", "agnes-image-2.1-flash", "gpt-image-1", "wanx2.1-t2i-turbo", "flux-dev")
+        "video" -> listOf(preset.videoModel, "agnes-video-v2.0", "agnes-video-v1.2", "kling-v1", "veo-3")
+        else -> emptyList()
+    }.map { it.normalizedModelKey() }.filter { it.isNotBlank() }
+    preferred.firstNotNullOfOrNull { normalized[it] }?.let { return it }
+
+    val typeKeywords = when (type) {
+        "chat" -> listOf("gpt", "qwen", "deepseek", "kimi", "glm", "claude", "llama", "doubao")
+        "embedding" -> listOf("embedding", "embed")
+        "image" -> listOf("image", "wanx", "flux", "sdxl", "vision-image")
+        "video" -> listOf("video", "kling", "veo", "movie")
+        else -> emptyList()
+    }
+    return fetchedModels.firstOrNull { candidate ->
+        val key = candidate.normalizedModelKey()
+        typeKeywords.any { it in key }
+    }
+}
+
+private fun applyRecommendedModelsToCapabilities(
+    capabilities: List<GatewayCapabilityConfig>,
+    preset: GatewayPreset,
+    fetchedModels: List<String>,
+): List<GatewayCapabilityConfig> = capabilities.map { capability ->
+    val recommended = chooseRecommendedModel(capability.type, preset, fetchedModels)
+    if (recommended.isNullOrBlank()) capability else capability.copy(model = recommended)
+}
+
+private fun hydrateCapabilityConnections(
+    capabilities: List<GatewayCapabilityConfig>,
+    baseEndpoint: String,
+    baseApiKey: String,
+    existing: List<GatewayCapabilityConfig> = emptyList(),
+): List<GatewayCapabilityConfig> {
+    val existingByType = existing.associateBy { it.type.trim().lowercase() }
+    val normalizedBaseEndpoint = baseEndpoint.trim()
+    val normalizedBaseApiKey = baseApiKey.trim()
+    return capabilities.map { capability ->
+        val normalizedType = capability.type.trim().lowercase()
+        val previous = existingByType[normalizedType]
+        capability.copy(
+            type = normalizedType,
+            endpoint = capability.endpoint.trim()
+                .ifBlank { previous?.endpoint?.trim().orEmpty() }
+                .ifBlank { normalizedBaseEndpoint },
+            apiKey = capability.apiKey.trim()
+                .ifBlank { previous?.apiKey?.trim().orEmpty() }
+                .ifBlank { normalizedBaseApiKey },
+        )
+    }
+}
+
+private fun videoTaskStatusLabel(task: VideoGenerationTaskEntity): String =
+    when {
+        task.status == VideoTaskStatuses.RUNNING && isVideoDownloadUrlPending(task.errorMessage) -> "等待下载地址"
+        task.status == VideoTaskStatuses.SUBMITTED -> "生成中"
+        task.status == VideoTaskStatuses.RUNNING -> "生成中"
+        task.status == VideoTaskStatuses.TIMED_OUT -> "生成中"
+        task.status == VideoTaskStatuses.COMPLETED -> "已生成"
+        task.status == VideoTaskStatuses.DOWNLOADED -> "已生成"
+        task.status == VideoTaskStatuses.FAILED -> "失败"
+        else -> task.status
+    }
 
 @Composable
 fun SettingsPage(
@@ -92,8 +367,17 @@ fun SettingsPage(
     onDownloadLocalModel: (String, String, String) -> Unit,
     onImportLocalModel: (String, android.net.Uri) -> Unit,
     onDeleteLocalModel: (String) -> Unit,
+    videoTasks: List<VideoGenerationTaskEntity>,
+    videoTaskRefreshingIds: Set<String>,
+    videoTasksRefreshing: Boolean,
+    onRefreshVideoTask: (String) -> Unit,
+    onRefreshPendingVideoTasks: () -> Unit,
+    onDeleteVideoTask: (String) -> Unit,
 ) {
     val c = LocalClawColors.current
+    val context = LocalContext.current
+    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
     val snapshot by config.collectAsState(initial = ConfigSnapshot())
     var gateways by remember(snapshot.gateways) { mutableStateOf(snapshot.gateways) }
     var activeGatewayId by remember(snapshot.activeGatewayId) { mutableStateOf(snapshot.activeGatewayId) }
@@ -137,6 +421,8 @@ fun SettingsPage(
             ) {
                 val isConfigured = activeGateway != null && activeGateway.endpoint.isNotBlank() && activeGateway.apiKey.isNotBlank()
                 val vdRunning = virtualDisplayManager.isRunning
+                val codexConfigured = userConfigEntries[CODEX_DESKTOP_ENDPOINT_KEY]?.value.orEmpty().isNotBlank() &&
+                    userConfigEntries[CODEX_DESKTOP_TOKEN_KEY]?.value.orEmpty().isNotBlank()
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
@@ -198,12 +484,28 @@ fun SettingsPage(
                     ) { subPage = SettingsSub.VIRTUAL_DISPLAY }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
+                        iconKey = "role:coder",
+                        title = "Codex 桥接",
+                        subtitle = if (codexConfigured) "已配置电脑端桥接" else "连接电脑上的 Codex CLI",
+                        statusOk = codexConfigured,
+                        c = c,
+                    ) { subPage = SettingsSub.CODEX_DESKTOP }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
                         iconKey = "cache",
                         title = str(R.string.cache_title),
                         subtitle = str(R.string.cache_subtitle),
                         statusOk = true,
                         c = c,
                     ) { subPage = SettingsSub.CACHE }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "video",
+                        title = "长任务",
+                        subtitle = if (videoTasks.isEmpty()) "暂无视频长任务" else "共有 ${videoTasks.size} 条视频生成任务",
+                        statusOk = videoTasks.any { it.status == VideoTaskStatuses.DOWNLOADED || it.status == VideoTaskStatuses.COMPLETED },
+                        c = c,
+                    ) { subPage = SettingsSub.TASKS }
                 }
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
@@ -280,7 +582,22 @@ fun SettingsPage(
                 onTestVirtualDisplay = onTestVirtualDisplay,
                 onCheckPrivServer = onCheckPrivServer,
             )
+            SettingsSub.CODEX_DESKTOP -> CodexDesktopSubPage(
+                userConfig = userConfig,
+                c = c,
+                onBack = { subPage = null },
+            )
             SettingsSub.CACHE -> CacheSubPage(c = c, onBack = { subPage = null })
+            SettingsSub.TASKS -> VideoTasksSubPage(
+                tasks = videoTasks,
+                refreshingIds = videoTaskRefreshingIds,
+                refreshingAll = videoTasksRefreshing,
+                c = c,
+                onBack = { subPage = null },
+                onRefreshTask = onRefreshVideoTask,
+                onRefreshAll = onRefreshPendingVideoTasks,
+                onDeleteTask = onDeleteVideoTask,
+            )
             else -> Unit
         }
     }
@@ -373,19 +690,60 @@ private fun GatewayListSubPage(
 
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.settings_849b48), onBack = onBack) {
-            TextButton(onClick = {
-                editingGateway = GatewayConfig(name = str(R.string.settings_7acaf4), endpoint = "", apiKey = "", model = "gpt-4o")
-            }) { Text(str(R.string.settings_ed7823), color = c.accent, fontSize = 13.sp) }
+            Button(
+                onClick = {
+                editingGateway = GatewayConfig(
+                    name = str(R.string.settings_7acaf4),
+                    endpoint = "",
+                    apiKey = "",
+                    model = "gpt-4o",
+                    embeddingModel = "text-embedding-3-small",
+                    capabilities = buildPresetCapabilities(
+                        preset = GATEWAY_PRESETS.first { it.name == "Custom" },
+                    ),
+                )
+            },
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(str(R.string.settings_ed7823), fontSize = 13.sp, maxLines = 1)
+            }
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            SettingsHubCard(c) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(str(R.string.gateway_list_summary_title), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        str(R.string.gateway_list_summary_subtitle),
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GatewayPill(text = str(R.string.gateway_active_label), c = c, active = true)
+                        GatewayPill(text = activeId?.let { list.find { gw -> gw.id == it }?.name }.orEmpty().ifBlank { "-" }, c = c)
+                        GatewayPill(text = str(R.string.gateways_status, list.size, list.find { it.id == activeId }?.name ?: "-"), c = c)
+                    }
+                }
+            }
+
             if (list.isEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(str(R.string.settings_0733e8), fontSize = 15.sp, color = c.subtext)
-                        Text(str(R.string.settings_tap), fontSize = 12.sp, color = c.subtext.copy(alpha = 0.6f))
+                SettingsHubCard(c) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 34.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ClawIconTile(symbol = "gateway", size = 42.dp, iconSize = 22.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                            Text(str(R.string.settings_0733e8), fontSize = 15.sp, color = c.text, fontWeight = FontWeight.Medium)
+                            Text(str(R.string.settings_tap), fontSize = 12.sp, color = c.subtext.copy(alpha = 0.7f))
+                        }
                     }
                 }
             } else {
@@ -405,36 +763,77 @@ private fun GatewayListSubPage(
                 }
             }
 
-            // Presets section
-            if (list.isEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(str(R.string.settings_1de35a), color = c.subtext.copy(alpha = 0.7f), fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-                GATEWAY_PRESETS.forEach { preset ->
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(c.surface)
-                            .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
-                            .clickable {
-                                editingGateway = GatewayConfig(
-                                    name = preset.name,
-                                    endpoint = preset.endpoint,
-                                    apiKey = "",
-                                    model = preset.model,
-                                    supportsMultimodal = preset.supportsMultimodal,
-                                )
+            SettingsHubCard(c) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(str(R.string.gateway_quick_add_title), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        str(R.string.gateway_editor_setup_body),
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                    )
+                    Text(str(R.string.gateway_provider_direct), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.DIRECT }) { preset ->
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.card)
+                                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        editingGateway = GatewayConfig(
+                                            name = preset.name,
+                                            endpoint = preset.endpoint,
+                                            apiKey = "",
+                                            model = preset.model,
+                                            embeddingModel = preset.embeddingModel,
+                                            supportsMultimodal = preset.supportsMultimodal,
+                                            capabilities = buildPresetCapabilities(preset),
+                                        )
+                                    }
+                                    .width(188.dp)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(preset.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
+                                    Text(gatewayHostLabel(preset.endpoint), fontSize = 11.sp, color = c.subtext, maxLines = 2)
+                                    GatewayPill(text = gatewayPresetTypeLabel(preset), c = c)
+                                }
                             }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(preset.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text)
-                            Text(preset.endpoint.removePrefix("https://").removePrefix("http://").take(36),
-                                fontSize = 11.sp, color = c.subtext)
                         }
-                        Text(if (preset.supportsMultimodal) str(R.string.settings_8fabe3) else str(R.string.settings_90f268),
-                            fontSize = 10.sp, color = c.subtext)
+                    }
+                    Text(str(R.string.gateway_provider_template), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.TEMPLATE }) { preset ->
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.card)
+                                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        editingGateway = GatewayConfig(
+                                            name = preset.name,
+                                            endpoint = preset.endpoint,
+                                            apiKey = "",
+                                            model = preset.model,
+                                            embeddingModel = preset.embeddingModel,
+                                            supportsMultimodal = preset.supportsMultimodal,
+                                            capabilities = buildPresetCapabilities(preset),
+                                        )
+                                    }
+                                    .width(188.dp)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(preset.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
+                                    Text(gatewayHostLabel(preset.endpoint), fontSize = 11.sp, color = c.subtext, maxLines = 2)
+                                    GatewayPill(text = gatewayPresetTypeLabel(preset), c = c)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -471,36 +870,79 @@ private fun GatewayListItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(c.surface)
-            .border(1.dp, if (isActive) c.text else c.border, RoundedCornerShape(10.dp))
+            .border(1.dp, if (isActive) c.text else c.border, RoundedCornerShape(16.dp))
             .clickable(onClick = onActivate)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                .background(if (isActive) c.green else c.subtext.copy(alpha = 0.25f))
-        )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                if (gateway.supportsMultimodal) {
-                    ClawSymbolIcon("eye", tint = c.subtext, modifier = Modifier.size(12.dp))
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ClawIconTile(
+                symbol = "gateway",
+                size = 38.dp,
+                iconSize = 18.dp,
+                tint = c.text,
+                background = c.cardAlt,
+                border = c.border,
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(gateway.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                    if (isActive) GatewayPill(text = str(R.string.gateway_active_label), c = c, active = true)
+                    if (gateway.supportsCapabilityMultimodal()) GatewayPill(text = str(R.string.gateway_preset_multimodal), c = c)
+                }
+                Text(
+                    gatewayHostLabel(gateway.endpoint),
+                    fontSize = 11.sp,
+                    color = c.subtext,
+                    maxLines = 1,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val chips = gateway.capabilities.filter { it.enabled && it.model.isNotBlank() }
+                    if (chips.isEmpty()) {
+                        GatewayPill(text = gateway.model.takeIf { it.isNotBlank() } ?: str(R.string.status_not_configured), c = c)
+                    } else {
+                        chips.take(4).forEach {
+                            GatewayPill(text = "${it.type}:${it.model}", c = c)
+                        }
+                    }
                 }
             }
-            Text(gateway.endpoint.removePrefix("https://").removePrefix("http://").take(32).ifBlank { str(R.string.status_not_configured) },
-                fontSize = 11.sp, color = c.subtext)
-            Text(gateway.model.take(28), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.7f))
         }
-        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = c.subtext, modifier = Modifier.size(16.dp))
-        }
-        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = c.red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = onActivate,
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text),
+                border = ButtonDefaults.outlinedButtonBorder,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(str(R.string.gateway_active_label), fontSize = 11.sp)
+            }
+            OutlinedButton(
+                onClick = onEdit,
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text),
+                border = ButtonDefaults.outlinedButtonBorder,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(str(R.string.settings_edit), fontSize = 11.sp)
+            }
+            TextButton(
+                onClick = onDelete,
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = c.red.copy(alpha = 0.78f), modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(str(R.string.skills_delete_confirm), color = c.red.copy(alpha = 0.78f), fontSize = 11.sp)
+            }
         }
     }
 }
@@ -512,26 +954,139 @@ private fun GatewayEditorSubPage(
     onBack: () -> Unit,
     onSave: (GatewayConfig) -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var name by remember { mutableStateOf(gateway.name) }
     var endpoint by remember { mutableStateOf(gateway.endpoint) }
     var apiKey by remember { mutableStateOf(gateway.apiKey) }
     var model by remember { mutableStateOf(gateway.model) }
     var embModel by remember { mutableStateOf(gateway.embeddingModel) }
     var supportsMultimodal by remember { mutableStateOf(gateway.supportsMultimodal) }
+    var presetHint by remember { mutableStateOf("") }
+    var capabilities by remember(gateway.id) {
+        mutableStateOf(
+            gateway.capabilities.ifEmpty {
+                buildList {
+                    if (gateway.model.isNotBlank()) add(GatewayCapabilityConfig(type = "chat", model = gateway.model))
+                    if (gateway.embeddingModel.isNotBlank()) add(GatewayCapabilityConfig(type = "embedding", model = gateway.embeddingModel))
+                }
+            }
+        )
+    }
+    var fetchedModels by remember(gateway.id) { mutableStateOf<List<String>>(emptyList()) }
+    var modelFetchLoading by remember { mutableStateOf(false) }
+    var modelFetchFailed by remember { mutableStateOf(false) }
+    var showAiFillDialog by remember { mutableStateOf(false) }
+    var aiFillSelectedModel by remember { mutableStateOf("") }
+    var aiFillLoading by remember { mutableStateOf(false) }
+    var aiFillFailed by remember { mutableStateOf(false) }
+    var capabilityDetailsExpanded by remember(gateway.id) { mutableStateOf(false) }
 
-    val isValid = endpoint.isNotBlank() && apiKey.isNotBlank() && name.isNotBlank()
+    val resolvedChatCapability = capabilities.firstOrNull { it.type.equals("chat", ignoreCase = true) }
+    val resolvedChatEndpoint = resolvedChatCapability?.endpoint?.trim().orEmpty().ifBlank { endpoint.trim() }
+    val resolvedChatApiKey = resolvedChatCapability?.apiKey?.trim().orEmpty().ifBlank { apiKey.trim() }
+    val isValid = name.isNotBlank() && resolvedChatEndpoint.isNotBlank() && resolvedChatApiKey.isNotBlank()
+    val directPresets = remember { GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.DIRECT } }
+    val templatePresets = remember { GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.TEMPLATE } }
+    val selectedPreset = remember(name, endpoint, model) {
+        GATEWAY_PRESETS.firstOrNull { it.name == name && it.endpoint == endpoint && it.model == model }
+            ?: GATEWAY_PRESETS.firstOrNull { it.endpoint == endpoint && it.name == name }
+    }
+    fun applyPreset(preset: GatewayPreset) {
+        name = preset.name
+        endpoint = preset.endpoint
+        model = preset.model
+        embModel = preset.embeddingModel
+        supportsMultimodal = preset.supportsMultimodal
+        capabilities = buildPresetCapabilities(preset, preset.embeddingModel.ifBlank { "text-embedding-3-small" })
+        presetHint = preset.hint
+        if (preset.endpoint.isNotBlank() && apiKey.isNotBlank() && !modelFetchLoading) {
+            modelFetchLoading = true
+            modelFetchFailed = false
+            scope.launch {
+                val models = OpenAiGateway.fetchModels(preset.endpoint, apiKey.trim())
+                fetchedModels = models
+                modelFetchLoading = false
+                modelFetchFailed = models.isEmpty()
+                if (models.isNotEmpty()) {
+                    capabilities = hydrateCapabilityConnections(
+                        capabilities = applyRecommendedModelsToCapabilities(capabilities, preset, models),
+                        baseEndpoint = endpoint,
+                        baseApiKey = apiKey,
+                        existing = capabilities,
+                    )
+                    model = capabilities.firstOrNull { it.type == "chat" }?.model ?: model
+                    embModel = capabilities.firstOrNull { it.type == "embedding" }?.model ?: embModel
+                }
+            }
+        }
+    }
+    LaunchedEffect(apiKey, endpoint, selectedPreset?.name) {
+        val preset = selectedPreset ?: return@LaunchedEffect
+        if (apiKey.isBlank() || endpoint.isBlank() || fetchedModels.isNotEmpty() || modelFetchLoading) return@LaunchedEffect
+        if (preset.endpoint.isBlank() || endpoint.trim() != preset.endpoint.trim()) return@LaunchedEffect
+        modelFetchLoading = true
+        modelFetchFailed = false
+        val models = OpenAiGateway.fetchModels(endpoint.trim(), apiKey.trim())
+        fetchedModels = models
+        modelFetchLoading = false
+        modelFetchFailed = models.isEmpty()
+        if (models.isNotEmpty()) {
+            capabilities = hydrateCapabilityConnections(
+                capabilities = applyRecommendedModelsToCapabilities(capabilities, preset, models),
+                baseEndpoint = endpoint,
+                baseApiKey = apiKey,
+                existing = capabilities,
+            )
+            model = capabilities.firstOrNull { it.type == "chat" }?.model ?: model
+            embModel = capabilities.firstOrNull { it.type == "embedding" }?.model ?: embModel
+        }
+    }
+    LaunchedEffect(fetchedModels, endpoint) {
+        if (fetchedModels.isEmpty()) return@LaunchedEffect
+        val endpointTrimmed = endpoint.trim()
+        if (endpointTrimmed.isBlank()) return@LaunchedEffect
+        val currentChat = capabilities.firstOrNull { it.type.equals("chat", ignoreCase = true) }?.model?.trim().orEmpty()
+        if (currentChat.isNotBlank() && currentChat in fetchedModels) return@LaunchedEffect
+        val preset = selectedPreset
+            ?: GATEWAY_PRESETS.firstOrNull { it.endpoint.trim() == endpointTrimmed }
+            ?: return@LaunchedEffect
+        val corrected = hydrateCapabilityConnections(
+            capabilities = applyRecommendedModelsToCapabilities(capabilities, preset, fetchedModels),
+            baseEndpoint = endpoint,
+            baseApiKey = apiKey,
+            existing = capabilities,
+        )
+        if (corrected == capabilities) return@LaunchedEffect
+        capabilities = corrected
+        model = corrected.firstOrNull { it.type == "chat" }?.model ?: model
+        embModel = corrected.firstOrNull { it.type == "embedding" }?.model ?: embModel
+    }
 
     Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
         ClawPageHeader(title = if (gateway.endpoint.isBlank()) str(R.string.settings_add) else str(R.string.settings_edit), onBack = onBack) {
             Button(
                 onClick = {
+                    val normalizedCapabilities = capabilities
+                        .map {
+                            it.copy(
+                                type = it.type.trim().lowercase(),
+                                model = it.model.trim(),
+                                endpoint = it.endpoint.trim(),
+                                apiKey = it.apiKey.trim(),
+                            )
+                        }
+                        .filter { it.enabled && it.type.isNotBlank() && it.model.isNotBlank() }
+                    val chatModel = normalizedCapabilities.firstOrNull { it.type == "chat" }?.model ?: model.trim()
+                    val embeddingModel = normalizedCapabilities.firstOrNull { it.type == "embedding" }?.model ?: embModel.trim()
                     onSave(gateway.copy(
                         name = name.trim(),
                         endpoint = endpoint.trim(),
                         apiKey = apiKey.trim(),
-                        model = model.trim(),
-                        embeddingModel = embModel.trim(),
-                        supportsMultimodal = supportsMultimodal,
+                        model = chatModel,
+                        embeddingModel = embeddingModel,
+                        supportsMultimodal = supportsMultimodal || normalizedCapabilities.any { it.type == "image" || it.type == "video" },
+                        capabilities = normalizedCapabilities,
                     ))
                 },
                 enabled = isValid,
@@ -545,41 +1100,388 @@ private fun GatewayEditorSubPage(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // Presets
-            SettingsSection(str(R.string.settings_cac718), c) {
-                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(GATEWAY_PRESETS.size) { i ->
-                        val preset = GATEWAY_PRESETS[i]
-                        val active = endpoint == preset.endpoint && model == preset.model
-                        Box(
-                            Modifier.clip(RoundedCornerShape(8.dp))
-                                .background(if (active) c.text else c.cardAlt)
-                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    name = preset.name
-                                    endpoint = preset.endpoint
-                                    model = preset.model
-                                    supportsMultimodal = preset.supportsMultimodal
-                                }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                        ) {
-                            Text(preset.name, color = if (active) c.bg else c.subtext, fontSize = 11.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
-                        }
+            SettingsHubCard(c) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(str(R.string.gateway_editor_setup_title), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        str(R.string.gateway_editor_setup_body),
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        GatewayPill(
+                            text = if (isValid) str(R.string.gateway_editor_connection_ready) else str(R.string.gateway_editor_connection_missing),
+                            c = c,
+                            active = isValid,
+                        )
+                        GatewayPill(
+                            text = if (capabilities.isEmpty()) str(R.string.gateway_editor_capabilities_empty)
+                            else str(R.string.gateway_editor_capabilities_ready, capabilities.count { it.model.isNotBlank() }),
+                            c = c,
+                        )
                     }
                 }
             }
-            SettingsSection(str(R.string.settings_9e5ffa), c) {
+            // Presets are split into direct providers and templates so users can
+            // distinguish one-tap official-compatible gateways from relay-style setups.
+            SettingsSection(str(R.string.gateway_editor_provider_title), c) {
+                Text(
+                    str(R.string.gateway_provider_direct),
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    directPresets.forEach { preset ->
+                        val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
+                        Box(
+                            Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (active) c.text else c.surface)
+                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+                                .clickable { applyPreset(preset) }
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                        ) {
+                            Text(
+                                preset.name,
+                                color = if (active) c.bg else c.text,
+                                fontSize = 11.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    str(R.string.gateway_provider_template),
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    templatePresets.forEach { preset ->
+                        val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
+                        Box(
+                            Modifier.clip(RoundedCornerShape(999.dp))
+                                .background(if (active) c.text else c.surface)
+                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+                                .clickable { applyPreset(preset) }
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                        ) {
+                            Text(
+                                preset.name,
+                                color = if (active) c.bg else c.text,
+                                fontSize = 11.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                if (presetHint.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        presetHint,
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                    )
+                }
+            }
+            SettingsSection(str(R.string.gateway_editor_connection_title), c) {
                 ClawPageTextField(name, { name = it }, str(R.string.role_field_name), "OpenAI", c)
                 ClawPageTextField(endpoint, { endpoint = it }, str(R.string.field_endpoint), "https://api.openai.com", c)
                 ClawPageTextField(apiKey, { apiKey = it }, str(R.string.field_api_key), "sk-...", c, isSecret = true)
             }
-            SettingsSection(str(R.string.section_models), c) {
+            SettingsSection(str(R.string.gateway_editor_models_title), c) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (endpoint.isBlank() || apiKey.isBlank() || modelFetchLoading) return@OutlinedButton
+                            modelFetchLoading = true
+                            modelFetchFailed = false
+                            scope.launch {
+                                val models = OpenAiGateway.fetchModels(endpoint, apiKey)
+                                fetchedModels = models
+                                modelFetchLoading = false
+                                modelFetchFailed = models.isEmpty()
+                            }
+                        },
+                        enabled = endpoint.isNotBlank() && apiKey.isNotBlank() && !modelFetchLoading,
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text),
+                    ) {
+                        Text(
+                            if (modelFetchLoading) str(R.string.gateway_models_loading) else str(R.string.gateway_models_fetch),
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                        )
+                    }
+                    Text(
+                        if (fetchedModels.isNotEmpty()) str(R.string.gateway_models_count, fetchedModels.size)
+                        else if (modelFetchFailed) str(R.string.gateway_models_fetch_failed)
+                        else str(R.string.gateway_models_fetch_hint),
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            if (endpoint.isBlank() || apiKey.isBlank() || modelFetchLoading || aiFillLoading) return@OutlinedButton
+                            scope.launch {
+                                aiFillFailed = false
+                                if (fetchedModels.isEmpty()) {
+                                    modelFetchLoading = true
+                                    modelFetchFailed = false
+                                    val models = OpenAiGateway.fetchModels(endpoint.trim(), apiKey.trim())
+                                    fetchedModels = models
+                                    modelFetchLoading = false
+                                    modelFetchFailed = models.isEmpty()
+                                }
+                                if (fetchedModels.isNotEmpty()) {
+                                    aiFillSelectedModel = fetchedModels.firstOrNull { it == model }
+                                        ?: fetchedModels.firstOrNull()
+                                        .orEmpty()
+                                    showAiFillDialog = true
+                                } else {
+                                    aiFillFailed = true
+                                }
+                            }
+                        },
+                        enabled = endpoint.isNotBlank() && apiKey.isNotBlank() && !modelFetchLoading && !aiFillLoading,
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(str(R.string.gateway_ai_fill), fontSize = 12.sp, maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            capabilities = capabilities + GatewayCapabilityConfig(
+                                type = "chat",
+                                model = fetchedModels.firstOrNull().orEmpty(),
+                            )
+                        },
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(str(R.string.gateway_capability_add), fontSize = 12.sp, maxLines = 1)
+                    }
+                }
+                if (aiFillFailed) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        str(R.string.gateway_ai_fill_failed),
+                        color = c.red.copy(alpha = 0.82f),
+                        fontSize = 11.sp,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { capabilityDetailsExpanded = !capabilityDetailsExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                if (capabilities.isEmpty()) str(R.string.gateway_editor_capabilities_empty)
+                                else str(R.string.gateway_editor_capabilities_ready, capabilities.count { it.model.isNotBlank() }),
+                                color = c.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                capabilities.forEach { summary ->
+                                    GatewayPill(
+                                        text = "${gatewayCapabilityTypeLabel(summary.type)}:${summary.model.ifBlank { "-" }}",
+                                        c = c,
+                                        active = true,
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            if (capabilityDetailsExpanded) str(R.string.gateway_capability_hide) else str(R.string.gateway_capability_show),
+                            color = c.subtext,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    AnimatedVisibility(capabilityDetailsExpanded) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            capabilities.forEachIndexed { index, capability ->
+                                Column(
+                                    Modifier.fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(c.bg)
+                                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                                        .padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                str(R.string.gateway_capability_item, index + 1),
+                                                color = c.text,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            GatewayPill(text = gatewayCapabilityTypeLabel(capability.type), c = c, active = true)
+                                        }
+                                        IconButton(
+                                            onClick = { capabilities = capabilities.filterIndexed { i, _ -> i != index } },
+                                            modifier = Modifier.size(28.dp),
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = null, tint = c.red.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                                        }
+                                    }
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        GATEWAY_CAPABILITY_TYPES.forEach { type ->
+                                            val active = capability.type == type
+                                            Box(
+                                                Modifier.clip(RoundedCornerShape(999.dp))
+                                                    .background(if (active) c.text else c.surface)
+                                                    .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+                                                    .clickable {
+                                                        capabilities = capabilities.toMutableList().also {
+                                                            it[index] = capability.copy(type = type)
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            ) {
+                                                Text(
+                                                    gatewayCapabilityTypeLabel(type),
+                                                    color = if (active) c.bg else c.text,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    ClawPageTextField(
+                                        value = capability.model,
+                                        onValueChange = {
+                                            capabilities = capabilities.toMutableList().also { list ->
+                                                list[index] = capability.copy(model = it)
+                                            }
+                                            if (capability.type == "chat") model = it
+                                            if (capability.type == "embedding") embModel = it
+                                        },
+                                        label = str(R.string.gateway_model_label),
+                                        placeholder = "gpt-4o",
+                                        c = c,
+                                    )
+                                    ClawPageTextField(
+                                        value = capability.endpoint,
+                                        onValueChange = {
+                                            capabilities = capabilities.toMutableList().also { list ->
+                                                list[index] = capability.copy(endpoint = it)
+                                            }
+                                        },
+                                        label = str(R.string.gateway_capability_endpoint),
+                                        placeholder = str(R.string.gateway_capability_inherit_endpoint),
+                                        c = c,
+                                    )
+                                    ClawPageTextField(
+                                        value = capability.apiKey,
+                                        onValueChange = {
+                                            capabilities = capabilities.toMutableList().also { list ->
+                                                list[index] = capability.copy(apiKey = it)
+                                            }
+                                        },
+                                        label = str(R.string.gateway_capability_api_key),
+                                        placeholder = str(R.string.gateway_capability_inherit_key),
+                                        c = c,
+                                        isSecret = true,
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            val fetchEndpoint = capability.endpoint.trim().ifBlank { endpoint.trim() }
+                                            val fetchApiKey = capability.apiKey.trim().ifBlank { apiKey.trim() }
+                                            if (fetchEndpoint.isBlank() || fetchApiKey.isBlank() || modelFetchLoading) return@OutlinedButton
+                                            modelFetchLoading = true
+                                            modelFetchFailed = false
+                                            scope.launch {
+                                                val models = OpenAiGateway.fetchModels(fetchEndpoint, fetchApiKey)
+                                                fetchedModels = models
+                                                modelFetchLoading = false
+                                                modelFetchFailed = models.isEmpty()
+                                            }
+                                        },
+                                        enabled = !modelFetchLoading &&
+                                            (capability.endpoint.isNotBlank() || endpoint.isNotBlank()) &&
+                                            (capability.apiKey.isNotBlank() || apiKey.isNotBlank()),
+                                        shape = RoundedCornerShape(999.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                    ) {
+                                        Text(str(R.string.gateway_capability_fetch_models), fontSize = 11.sp, maxLines = 1)
+                                    }
+                                    if (fetchedModels.isNotEmpty()) {
+                                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            fetchedModels.take(24).forEach { fetched ->
+                                                val active = capability.model == fetched
+                                                Box(
+                                                    Modifier.clip(RoundedCornerShape(999.dp))
+                                                        .background(if (active) c.text else c.surface)
+                                                        .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+                                                        .clickable {
+                                                            capabilities = capabilities.toMutableList().also { list ->
+                                                                list[index] = capability.copy(model = fetched)
+                                                            }
+                                                            if (capability.type == "chat") model = fetched
+                                                            if (capability.type == "embedding") embModel = fetched
+                                                        }
+                                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                                ) {
+                                                    Text(
+                                                        fetched,
+                                                        color = if (active) c.bg else c.text,
+                                                        fontSize = 10.sp,
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 ClawPageTextField(model, { model = it }, str(R.string.field_chat_model), "gpt-4o", c)
                 ClawPageTextField(embModel, { embModel = it }, str(R.string.field_embed_model), "text-embedding-3-small", c)
-                Text(str(R.string.embed_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 10.sp, lineHeight = 14.sp)
+                Text(str(R.string.gateway_capability_hint), color = c.subtext.copy(alpha = 0.6f), fontSize = 10.sp, lineHeight = 14.sp)
             }
-            SettingsSection(str(R.string.settings_14c651), c) {
+            SettingsSection(str(R.string.gateway_editor_multimodal_title), c) {
                 Row(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
@@ -612,6 +1514,130 @@ private fun GatewayEditorSubPage(
                 }
             }
         }
+    }
+
+    if (showAiFillDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!aiFillLoading) showAiFillDialog = false },
+            title = { Text(str(R.string.gateway_ai_fill_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        str(R.string.gateway_ai_fill_body),
+                        color = c.subtext,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                    )
+                    Text(
+                        str(R.string.gateway_ai_fill_preview_title),
+                        color = c.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val previewTypes = buildList {
+                            add("chat")
+                            if (supportsMultimodal) {
+                                add("image")
+                                add("video")
+                            }
+                            add("embedding")
+                        }.distinct()
+                        previewTypes.forEach { type ->
+                            GatewayPill(text = gatewayCapabilityTypeLabel(type), c = c, active = true)
+                        }
+                    }
+                    Column(
+                        Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        fetchedModels.forEach { candidate ->
+                            val active = aiFillSelectedModel == candidate
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (active) c.text else c.surface)
+                                    .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(12.dp))
+                                    .clickable(enabled = !aiFillLoading) { aiFillSelectedModel = candidate }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    candidate,
+                                    color = if (active) c.bg else c.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (aiFillSelectedModel.isBlank() || aiFillLoading) return@TextButton
+                        val preset = selectedPreset ?: GatewayPreset(
+                            name = name,
+                            endpoint = endpoint,
+                            model = model,
+                            embeddingModel = embModel,
+                            supportsMultimodal = supportsMultimodal,
+                        )
+                        aiFillLoading = true
+                        aiFillFailed = false
+                        scope.launch {
+                            val aiCapabilities = OpenAiGateway.planGatewayCapabilities(
+                                endpoint = endpoint.trim(),
+                                apiKey = apiKey.trim(),
+                                model = aiFillSelectedModel,
+                                presetName = preset.name,
+                                supportsMultimodal = supportsMultimodal,
+                                availableModels = fetchedModels,
+                            )
+                            val nextCapabilities = if (aiCapabilities.isNotEmpty()) {
+                                hydrateCapabilityConnections(
+                                    capabilities = aiCapabilities,
+                                    baseEndpoint = endpoint,
+                                    baseApiKey = apiKey,
+                                    existing = capabilities,
+                                )
+                            } else {
+                                hydrateCapabilityConnections(
+                                    capabilities = applyRecommendedModelsToCapabilities(capabilities, preset, fetchedModels),
+                                    baseEndpoint = endpoint,
+                                    baseApiKey = apiKey,
+                                    existing = capabilities,
+                                )
+                            }
+                            capabilities = nextCapabilities
+                            model = nextCapabilities.firstOrNull { it.type == "chat" }?.model ?: model
+                            embModel = nextCapabilities.firstOrNull { it.type == "embedding" }?.model ?: embModel
+                            aiFillLoading = false
+                            showAiFillDialog = false
+                            aiFillFailed = nextCapabilities.isEmpty()
+                            if (nextCapabilities.isNotEmpty()) {
+                                val summary = nextCapabilities.joinToString(" · ") {
+                                    "${it.type}=${it.model}"
+                                }
+                                Toast.makeText(context, str(R.string.gateway_ai_fill_done, summary), Toast.LENGTH_LONG).show()
+                                capabilityDetailsExpanded = false
+                            }
+                        }
+                    },
+                    enabled = aiFillSelectedModel.isNotBlank() && !aiFillLoading,
+                ) {
+                    Text(if (aiFillLoading) str(R.string.gateway_ai_fill_running) else str(R.string.gateway_ai_fill_apply))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showAiFillDialog = false },
+                    enabled = !aiFillLoading,
+                ) { Text(str(R.string.btn_cancel)) }
+            },
+        )
     }
 }
 
@@ -1426,6 +2452,334 @@ private fun formatCacheSize(bytes: Long): String = when {
 }
 
 @Composable
+private fun CodexDesktopSubPage(
+    userConfig: com.mobileclaw.config.UserConfig,
+    c: ClawColors,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
+    val http = remember {
+        OkHttpClient.Builder()
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+    var endpoint by remember { mutableStateOf("") }
+    var token by remember { mutableStateOf("") }
+    var cwd by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var provider by remember { mutableStateOf("") }
+    var approval by remember { mutableStateOf("never") }
+    var sandbox by remember { mutableStateOf("danger-full-access") }
+    var testing by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var syncResult by remember { mutableStateOf<String?>(null) }
+    var saved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        endpoint = userConfig.get(CODEX_DESKTOP_ENDPOINT_KEY).orEmpty()
+        token = userConfig.get(CODEX_DESKTOP_TOKEN_KEY).orEmpty()
+        cwd = userConfig.get(CODEX_DESKTOP_CWD_KEY).orEmpty()
+        model = userConfig.get(CODEX_DESKTOP_MODEL_KEY).orEmpty()
+        provider = userConfig.get(CODEX_DESKTOP_PROVIDER_KEY).orEmpty()
+        approval = userConfig.get(CODEX_DESKTOP_APPROVAL_KEY).orEmpty().ifBlank { "never" }
+        sandbox = userConfig.get(CODEX_DESKTOP_SANDBOX_KEY).orEmpty().ifBlank { "danger-full-access" }
+    }
+    LaunchedEffect(saved) {
+        if (saved) {
+            delay(1300)
+            saved = false
+        }
+    }
+
+    fun saveConfig() {
+        scope.launch {
+            userConfig.set(CODEX_DESKTOP_ENDPOINT_KEY, endpoint.trim().trimEnd('/'), "Desktop Codex bridge URL")
+            userConfig.set(CODEX_DESKTOP_TOKEN_KEY, token.trim(), "Desktop Codex bridge bearer token")
+            userConfig.set(CODEX_DESKTOP_CWD_KEY, cwd.trim(), "Default desktop working directory for Codex bridge")
+            userConfig.set(CODEX_DESKTOP_MODEL_KEY, model.trim(), "Default desktop Codex model")
+            userConfig.set(CODEX_DESKTOP_PROVIDER_KEY, provider.trim(), "Default desktop Codex provider")
+            userConfig.set(CODEX_DESKTOP_APPROVAL_KEY, approval.trim(), "Default desktop Codex approval policy")
+            userConfig.set(CODEX_DESKTOP_SANDBOX_KEY, sandbox.trim(), "Default desktop Codex sandbox")
+            saved = true
+        }
+    }
+
+    fun syncCodexConfig() {
+        scope.launch {
+            saveConfig()
+            syncing = true
+            syncResult = null
+            val url = endpoint.trim().trimEnd('/')
+            val bearer = token.trim()
+            syncResult = when {
+                url.isBlank() || bearer.isBlank() -> "请先填写 URL 和 Token"
+                else -> withContext(Dispatchers.IO) {
+                    runCatching {
+                        val payload = JsonObject().apply {
+                            add("config", JsonObject().apply {
+                                addProperty("cwd", cwd.trim())
+                                addProperty("model", model.trim())
+                                addProperty("provider", provider.trim())
+                                addProperty("approval", approval.trim())
+                                addProperty("sandbox", sandbox.trim())
+                            })
+                        }
+                        val req = Request.Builder()
+                            .url("$url/config")
+                            .header("Authorization", "Bearer $bearer")
+                            .post(Gson().toJson(payload).toRequestBody("application/json; charset=utf-8".toMediaType()))
+                            .build()
+                        http.newCall(req).execute().use { resp ->
+                            val body = resp.body?.string().orEmpty()
+                            if (resp.isSuccessful) "ok: 已同步到电脑 Codex" else "error ${resp.code}: ${body.take(240)}"
+                        }
+                    }.getOrElse { "error: ${it.message}" }
+                }
+            }
+            syncing = false
+        }
+    }
+
+    fun testBridge() {
+        scope.launch {
+            testing = true
+            testResult = null
+            val url = endpoint.trim().trimEnd('/')
+            val bearer = token.trim()
+            testResult = when {
+                url.isBlank() || bearer.isBlank() -> "请先填写 URL 和 Token"
+                else -> withContext(Dispatchers.IO) {
+                    runCatching {
+                        val req = Request.Builder()
+                            .url("$url/health")
+                            .header("Authorization", "Bearer $bearer")
+                            .get()
+                            .build()
+                        http.newCall(req).execute().use { resp ->
+                            val body = resp.body?.string().orEmpty()
+                            if (resp.isSuccessful) "ok: ${body.take(240)}" else "error ${resp.code}: ${body.take(240)}"
+                        }
+                    }.getOrElse { "error: ${it.message}" }
+                }
+            }
+            testing = false
+        }
+    }
+
+    val command = remember(token) {
+        val displayToken = token.ifBlank { "change-me" }
+        "CODEX_BRIDGE_TOKEN=$displayToken python3 scripts/codex_desktop_bridge.py"
+    }
+
+    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+        ClawPageHeader(title = "Codex 桥接", onBack = onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingsSection("电脑连接", c) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = endpoint,
+                        onValueChange = { endpoint = it },
+                        label = { Text("Bridge URL") },
+                        placeholder = { Text("http://192.168.1.23:52734") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = { token = it },
+                        label = { Text("Token") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = cwd,
+                        onValueChange = { cwd = it },
+                        label = { Text("默认工作目录") },
+                        placeholder = { Text("/Users/you/project") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = { saveConfig() },
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            Text(if (saved) "已保存" else "保存", fontSize = 13.sp, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = { testBridge() },
+                            enabled = !testing,
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            if (testing) {
+                                CircularProgressIndicator(color = c.text, modifier = Modifier.size(14.dp), strokeWidth = 1.6.dp)
+                            } else {
+                                Text("测试连接", fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                    testResult?.let {
+                        Text(
+                            it,
+                            color = if (it.startsWith("ok:")) c.green else c.red,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                }
+            }
+
+            SettingsSection("Codex 运行配置", c) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = model,
+                        onValueChange = { model = it },
+                        label = { Text("Model") },
+                        placeholder = { Text("gpt-5.5") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = provider,
+                        onValueChange = { provider = it },
+                        label = { Text("Provider") },
+                        placeholder = { Text("留空使用电脑 Codex 默认 provider") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = approval,
+                            onValueChange = { approval = it },
+                            label = { Text("Approval") },
+                            placeholder = { Text("never") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = sandbox,
+                            onValueChange = { sandbox = it },
+                            label = { Text("Sandbox") },
+                            placeholder = { Text("danger-full-access") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = { syncCodexConfig() },
+                            enabled = !syncing,
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            if (syncing) {
+                                CircularProgressIndicator(color = c.bg, modifier = Modifier.size(14.dp), strokeWidth = 1.6.dp)
+                            } else {
+                                Text("同步到电脑", fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { saveConfig() },
+                            shape = RoundedCornerShape(999.dp),
+                            modifier = Modifier.height(44.dp),
+                        ) {
+                            Text(if (saved) "已保存" else "仅保存手机", fontSize = 13.sp, maxLines = 1)
+                        }
+                    }
+                    syncResult?.let {
+                        Text(
+                            it,
+                            color = if (it.startsWith("ok:")) c.green else c.red,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                    Text(
+                        "同步后电脑端 bridge 会记住这些默认值；之后从 MobileClaw 发给 Codex 的任务会按这组配置运行。",
+                        color = c.subtext.copy(alpha = 0.72f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+
+            SettingsSection("电脑端启动", c) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "在装有 Codex CLI 的电脑上，从 mobileClaw 仓库根目录运行 bridge 脚本。手机和电脑需要在同一局域网，防火墙需允许端口 52734。",
+                        color = c.subtext,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.cardAlt)
+                            .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SelectionContainer(Modifier.weight(1f)) {
+                            Text(command, color = c.text, fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 15.sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "复制",
+                            color = c.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(c.bg)
+                                .clickable { clipboardManager.setText(AnnotatedString(command)) }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
+                    }
+                    Text(
+                        "保存后可在聊天里说：用电脑 Codex 修改某个项目、查看当前状态、停止电脑 Codex 任务。",
+                        color = c.subtext.copy(alpha = 0.72f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun VirtualDisplaySubPage(
     virtualDisplayManager: VirtualDisplayManager,
     vdTestResult: String?,
@@ -1733,6 +3087,176 @@ private fun AdbCommandRow(cmd: String, c: ClawColors) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun VideoTasksSubPage(
+    tasks: List<VideoGenerationTaskEntity>,
+    refreshingIds: Set<String>,
+    refreshingAll: Boolean,
+    c: ClawColors,
+    onBack: () -> Unit,
+    onRefreshTask: (String) -> Unit,
+    onRefreshAll: () -> Unit,
+    onDeleteTask: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    Column(
+        Modifier.fillMaxSize().background(c.bg).navigationBarsPadding(),
+    ) {
+        ClawPageHeader(title = "长任务", onBack = onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = onRefreshAll,
+                    enabled = !refreshingAll,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (refreshingAll) "刷新中..." else "刷新未完成任务")
+                }
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("返回")
+                }
+            }
+            if (tasks.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
+                        .padding(16.dp),
+                ) {
+                    Text("还没有视频长任务。生成视频超时后，会自动在这里保留任务 ID 并继续追踪。", color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
+                }
+            } else {
+                tasks.forEach { task ->
+                    val statusLabel = videoTaskStatusLabel(task)
+                    val localVideoFile = task.filePath.takeIf { it.isNotBlank() }?.let(::File)
+                    val hasPlayableFile = localVideoFile?.exists() == true
+                    val hasRemoteVideo = task.videoUrl.isNotBlank()
+                    val isDone = task.status == VideoTaskStatuses.DOWNLOADED || task.status == VideoTaskStatuses.COMPLETED
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(c.surface)
+                            .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            GatewayPill(text = statusLabel, c = c, active = isDone)
+                            TextButton(onClick = { onDeleteTask(task.taskId) }) {
+                                Text("删除", color = c.subtext, fontSize = 12.sp)
+                            }
+                        }
+                        Text(
+                            text = task.prompt,
+                            color = c.text,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            lineHeight = 20.sp,
+                        )
+                        when {
+                            hasPlayableFile -> {
+                                val videoFile = localVideoFile!!
+                                VideoAttachmentCard(
+                                    attachment = SkillAttachment.FileData(
+                                        path = videoFile.absolutePath,
+                                        name = videoFile.name,
+                                        mimeType = "video/mp4",
+                                        sizeBytes = videoFile.length(),
+                                    ),
+                                    maxWidthDp = 520.dp,
+                                    cornerRadiusDp = 14.dp,
+                                    onOpenExternally = {
+                                        openFileAttachment(
+                                            context,
+                                            SkillAttachment.FileData(
+                                                path = videoFile.absolutePath,
+                                                name = videoFile.name,
+                                                mimeType = "video/mp4",
+                                                sizeBytes = videoFile.length(),
+                                            )
+                                        )
+                                    },
+                                )
+                            }
+                            hasRemoteVideo -> {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(c.cardAlt.copy(alpha = 0.35f))
+                                        .border(0.5.dp, c.border, RoundedCornerShape(12.dp))
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text("视频已生成", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("下载完成后会在这里直接展示播放器。", color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+                                    OutlinedButton(
+                                        onClick = {
+                                            runCatching {
+                                                context.startActivity(
+                                                    android.content.Intent(
+                                                        android.content.Intent.ACTION_VIEW,
+                                                        android.net.Uri.parse(task.videoUrl),
+                                                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("打开视频")
+                                    }
+                                }
+                            }
+                            task.status == VideoTaskStatuses.FAILED -> {
+                                Text(
+                                    text = task.errorMessage.ifBlank { "生成失败，请重新发起视频生成。" },
+                                    color = c.red,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "视频生成中，稍后刷新即可查看结果。",
+                                    color = c.subtext,
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            FilledTonalButton(
+                                onClick = { onRefreshTask(task.taskId) },
+                                enabled = task.taskId !in refreshingIds && task.status != VideoTaskStatuses.DOWNLOADED,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(if (task.taskId in refreshingIds) "检查中..." else "刷新结果")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ClawPageTextField(

@@ -73,7 +73,7 @@ fun FullscreenImageDialog(bitmap: Bitmap, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun PreviewDialogButton(text: String, onClick: () -> Unit) {
+fun PreviewDialogButton(text: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
