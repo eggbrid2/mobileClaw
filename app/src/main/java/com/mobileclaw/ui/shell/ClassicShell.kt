@@ -20,11 +20,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Extension
@@ -46,9 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,10 +61,7 @@ import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 
-enum class ClassicTab { CHAT, SKILL, CENTER, ROLES, ME }
-enum class ClassicChatTab { SINGLE, GROUP }
-enum class ClassicSkillTab { LOCAL, MARKET }
-enum class ClassicCenterTab { MINI_APP, AI_PAGE }
+enum class ClassicTab { CHAT, WORKSPACE, AGENTS, TOOLS, ME }
 
 @Composable
 fun ClassicScaffold(
@@ -97,9 +93,9 @@ private data class ClassicTabItem(val tab: ClassicTab, val icon: ImageVector, va
 @Composable
 private fun classicTabs() = listOf(
     ClassicTabItem(ClassicTab.CHAT, Icons.Filled.ChatBubbleOutline, str(R.string.home_859362)),
-    ClassicTabItem(ClassicTab.SKILL, Icons.Filled.Extension, str(R.string.drawer_skills)),
-    ClassicTabItem(ClassicTab.CENTER, Icons.Filled.Apps, str(R.string.classic_center)),
-    ClassicTabItem(ClassicTab.ROLES, Icons.Filled.Psychology, str(R.string.drawer_roles)),
+    ClassicTabItem(ClassicTab.WORKSPACE, Icons.Filled.Apps, str(R.string.classic_workspace)),
+    ClassicTabItem(ClassicTab.AGENTS, Icons.Filled.Psychology, str(R.string.classic_agents)),
+    ClassicTabItem(ClassicTab.TOOLS, Icons.Filled.Extension, str(R.string.classic_tools)),
     ClassicTabItem(ClassicTab.ME, Icons.Filled.Person, str(R.string.classic_me)),
 )
 
@@ -234,74 +230,40 @@ fun ClassicCodexAction(enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ClassicAddGroupAction(onClick: () -> Unit) {
-    val c = LocalClawColors.current
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .background(c.text)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(Icons.Filled.Add, contentDescription = str(R.string.group_new_title), tint = c.bg, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
 private fun ClassicBottomBar(selected: ClassicTab, onSelect: (ClassicTab) -> Unit) {
     val c = LocalClawColors.current
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (c.isDark) c.bg else Color(0xFFF7F7F4))
+            .background(c.surface)
             .navigationBarsPadding(),
     ) {
+        HorizontalDivider(color = c.border.copy(alpha = 0.66f), thickness = 0.5.dp)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(98.dp)
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .height(64.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(68.dp)
-                    .align(Alignment.BottomCenter)
-                    .clip(RoundedCornerShape(30.dp))
-                    .background(c.surface)
-                    .border(0.5.dp, c.border.copy(alpha = 0.72f), RoundedCornerShape(30.dp)),
-            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(68.dp)
+                    .height(56.dp)
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 2.dp, vertical = 3.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 classicTabs().forEach { item ->
                     val active = selected == item.tab
-                    val isCenter = item.tab == ClassicTab.CENTER
-                    if (isCenter) {
-                        Spacer(Modifier.weight(1f))
-                    } else {
-                        ClassicDockItem(
-                            item = item,
-                            active = active,
-                            onClick = { onSelect(item.tab) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+                    ClassicDockItem(
+                        item = item,
+                        active = active,
+                        onClick = { onSelect(item.tab) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
-            ClassicCenterDockItem(
-                item = classicTabs().first { it.tab == ClassicTab.CENTER },
-                active = selected == ClassicTab.CENTER,
-                onClick = { onSelect(ClassicTab.CENTER) },
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
     }
 }
@@ -314,32 +276,23 @@ private fun ClassicDockItem(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalClawColors.current
-    val neutralActive = if (c.isDark) Color(0xFF1B1B1B) else Color(0xFFF3F3EF)
     Column(
         modifier = modifier
-            .height(58.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .height(50.dp)
+            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .background(if (active) neutralActive else Color.Transparent)
-            .padding(top = 4.dp, bottom = 4.dp),
+            .background(if (active) c.text.copy(alpha = if (c.isDark) 0.14f else 0.06f) else Color.Transparent)
+            .padding(top = 5.dp, bottom = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(if (active) c.text else Color.Transparent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                item.icon,
-                contentDescription = item.label,
-                tint = if (active) c.bg else c.subtext,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-        Spacer(Modifier.height(2.dp))
+        Icon(
+            item.icon,
+            contentDescription = item.label,
+            tint = if (active) c.text else c.subtext.copy(alpha = 0.72f),
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.height(3.dp))
         Text(
             item.label,
             maxLines = 1,
@@ -348,7 +301,7 @@ private fun ClassicDockItem(
             fontSize = if (item.label.length > 6) 9.8.sp else 10.8.sp,
             lineHeight = 11.sp,
             textAlign = TextAlign.Center,
-            color = if (active) c.text else c.subtext,
+            color = if (active) c.text else c.subtext.copy(alpha = 0.78f),
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier
                 .fillMaxWidth()
@@ -417,16 +370,16 @@ fun ClassicMePage(
     sessionCount: Int,
     miniApps: List<MiniApp>,
     onProfile: () -> Unit,
-    onConsole: () -> Unit,
     onVpn: () -> Unit,
     onSettings: () -> Unit,
+    onHelp: () -> Unit,
 ) {
     val c = LocalClawColors.current
     Column(Modifier.fillMaxSize().background(c.bg)) {
-        Column(Modifier.fillMaxWidth().background(c.surface).padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Column(Modifier.fillMaxWidth().background(c.surface).padding(horizontal = 18.dp, vertical = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(50.dp).clip(CircleShape).background(c.cardAlt).border(1.dp, c.border, CircleShape), contentAlignment = Alignment.Center) {
-                    Text(userAvatarUri?.takeIf { it.isNotBlank() }?.let { "🙂" } ?: "👤", fontSize = 24.sp)
+                    Icon(Icons.Filled.Person, contentDescription = null, tint = c.text, modifier = Modifier.size(24.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text(userName.ifBlank { str(R.string.classic_default_user) }, color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -435,29 +388,346 @@ fun ClassicMePage(
             }
         }
         Spacer(Modifier.height(8.dp))
-        ClassicMeRow(Icons.Filled.Person, str(R.string.drawer_profile), str(R.string.profile_b6c018), onProfile)
-        ClassicMeRow(Icons.Filled.Terminal, str(R.string.drawer_console), str(R.string.classic_console_desc), onConsole)
-        ClassicMeRow(Icons.Filled.Shield, "VPN", str(R.string.classic_vpn_desc), onVpn)
         ClassicMeRow(Icons.Filled.Settings, str(R.string.drawer_settings), str(R.string.settings_ce650e), onSettings)
+        ClassicMeRow(Icons.Filled.Person, str(R.string.drawer_profile), str(R.string.profile_b6c018), onProfile)
+        ClassicMeRow(Icons.Filled.Terminal, str(R.string.help_9a2407), str(R.string.settings_help_entry_subtitle), onHelp)
+        ClassicMeRow(Icons.Filled.Shield, "VPN", str(R.string.classic_vpn_desc), onVpn)
     }
 }
 
 @Composable
-private fun ClassicMeRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+fun ClassicHubPage(
+    title: String,
+    subtitle: String,
+    rows: List<ClassicHubRow>,
+) {
+    val c = LocalClawColors.current
+    val accent = Color(0xFFC7F43A)
+    val primaryRow = rows.firstOrNull()
+    val featuredRows = rows.drop(1).take(2)
+    val secondaryRows = rows.drop(3)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(if (c.isDark) c.bg else Color(0xFFF6F6F4))
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 20.dp),
+    ) {
+        if (primaryRow != null) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "现在可以做",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 8.dp),
+            )
+            ClassicPrimaryAction(
+                row = primaryRow,
+                accent = accent,
+                modifier = Modifier.padding(horizontal = 14.dp),
+            )
+        }
+        if (featuredRows.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                featuredRows.forEachIndexed { index, row ->
+                    ClassicFeatureTile(
+                        row = row,
+                        accent = accent,
+                        active = index == 0,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (featuredRows.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        secondaryRows.groupBy { it.section }.forEach { (section, sectionRows) ->
+            Row(
+                modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .width(4.dp)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(accent),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    section.ifBlank { "常用" },
+                    color = c.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${sectionRows.size}",
+                    color = c.subtext.copy(alpha = 0.72f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(c.surface)
+                    .border(0.6.dp, c.border.copy(alpha = 0.72f), RoundedCornerShape(22.dp)),
+            ) {
+                sectionRows.forEachIndexed { index, row ->
+                    ClassicMeRow(
+                        icon = row.icon,
+                        title = row.title,
+                        subtitle = row.subtitle,
+                        onClick = row.onClick,
+                        showDivider = index < sectionRows.lastIndex,
+                        accent = accent,
+                        highlighted = false,
+                    )
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun ClassicPrimaryAction(
+    row: ClassicHubRow,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(118.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(Color(0xFF080808))
+            .border(0.7.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(26.dp))
+            .clickable(onClick = row.onClick)
+            .padding(18.dp),
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            drawCircle(
+                color = accent.copy(alpha = 0.14f),
+                radius = size.minDimension * 0.58f,
+                center = Offset(size.width * 0.88f, size.height * 0.16f),
+            )
+            drawLine(
+                color = accent,
+                start = Offset(size.width - 76f, size.height - 25f),
+                end = Offset(size.width - 26f, size.height - 25f),
+                strokeWidth = 4f,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.10f),
+                start = Offset(18f, size.height - 18f),
+                end = Offset(size.width * 0.55f, size.height - 18f),
+                strokeWidth = 1.2f,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(row.icon, contentDescription = null, tint = Color(0xFF080808), modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(15.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    row.title,
+                    color = Color.White,
+                    fontSize = 19.sp,
+                    lineHeight = 23.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    row.subtitle,
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 230.dp),
+                )
+            }
+            Box(
+                Modifier
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(15.dp))
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("进入", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClassicFeatureTile(
+    row: ClassicHubRow,
+    accent: Color,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    val bg = c.surface
+    val fg = c.text
+    val sub = c.subtext.copy(alpha = 0.86f)
+    Box(
+        modifier = modifier
+            .height(112.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(bg)
+            .border(
+                0.7.dp,
+                if (active) accent.copy(alpha = 0.62f) else c.border.copy(alpha = 0.72f),
+                RoundedCornerShape(22.dp),
+            )
+            .clickable(onClick = row.onClick)
+            .padding(14.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(if (active) accent else Color(0xFFF3F3F1)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        row.icon,
+                        contentDescription = null,
+                        tint = Color(0xFF080808),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    row.section.ifBlank { "入口" },
+                    color = if (active) c.text else c.subtext,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    row.title,
+                    color = fg,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    row.subtitle,
+                    color = sub,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+data class ClassicHubRow(
+    val icon: ImageVector,
+    val title: String,
+    val subtitle: String,
+    val section: String = "",
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun ClassicMeRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    showDivider: Boolean = true,
+    accent: Color = Color(0xFFC7F43A),
+    highlighted: Boolean = false,
+) {
     val c = LocalClawColors.current
     Row(
-        Modifier.fillMaxWidth().background(c.surface).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp),
+        Modifier
+            .fillMaxWidth()
+            .background(c.surface)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(c.cardAlt), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+        Box(
+            Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    when {
+                        highlighted -> accent.copy(alpha = if (c.isDark) 0.22f else 0.32f)
+                        c.isDark -> c.cardAlt
+                        else -> Color(0xFFF3F3F1)
+                    }
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (highlighted) Color(0xFF121212) else c.text.copy(alpha = 0.78f),
+                modifier = Modifier.size(19.dp),
+            )
         }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = c.text, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle.isNotBlank()) {
+                Text(subtitle, color = c.subtext.copy(alpha = 0.82f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.subtext, modifier = Modifier.size(18.dp))
+        if (highlighted) {
+            Box(
+                Modifier
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("常用", color = Color(0xFF050505), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.width(7.dp))
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.subtext.copy(alpha = 0.58f), modifier = Modifier.size(17.dp))
     }
-    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 68.dp))
+    if (showDivider) {
+        HorizontalDivider(color = c.border.copy(alpha = 0.62f), thickness = 0.5.dp, modifier = Modifier.padding(start = 66.dp, end = 14.dp))
+    }
 }

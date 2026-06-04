@@ -606,7 +606,16 @@ class ConsoleServer(
             val dir = File(filesDir, "console_web")
             dir.mkdirs()
             val file = File(dir, "index.html")
-            if (!file.exists()) file.writeText(DEFAULT_CONSOLE_HTML)
+            if (!file.exists()) {
+                file.writeText(DEFAULT_CONSOLE_HTML)
+            } else {
+                val current = file.readText()
+                val looksLikeOldFactoryConsole =
+                    "MobileClaw Console" in current &&
+                        (("--accent:#a78bfa" in current && "Enter a task below" in current) ||
+                            ("--accent:#c7f43a" in current && "输入任务，MobileClaw 会直接开始执行" in current))
+                if (looksLikeOldFactoryConsole) file.writeText(DEFAULT_CONSOLE_HTML)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed to initialize console html", t)
             throw t
@@ -736,104 +745,102 @@ private val DEFAULT_CONSOLE_HTML = """<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0a0a0b;--surface:#111113;--surface2:#18181b;
-  --border:#1e1e22;--border2:#2a2a30;
-  --accent:#a78bfa;--accent-bg:#1a0e2e;--accent-border:#4c1d95;
-  --green:#86efac;--teal:#34d399;--red:#f87171;--yellow:#fbbf24;
-  --text:#e4e4e7;--muted:#71717a;--dim:#3f3f46;
-  --skill-bg:#052e16;--skill-border:#166534;--skill-text:#4ade80;
-  --r:12px
+  --bg:#faf9f7;--surface:#ffffff;--surface2:#f2f1ee;
+  --border:#e7e4df;--border2:#d9d5ce;
+  --ink:#171717;--ink2:#2b2b2b;
+  --ok:#6f8f78;--red:#b84b4b;
+  --text:#1b1b1a;--muted:#77736d;--dim:#b8b3aa;
+  --r:16px
 }
-body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','Segoe UI',system-ui,sans-serif;
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',system-ui,sans-serif;
   font-size:14px;line-height:1.5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
 /* TOP BAR */
-#topbar{height:48px;background:var(--surface);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0;z-index:10}
-.logo{font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
-.logo em{color:var(--accent);font-style:normal}
+#topbar{height:54px;background:rgba(255,255,255,.94);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 18px;gap:10px;flex-shrink:0;z-index:10}
+.logo{font-size:15px;font-weight:700;letter-spacing:0;color:var(--text)}
+.logo em{color:var(--muted);font-style:normal;font-weight:600}
 #sdot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:background .3s,box-shadow .3s;flex-shrink:0}
-#sdot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
-#sdot.run{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:pulse 1.2s ease-in-out infinite}
+#sdot.on{background:var(--ok)}
+#sdot.run{background:var(--ink);animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 #stxt{font-size:12px;color:var(--muted)}
-#url{margin-left:auto;background:var(--bg);border:1px solid var(--border2);border-radius:6px;
+#url{margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:999px;
   padding:3px 10px;font-size:11px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;
-  color:var(--accent);cursor:pointer;user-select:all;transition:border-color .2s}
-#url:hover{border-color:var(--accent)}
+  color:var(--ink);cursor:pointer;user-select:all;transition:border-color .2s}
+#url:hover{border-color:var(--ink)}
 
 /* LAYOUT */
 #main{display:flex;flex:1;overflow:hidden}
 
 /* SIDEBAR */
-#sidebar{width:256px;background:var(--surface);border-right:1px solid var(--border);
+#sidebar{width:282px;background:var(--surface);border-right:1px solid var(--border);
   display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
 .sh{padding:12px 16px 8px;font-size:11px;font-weight:600;text-transform:uppercase;
   letter-spacing:.08em;color:var(--muted)}
 #slist{flex:1;overflow-y:auto;padding:0 8px 8px}
 #slist::-webkit-scrollbar{width:3px}
 #slist::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
-.si{padding:8px 10px;border-radius:8px;cursor:pointer;transition:background .15s;
+.si{padding:10px 12px;border-radius:14px;cursor:pointer;transition:background .15s;
   margin-bottom:2px;color:var(--muted)}
 .si:hover{background:var(--bg);color:var(--text)}
-.si.active{background:var(--accent-bg);color:var(--accent)}
+.si.active{background:var(--surface2);color:var(--text)}
 .si .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .si .ts{font-size:11px;margin-top:1px;opacity:.6}
-.codexbox{margin:8px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg)}
-.codexbox h3{font-size:12px;margin-bottom:6px;color:var(--text)}
+.codexbox{margin:8px;padding:14px;border:1px solid var(--border);border-radius:18px;background:var(--bg)}
+.codexbox h3{font-size:13px;margin-bottom:6px;color:var(--text)}
 .codexbox p{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px}
 .codexcmd{font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:11px;color:var(--text);
-  background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:8px;
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px;
   word-break:break-all;cursor:pointer;margin-bottom:6px}
-.codexcmd:hover{border-color:var(--accent)}
+.codexcmd:hover{border-color:var(--ink)}
 .codexhint{font-size:10px;color:var(--dim);line-height:1.4}
 
 /* CHAT */
 #cw{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-#msgs{flex:1;overflow-y:auto;padding:24px 20px;display:flex;flex-direction:column;gap:14px}
+#msgs{flex:1;overflow-y:auto;padding:26px 22px;display:flex;flex-direction:column;gap:14px}
 #msgs::-webkit-scrollbar{width:4px}
 #msgs::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 
-.mr{display:flex;flex-direction:column;max-width:82%}
+.mr{display:flex;flex-direction:column;max-width:min(760px,82%)}
 .mr.u{align-self:flex-end;align-items:flex-end}
 .mr.a{align-self:flex-start;align-items:flex-start}
 .ml{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500}
-.mr.u .ml{color:var(--accent);opacity:.8}
+.mr.u .ml{color:var(--muted);opacity:.9}
 .bbl{padding:10px 14px;border-radius:var(--r);line-height:1.65;word-break:break-word;white-space:pre-wrap;font-size:14px}
-.mr.u .bbl{background:var(--accent-bg);border:1px solid var(--accent-border);color:#c4b5fd;
+.mr.u .bbl{background:var(--ink);border:1px solid var(--ink);color:#fff;
   border-radius:var(--r) var(--r) 4px var(--r)}
-.mr.a .bbl{background:transparent;border:1px solid var(--border);color:var(--green);
-  font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:13px;
+.mr.a .bbl{background:var(--surface);border:1px solid var(--border);color:var(--text);
   border-radius:var(--r) var(--r) var(--r) 4px}
 .mr.a .bbl.done{color:var(--text);font-family:inherit;font-size:14px}
-.cur{display:inline-block;width:8px;height:.9em;background:var(--green);
+.cur{display:inline-block;width:7px;height:.9em;background:var(--muted);
   vertical-align:text-bottom;margin-left:1px;animation:blink 1s step-end infinite}
 @keyframes blink{50%{opacity:0}}
 .skl{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;
-  background:var(--skill-bg);border:1px solid var(--skill-border);border-radius:20px;
-  color:var(--skill-text);font-size:12px;font-family:'Cascadia Code','Fira Code',monospace;
+  background:transparent;border:1px solid var(--border);border-radius:20px;
+  color:var(--muted);font-size:12px;
   align-self:flex-start;margin-top:4px}
 .sysmsg{align-self:center;font-size:12px;color:var(--dim);font-style:italic;padding:2px 0}
 
 /* EMPTY STATE */
 #empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:10px;color:var(--muted);padding:40px 20px;text-align:center}
-#empty .ico{font-size:48px;opacity:.35}
-#empty .hint{font-size:13px;max-width:280px}
+  gap:8px;color:var(--muted);padding:40px 20px;text-align:center}
+#empty .ico{display:none}
+#empty .hint{font-size:13px;max-width:280px;color:var(--muted)}
 
 /* INPUT */
-#ia{border-top:1px solid var(--border);background:var(--surface);padding:10px 14px;
+#ia{border-top:1px solid var(--border);background:rgba(255,255,255,.94);padding:12px 16px;
   display:flex;gap:10px;align-items:flex-end;flex-shrink:0}
-#iw{flex:1;background:var(--bg);border:1px solid var(--border2);border-radius:10px;
+#iw{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:20px;
   padding:8px 12px;display:flex;transition:border-color .2s}
-#iw:focus-within{border-color:var(--accent)}
+#iw:focus-within{border-color:var(--ink)}
 #inp{flex:1;background:transparent;border:none;outline:none;color:var(--text);
   font-family:inherit;font-size:14px;resize:none;min-height:20px;max-height:120px;line-height:1.5}
 #inp::placeholder{color:var(--dim)}
-#sbtn{width:36px;height:36px;border-radius:9px;background:var(--accent);border:none;
+#sbtn{width:40px;height:40px;border-radius:50%;background:var(--ink);border:none;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
   transition:background .15s,opacity .15s;flex-shrink:0;color:#fff}
-#sbtn:hover{background:#c4b5fd}
+#sbtn:hover{background:var(--ink2)}
 #sbtn:disabled{background:var(--dim);cursor:default;opacity:.5}
 
 @media(max-width:640px){#sidebar{display:none}}
@@ -851,22 +858,22 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,'Inter','S
     <div class="sh">History</div>
     <div id="slist"><div class="sysmsg" style="margin:14px 8px">Loading…</div></div>
     <div class="codexbox">
-      <h3>Codex 下载与连接</h3>
-      <p>在电脑终端安装并登录 Codex，再到 MobileClaw 设置里的 Codex 桥接填写电脑地址和 Token。</p>
+      <h3>Codex 连接</h3>
+      <p>电脑安装并登录 Codex 后，在手机端填写桥接地址和 Token。</p>
       <div class="codexcmd" onclick="copyCodexCmd(this)">npm install -g @openai/codex</div>
       <div class="codexcmd" onclick="copyText('codex --login',this)">codex --login</div>
-      <div class="codexhint">点击命令可复制。Codex 安装完成后，回到手机端配置桥接。</div>
+      <div class="codexhint">点击命令可复制。安装完成后，回到手机端配置桥接。</div>
     </div>
   </div>
   <div id="cw">
     <div id="msgs">
       <div id="empty">
-        <div class="ico">🦀</div>
-        <div class="hint">Enter a task below — MobileClaw will execute it on the device</div>
+        <div class="ico"></div>
+        <div class="hint">从这里发送一条任务。</div>
       </div>
     </div>
     <div id="ia">
-      <div id="iw"><textarea id="inp" rows="1" placeholder="Enter task… (Enter to send, Shift+Enter for newline)" autocomplete="off" spellcheck="false"></textarea></div>
+      <div id="iw"><textarea id="inp" rows="1" placeholder="输入任务，Enter 发送" autocomplete="off" spellcheck="false"></textarea></div>
       <button id="sbtn" onclick="send()" title="Send">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9z"/>
@@ -936,7 +943,15 @@ function send(){
   var inp=document.getElementById('inp'),text=inp.value.trim();
   if(!text||running)return;
   inp.value='';inp.style.height='auto';
-  apiFetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})}).catch(function(){});
+  hideEmpty();
+  var row=mkRow('u','你');
+  var bbl=document.createElement('div');bbl.className='bbl done';bbl.textContent=text;
+  row.appendChild(bbl);scrollBot();
+  apiFetch('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})}).catch(function(){
+    var err=mkRow('a','MobileClaw');
+    var eb=document.createElement('div');eb.className='bbl done';eb.textContent='发送失败，请检查控制台服务连接。';
+    err.appendChild(eb);scrollBot();
+  });
 }
 
 function hideEmpty(){var e=document.getElementById('empty');if(e)e.remove();}
@@ -963,7 +978,7 @@ function appendTok(tok){
 }
 
 function addSkill(desc){
-  var el=document.createElement('div');el.className='skl';el.textContent='⚡ '+desc;
+  var el=document.createElement('div');el.className='skl';el.textContent=desc;
   document.getElementById('msgs').appendChild(el);scrollBot();
 }
 
@@ -971,7 +986,7 @@ function finalizeStream(stopped){
   if(stBubble){
     var c=document.getElementById('cur');if(c)c.remove();
     stBubble.classList.add('done');
-    if(stopped&&!stText)stBubble.textContent='⚠️ Stopped';
+    if(stopped&&!stText)stBubble.textContent='已停止';
     stBubble=null;stText='';
   }
 }

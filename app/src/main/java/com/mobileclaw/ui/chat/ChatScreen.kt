@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -158,7 +157,6 @@ fun ChatScreen(
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
     onOpenBrowser: (String) -> Unit = {},
     onRenameSession: (sessionId: String, title: String) -> Unit = { _, _ -> },
-    onOpenDesktop: () -> Unit = {},
     onSwitchRole: () -> Unit = {},
     onCodexDesktopModeChange: (Boolean) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
@@ -315,7 +313,6 @@ fun ChatScreen(
                 sessionTitle = sessionTitle,
                 onOpenDrawer = onOpenDrawer,
                 onRenameSession = { showRenameDialog = true },
-                onOpenDesktop = onOpenDesktop,
                 codexDesktopMode = codexDesktopMode,
                 codexDesktopConfigured = codexDesktopConfigured,
                 onToggleCodexDesktop = { onCodexDesktopModeChange(!codexDesktopMode) },
@@ -347,12 +344,6 @@ fun ChatScreen(
                     item(key = "history_loading") {
                         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.subtext)
-                        }
-                    }
-                } else if (uiState.historyHasMore) {
-                    item(key = "history_hint") {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                            Text(str(R.string.chat_b721d3), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.4f))
                         }
                     }
                 }
@@ -1065,7 +1056,6 @@ private fun TopBar(
     sessionTitle: String,
     onOpenDrawer: () -> Unit,
     onRenameSession: () -> Unit,
-    onOpenDesktop: () -> Unit,
     codexDesktopMode: Boolean = false,
     codexDesktopConfigured: Boolean = false,
     onToggleCodexDesktop: () -> Unit = {},
@@ -1107,9 +1097,6 @@ private fun TopBar(
                     configured = codexDesktopConfigured,
                     onClick = onToggleCodexDesktop,
                 )
-                IconButton(onClick = onOpenDesktop) {
-                    Icon(Icons.Outlined.GridView, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
-                }
             } else {
                 Spacer(Modifier.size(48.dp))
             }
@@ -1142,19 +1129,8 @@ private fun CodexDesktopModePill(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Box(
-            Modifier.size(6.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        enabled -> Color(0xFFC7F43A)
-                        configured -> c.subtext.copy(alpha = 0.65f)
-                        else -> c.subtext.copy(alpha = 0.3f)
-                    }
-                )
-        )
         Text(
-            text = "Codex",
+            text = if (enabled) "电脑端" else "电脑",
             color = fg,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
@@ -1356,30 +1332,20 @@ private fun EmptyState(
     val tasks = if (recommendations.isNotEmpty()) recommendations else ExampleTasks
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 42.dp, bottom = 18.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 54.dp, bottom = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            modifier = Modifier
-                .size(68.dp)
-                .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(c.accent.copy(alpha = 0.15f), Color.Transparent)))
-                .border(1.dp, c.accent.copy(alpha = 0.3f), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) { ClawSymbolIcon("profile", tint = c.accent, modifier = Modifier.size(30.dp)) }
-
-        Spacer(Modifier.height(16.dp))
-        Text("MobileClaw", color = c.text, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.sp)
-        Spacer(Modifier.height(5.dp))
-        Text(str(R.string.app_tagline), color = c.subtext, fontSize = 12.sp)
+        Text("今天要处理什么？", color = c.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp)
+        Spacer(Modifier.height(7.dp))
+        Text("直接输入任务，或从下面选一个开始。", color = c.subtext, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
 
         Text(
             if (recommendations.isNotEmpty()) str(R.string.chat_b8181c) else str(R.string.chat_72e47b),
             color = c.subtext,
-            fontSize = 10.sp,
-            letterSpacing = 1.2.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            letterSpacing = 0.sp,
+            fontWeight = FontWeight.Medium,
         )
         Spacer(Modifier.height(10.dp))
 
@@ -1391,9 +1357,9 @@ private fun EmptyState(
             tasks.take(3).forEach { task ->
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(if (c.isDark) Color(0xFF141414) else Color.White)
-                        .border(0.6.dp, c.border.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
+                        .border(0.6.dp, c.border.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
                         .clickable { onTaskSelected(cleanTaskLabel(task)) }
                         .padding(horizontal = 13.dp, vertical = 8.dp),
                 ) {
@@ -1409,16 +1375,15 @@ private fun EmptyState(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(18.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .clickable { onOpenHelp() }
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            ClawSymbolIcon("help", tint = c.subtext, modifier = Modifier.size(15.dp))
             Text(str(R.string.chat_c5fab5), color = c.subtext, fontSize = 12.sp)
         }
     }
@@ -1523,29 +1488,29 @@ private fun CodexOutputBubble(
     val displayText = when {
         cleanedText.isNotBlank() -> cleanedText
         progressLines.isNotEmpty() && isRunning -> ""
-        isRunning -> "等待 Codex 输出..."
-        else -> "Codex 没有返回内容。"
+        isRunning -> ""
+        else -> ""
     }
     val statusText = when {
-        isRunning -> "Working"
-        success == false -> "Failed"
-        else -> "Done"
+        isRunning -> "运行中"
+        success == false -> "失败"
+        else -> "完成"
     }
     val statusColor = when {
-        isRunning -> Color(0xFFC7F43A)
+        isRunning -> c.text
         success == false -> c.red
-        else -> c.text
+        else -> c.subtext
     }
-    val panelShape = RoundedCornerShape(22.dp)
+    val panelShape = RoundedCornerShape(16.dp)
     Column(
         modifier = Modifier
-            .fillMaxWidth(0.96f)
+            .fillMaxWidth(0.94f)
             .padding(horizontal = 2.dp, vertical = 4.dp)
             .clip(panelShape)
-            .background(if (c.isDark) Color(0xFF0E0E0E) else Color(0xFFFAFAF8))
+            .background(if (c.isDark) Color(0xFF111111) else Color.White)
             .border(0.7.dp, if (c.isDark) Color(0xFF242424) else Color(0xFFE8E8E8), panelShape)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1559,10 +1524,10 @@ private fun CodexOutputBubble(
                     .background(statusColor),
             )
             Text(
-                text = "CODEX",
+                text = "电脑端",
                 color = c.text,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
             Text(
@@ -1598,13 +1563,6 @@ private fun CodexOutputBubble(
             if (progressSteps.isNotEmpty()) {
                 HorizontalDivider(color = c.border.copy(alpha = 0.7f), thickness = 0.7.dp)
             }
-            Text(
-                text = if (isRunning && cleanedText.isNotBlank()) "Streaming response" else "Response",
-                color = c.subtext,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
             SelectionContainer {
                 MarkdownText(
                     text = displayText,
@@ -1613,9 +1571,9 @@ private fun CodexOutputBubble(
                     lineHeight = 21.sp,
                 )
             }
-        } else if (isRunning) {
+        } else if (isRunning && progressSteps.isEmpty()) {
             Text(
-                text = "Waiting for Codex response",
+                text = "正在处理...",
                 color = c.subtext.copy(alpha = 0.74f),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
@@ -1627,14 +1585,27 @@ private fun CodexOutputBubble(
 private fun codexProgressLines(logLines: List<LogLine>): List<LogLine> =
     logLines
         .filter { it.skillId == "codex_desktop" && it.text.isNotBlank() }
-        .filterNot { it.text == "发送到电脑 Codex" || it.text == "电脑 Codex 已返回结果" || it.text == "电脑 Codex 执行失败" }
-        .takeLast(12)
+        .filterNot { line ->
+            val text = line.text.trim()
+            text.isCodexBridgeNoise() ||
+                text == "发送到电脑 Codex" ||
+                text == "电脑 Codex 已返回结果" ||
+                text == "电脑 Codex 执行失败" ||
+                text.equals("initializing", ignoreCase = true) ||
+                text.equals("running", ignoreCase = true) ||
+                text.equals("completed", ignoreCase = true) ||
+                text.startsWith("Reading prompt from stdin", ignoreCase = true) ||
+                text.contains("codex_hooks", ignoreCase = true) ||
+                text.contains("mcp.figma.com", ignoreCase = true)
+        }
+        .takeLast(6)
 
 private fun LogLine.toCodexStepDisplay(): CodexStepDisplay {
     val raw = text.trim()
-    val split = raw.split(":", limit = 2)
-    val label = split.firstOrNull()?.trim()?.ifBlank { "Working" } ?: "Working"
-    val detail = details.firstOrNull { it.isNotBlank() }?.trim()
+    val readable = raw.toReadableCodexProgress()
+    val split = readable.split(":", limit = 2)
+    val label = split.firstOrNull()?.trim()?.ifBlank { "处理中" } ?: "处理中"
+    val detail = details.firstOrNull { it.isNotBlank() && !it.trim().isCodexBridgeNoise() }?.trim()
         ?: split.getOrNull(1)?.trim()
         ?: ""
     return CodexStepDisplay(
@@ -1642,6 +1613,39 @@ private fun LogLine.toCodexStepDisplay(): CodexStepDisplay {
         detail = detail,
         isRunning = isRunning,
     )
+}
+
+private fun String.toReadableCodexProgress(): String {
+    val trimmed = trim()
+    return when {
+        trimmed.startsWith("exec_command", ignoreCase = true) -> "运行命令:${trimmed.substringAfter(':', "").trim()}"
+        trimmed.startsWith("apply_patch", ignoreCase = true) -> "修改文件"
+        trimmed.startsWith("web.run", ignoreCase = true) -> "查找资料"
+        trimmed.startsWith("read", ignoreCase = true) -> "读取上下文:${trimmed.substringAfter(':', "").trim()}"
+        trimmed.startsWith("open", ignoreCase = true) -> "查看内容:${trimmed.substringAfter(':', "").trim()}"
+        else -> trimmed
+    }
+}
+
+private fun String.isCodexBridgeNoise(): Boolean {
+    val text = trim()
+    if (text.isBlank()) return true
+    return text == "--------" ||
+        text == "user" ||
+        text == "assistant" ||
+        text.startsWith("{\"type\":\"thread.") ||
+        text.startsWith("{\"type\":\"turn.") ||
+        text.startsWith("{\"type\":\"item.") ||
+        text.startsWith("Reading additional input from stdin", ignoreCase = true) ||
+        text.startsWith("Reading prompt from stdin", ignoreCase = true) ||
+        text.startsWith("OpenAI Codex", ignoreCase = true) ||
+        text.startsWith("deprecated:", ignoreCase = true) ||
+        text.startsWith("Codex finished with no output", ignoreCase = true) ||
+        text.startsWith("Codex bridge stream failed", ignoreCase = true) ||
+        text.contains("codex_hooks", ignoreCase = true) ||
+        text.contains("mcp.figma.com", ignoreCase = true) ||
+        Regex("""^\d{4}-\d{2}-\d{2}T.*\b(WARN|INFO|DEBUG|TRACE)\b""").containsMatchIn(text) ||
+        Regex("""^(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id):\s""", RegexOption.IGNORE_CASE).containsMatchIn(text)
 }
 
 @Composable
@@ -1670,7 +1674,7 @@ private fun CodexProgressRow(
                 modifier = Modifier
                     .size(if (step.isRunning) 8.dp else 6.dp)
                     .clip(CircleShape)
-                    .background(if (step.isRunning) Color(0xFFC7F43A) else c.text.copy(alpha = 0.78f)),
+                    .background(if (step.isRunning) c.text.copy(alpha = 0.9f) else c.subtext.copy(alpha = 0.65f)),
             )
             Box(
                 modifier = Modifier
@@ -1726,11 +1730,10 @@ private fun cleanCodexDisplayText(text: String): String {
             return@forEach
         }
         when {
-            trimmed.startsWith("{\"type\":\"thread.") ||
-                trimmed.startsWith("{\"type\":\"turn.") ||
-                trimmed.startsWith("{\"type\":\"item.") -> return@forEach
-            trimmed == "Reading additional input from stdin..." -> return@forEach
+            trimmed.isCodexBridgeNoise() -> return@forEach
             timestampNoise.containsMatchIn(trimmed) -> return@forEach
+            trimmed.contains("codex_hooks", ignoreCase = true) -> return@forEach
+            trimmed.contains("mcp.figma.com", ignoreCase = true) -> return@forEach
             trimmed.startsWith("OpenAI Codex", ignoreCase = true) -> {
                 skippingHeader = true
                 return@forEach
@@ -1805,10 +1808,14 @@ private fun parseQuickReplies(text: String): Pair<String, List<String>> {
     return clean to options
 }
 
-private val uiFencePattern = Regex("```ui[\\s\\S]*?```", RegexOption.IGNORE_CASE)
+private val uiFencePattern = Regex("```ui\\s*[\\s\\S]*?```", RegexOption.IGNORE_CASE)
+private val nakedUiDslPattern = Regex("""\{\s*"type"\s*:\s*"(column|row|card|button|button_group|table|chart_bar|chart_line|input|select|metric_grid|info_rows)"""")
 
 private fun textPreview(text: String, limit: Int = 700): String {
-    val withoutUi = text.replace(uiFencePattern, "[交互内容已折叠，点“更多”查看]").trim()
+    val withoutUi = text
+        .replace(uiFencePattern, "[交互内容]")
+        .replace(nakedUiDslPattern, "[交互内容]")
+        .trim()
     return if (withoutUi.length > limit) withoutUi.take(limit).trimEnd() + "…" else withoutUi
 }
 
@@ -1840,7 +1847,8 @@ private fun AgentBubble(
     val isSuccess = logLines.none { it.type == LogType.ERROR }
     val steps = logLines.filter { it.type != LogType.SUCCESS && (it.text.isNotBlank() || it.imageBase64 != null) }
     val (cleanSummary, quickReplies) = remember(summary) { parseQuickReplies(summary) }
-    val shouldCollapseSummary = cleanSummary.length > 420 || uiFencePattern.containsMatchIn(cleanSummary)
+    val hasRenderableUiDsl = uiFencePattern.containsMatchIn(cleanSummary) || nakedUiDslPattern.containsMatchIn(cleanSummary)
+    val shouldCollapseSummary = cleanSummary.length > 420 && !hasRenderableUiDsl
     val visibleSummary = if (shouldCollapseSummary && !summaryExpanded) textPreview(cleanSummary) else cleanSummary
     val runningElapsedLabel = rememberRunningElapsedLabel(runStartedAt)
     val livePhaseLabel = remember(logLines, attachments, streamingThought, streamingToken) {
@@ -3495,14 +3503,17 @@ private fun InputBar(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (c.isDark) Color(0xFF171717) else Color.White)
-                    .border(0.5.dp, c.border, CircleShape)
-                    .clickable(enabled = !isRunning) { onPickSticker() },
+                    .background(if (showAttachMenu) c.text else if (c.isDark) Color(0xFF171717) else Color.White)
+                    .border(0.5.dp, if (showAttachMenu) Color.Transparent else c.border, CircleShape)
+                    .clickable(enabled = !isRunning) { onAttachClick() },
                 contentAlignment = Alignment.Center,
             ) {
-                StickerIcon(
-                    tint = if (isRunning) c.subtext.copy(alpha = 0.35f) else c.text,
-                    modifier = Modifier.size(20.dp),
+                Text(
+                    text = if (showAttachMenu) "×" else "+",
+                    color = if (showAttachMenu) c.bg else if (isRunning) c.subtext.copy(alpha = 0.35f) else c.text,
+                    fontSize = 21.sp,
+                    lineHeight = 21.sp,
+                    fontWeight = FontWeight.Light,
                 )
             }
 
@@ -3521,7 +3532,7 @@ private fun InputBar(
                 modifier = Modifier.weight(1f),
                 enabled = !isRunning,
                 maxLines = 4,
-                shape = RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = c.text.copy(alpha = 0.55f),
                     unfocusedBorderColor = c.border,
@@ -3543,15 +3554,13 @@ private fun InputBar(
                     .background(
                         if (isRunning) c.red.copy(alpha = 0.15f)
                         else if (sendEnabled) c.text
-                        else if (showAttachMenu) c.text
                         else if (c.isDark) Color(0xFF171717) else Color.White
                     )
-                    .border(0.5.dp, if (sendEnabled || showAttachMenu) Color.Transparent else c.border, CircleShape)
-                    .clickable(enabled = true) {
+                    .border(0.5.dp, if (sendEnabled) Color.Transparent else c.border, CircleShape)
+                    .clickable(enabled = isRunning || sendEnabled) {
                         when {
                             isRunning -> onStop()
                             sendEnabled -> onSend()
-                            else -> onAttachClick()
                         }
                     },
                 contentAlignment = Alignment.Center,
@@ -3561,7 +3570,7 @@ private fun InputBar(
                 } else if (sendEnabled) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = str(R.string.sticker_send), tint = c.bg, modifier = Modifier.size(17.dp))
                 } else {
-                    Text(if (showAttachMenu) "×" else "+", color = if (showAttachMenu) c.bg else c.text, fontSize = 21.sp, fontWeight = FontWeight.Light)
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = str(R.string.sticker_send), tint = c.subtext.copy(alpha = 0.42f), modifier = Modifier.size(17.dp))
                 }
             }
         }

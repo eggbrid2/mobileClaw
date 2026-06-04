@@ -384,7 +384,6 @@ fun SettingsPage(
     var language  by remember(snapshot.language) { mutableStateOf(snapshot.language) }
     var darkTheme by remember(snapshot.darkTheme) { mutableStateOf(snapshot.darkTheme) }
     var accent    by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
-    var uiStyle   by remember(snapshot.uiStyle) { mutableStateOf(snapshot.uiStyle) }
     var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
     var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
 
@@ -397,7 +396,7 @@ fun SettingsPage(
             language = language,
             darkTheme = darkTheme,
             accentColor = accent,
-            uiStyle = uiStyle,
+            uiStyle = "classic",
             localModelEnabled = localEnabled,
             localNativeOnly = localNativeOnly,
         )
@@ -544,7 +543,6 @@ fun SettingsPage(
                 darkTheme = darkTheme, onDarkTheme = { darkTheme = it },
                 accent = accent, onAccent = { accent = it },
                 language = language, onLanguage = { language = it },
-                uiStyle = uiStyle, onUiStyle = { uiStyle = it },
                 c = c, onBack = { subPage = null },
                 onSave = { onSave(currentSnapshot()); subPage = null },
             )
@@ -2107,7 +2105,6 @@ private fun AppearanceSubPage(
     darkTheme: Boolean, onDarkTheme: (Boolean) -> Unit,
     accent: Long, onAccent: (Long) -> Unit,
     language: String, onLanguage: (String) -> Unit,
-    uiStyle: String, onUiStyle: (String) -> Unit,
     c: ClawColors,
     onBack: () -> Unit,
     onSave: () -> Unit,
@@ -2148,26 +2145,6 @@ private fun AppearanceSubPage(
                             if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
-                }
-            }
-            SettingsSection(str(R.string.settings_ui_style), c) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    ThemeModeCard(
-                        modifier = Modifier.weight(1f),
-                        title = str(R.string.settings_style_desk),
-                        subtitle = str(R.string.settings_style_desk_desc),
-                        active = uiStyle == "desk",
-                        dark = darkTheme,
-                        c = c,
-                    ) { onUiStyle("desk") }
-                    ThemeModeCard(
-                        modifier = Modifier.weight(1f),
-                        title = str(R.string.settings_style_classic),
-                        subtitle = str(R.string.settings_style_classic_desc),
-                        active = uiStyle == "classic",
-                        dark = false,
-                        c = c,
-                    ) { onUiStyle("classic") }
                 }
             }
             SettingsSection(str(R.string.section_language), c) {

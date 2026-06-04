@@ -14,16 +14,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
@@ -33,40 +25,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.core.view.WindowCompat
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mobileclaw.ClawApplication
-import com.mobileclaw.permission.PermissionItem
-import com.mobileclaw.ui.aipage.AiPagesPage
-import com.mobileclaw.ui.apps.AppLauncherPage
-import com.mobileclaw.ui.chat.ChatScreen
-import com.mobileclaw.ui.chat.currentRunState
-import com.mobileclaw.ui.group.GroupChatScreen
-import com.mobileclaw.ui.group.GroupsPage
-import com.mobileclaw.ui.home.HomePage
-import com.mobileclaw.ui.profile.ProfilePage
-import com.mobileclaw.ui.roles.RoleDetailPage
-import com.mobileclaw.ui.roles.RoleEditPage
-import com.mobileclaw.ui.roles.RoleHomePage
-import com.mobileclaw.ui.roles.RolesPage
-import com.mobileclaw.ui.common.HtmlAttachmentViewer
-import com.mobileclaw.ui.shell.ClassicCenterTab
-import com.mobileclaw.ui.shell.ClassicChatTab
 import com.mobileclaw.ui.shell.MainPageHost
 import com.mobileclaw.ui.shell.ClassicScaffold
 import com.mobileclaw.ui.shell.ClassicSessionAction
-import com.mobileclaw.ui.shell.ClassicAddGroupAction
 import com.mobileclaw.ui.shell.ClassicCodexAction
-import com.mobileclaw.ui.shell.ClassicSkillTab
 import com.mobileclaw.ui.shell.ClassicTab
 import com.mobileclaw.ui.shell.ClassicShellContent
 import com.mobileclaw.ui.shell.rememberClassicShellController
@@ -130,8 +101,7 @@ class MainActivity : ComponentActivity() {
                 darkTheme = configSnapshot.darkTheme,
                 accentColor = configSnapshot.accentColor,
             ) {
-                // Force white status bar icons on HOME (dark wallpaper), follow theme elsewhere
-                val lightStatusBars = uiState.currentPage !in setOf(AppPage.HOME, AppPage.AI_TOWN) && !configSnapshot.darkTheme
+                val lightStatusBars = uiState.currentPage != AppPage.AI_TOWN && !configSnapshot.darkTheme
                 SideEffect {
                     WindowCompat.getInsetsController(window, window.decorView)
                         .isAppearanceLightStatusBars = lightStatusBars
@@ -189,10 +159,6 @@ class MainActivity : ComponentActivity() {
                     BackHandler(enabled = !htmlViewerOpen && uiState.canNavigateBack && uiState.currentPage != AppPage.BROWSER) {
                         vm.navigateBack()
                     }
-                    // HOME → CHAT: pressing back on the launcher goes to chat
-                    BackHandler(enabled = !htmlViewerOpen && !uiState.canNavigateBack && uiState.currentPage == AppPage.HOME) {
-                        vm.navigate(AppPage.CHAT)
-                    }
                     // CHAT → exit: double-press within 2 s to exit
                     var lastBackPressMs by remember { mutableStateOf(0L) }
                     BackHandler(enabled = !htmlViewerOpen && !uiState.canNavigateBack && uiState.currentPage == AppPage.CHAT) {
@@ -209,7 +175,6 @@ class MainActivity : ComponentActivity() {
                         scope.launch { drawerState.close() }
                     }
 
-                    val isClassicStyle = configSnapshot.uiStyle == "classic"
                     val classicShell = rememberClassicShellController(uiState.currentPage)
 
                     ModalNavigationDrawer(
@@ -250,7 +215,7 @@ class MainActivity : ComponentActivity() {
                         gesturesEnabled = uiState.currentPage == AppPage.CHAT && uiState.openHtmlAttachment == null,
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
-                            val classicShowsRoot = isClassicStyle && classicShell.shouldRenderShellRoot(uiState.currentPage)
+                            val classicShowsRoot = classicShell.shouldRenderShellRoot(uiState.currentPage)
                             if (classicShowsRoot) {
                                 ClassicScaffold(
                                     selected = classicShell.tab,
@@ -261,13 +226,11 @@ class MainActivity : ComponentActivity() {
                                     title = classicShell.title,
                                     tabs = classicShell.topTabs.map { it.label to it.selected },
                                     onTab = { index -> classicShell.applyTopTabSelection(index)?.let(vm::navigate) },
-                                    leadingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.SINGLE) {
+                                    leadingAction = if (classicShell.tab == ClassicTab.CHAT) {
                                         { ClassicSessionAction { scope.launch { drawerState.open() } } }
                                     } else null,
-                                    trailingAction = if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.SINGLE) {
+                                    trailingAction = if (classicShell.tab == ClassicTab.CHAT) {
                                         { ClassicCodexAction(enabled = uiState.codexDesktopMode) { vm.setCodexDesktopMode(!uiState.codexDesktopMode) } }
-                                    } else if (classicShell.tab == ClassicTab.CHAT && classicShell.chatTab == ClassicChatTab.GROUP) {
-                                        { ClassicAddGroupAction { classicShell.createGroupRequestKey += 1 } }
                                     } else null,
                                 ) {
                                     ClassicShellContent(
@@ -289,7 +252,7 @@ class MainActivity : ComponentActivity() {
                                 MainPageHost(
                                     uiState = uiState,
                                     vm = vm,
-                                    isClassicStyle = isClassicStyle,
+                                    isClassicStyle = true,
                                     darkTheme = configSnapshot.darkTheme,
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onOpenApp = { appId -> startActivity(MiniAppActivity.intent(this@MainActivity, appId)) },

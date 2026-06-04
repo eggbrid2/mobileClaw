@@ -66,7 +66,7 @@ class AgentConfig(private val context: Context) {
             language = prefs[Keys.LANGUAGE]?.takeIf { it == "zh" || it == "en" } ?: "zh",
             darkTheme = (prefs[Keys.DARK_THEME] ?: "true") == "true",
             accentColor = parseAccentColor(prefs[Keys.ACCENT_COLOR]) ?: 0xFFC7F43AL,
-            uiStyle = prefs[Keys.UI_STYLE]?.takeIf { it == "desk" || it == "classic" } ?: "desk",
+            uiStyle = "classic",
             localModelEnabled = (prefs[Keys.LOCAL_MODEL_ENABLED] ?: "false") == "true",
             localModelId = prefs[Keys.LOCAL_MODEL_ID]?.takeIf { it.isNotBlank() } ?: "gemma4-e2b-litert",
             localNativeOnly = (prefs[Keys.LOCAL_NATIVE_ONLY] ?: "false") == "true",
@@ -90,7 +90,7 @@ class AgentConfig(private val context: Context) {
             prefs[Keys.LANGUAGE] = snapshot.language.takeIf { it == "zh" || it == "en" } ?: "zh"
             prefs[Keys.DARK_THEME] = snapshot.darkTheme.toString()
             prefs[Keys.ACCENT_COLOR] = snapshot.accentColor.toString()
-            prefs[Keys.UI_STYLE] = snapshot.uiStyle.takeIf { it == "desk" || it == "classic" } ?: "desk"
+            prefs[Keys.UI_STYLE] = "classic"
             prefs[Keys.LOCAL_MODEL_ENABLED] = snapshot.localModelEnabled.toString()
             prefs[Keys.LOCAL_MODEL_ID] = snapshot.localModelId
             prefs[Keys.LOCAL_NATIVE_ONLY] = snapshot.localNativeOnly.toString()
@@ -144,7 +144,7 @@ data class ConfigSnapshot(
     val language: String = "zh",
     val darkTheme: Boolean = true,
     val accentColor: Long = 0xFF2563EBL,
-    val uiStyle: String = "desk",
+    val uiStyle: String = "classic",
     val localModelEnabled: Boolean = false,
     val localModelId: String = "gemma4-e2b-litert",
     val localNativeOnly: Boolean = false,

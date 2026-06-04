@@ -103,10 +103,6 @@ class TaskRouter(
             Log.w(TAG, "Rejecting AI route because taskType=${decision.taskType} confidence=${decision.confidence} goal=${goal.take(160)}")
             return null
         }
-        if (!hasImage && !hasFile && activeWorkflow != null && shouldContinueActiveWorkflow(goal, activeWorkflow)) {
-            Log.d(TAG, "Ignoring AI route because active workflow should continue. goal=${goal.take(160)} workflow=${activeWorkflow.taskType}")
-            return null
-        }
         val normalizedGoal = decision.normalizedGoal.ifBlank { effectiveGoal }
         val executionHint = buildString {
             appendLine("AI router selected this execution path from the latest user message and recent context.")
@@ -519,7 +515,6 @@ class TaskRouter(
         if (TaskClassifier.classify(goal) !in listOf(TaskType.CHAT, TaskType.GENERAL)) return false
         if (isMobileClawInternalChatTopic(text)) return false
         if (isGenericContinueOnly(text) || isContextualFollowUp(text)) return true
-        if (text.length <= 28 && workflow.taskType == TaskType.PHONE_CONTROL) return true
         return false
     }
 

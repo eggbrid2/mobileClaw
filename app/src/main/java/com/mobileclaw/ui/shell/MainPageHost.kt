@@ -29,7 +29,6 @@ import com.mobileclaw.ui.chat.ChatScreen
 import com.mobileclaw.ui.chat.currentRunState
 import com.mobileclaw.ui.group.GroupChatScreen
 import com.mobileclaw.ui.group.GroupsPage
-import com.mobileclaw.ui.home.HomePage
 import com.mobileclaw.ui.image.ImageGeneratorPage
 import com.mobileclaw.ui.profile.ProfilePage
 import com.mobileclaw.ui.roles.RoleDetailPage
@@ -93,7 +92,6 @@ fun MainPageHost(
             onOpenHtmlViewer = { vm.openHtmlViewer(it) },
             onOpenBrowser = { vm.navigateToBrowser(it) },
             onRenameSession = { id, title -> vm.renameSession(id, title) },
-            onOpenDesktop = { vm.navigate(AppPage.HOME) },
             onSwitchRole = { vm.navigate(AppPage.ROLES) },
             onCodexDesktopModeChange = { vm.setCodexDesktopMode(it) },
             onOpenAccessibilitySettings = onOpenAccessibilitySettings,
@@ -106,22 +104,6 @@ fun MainPageHost(
             onMiniAppPreviewStatusChanged = { appId, status, healthy ->
                 vm.updateChatMiniAppPreviewStatus(appId, status, healthy)
             },
-        )
-    }
-    AnimatedVisibility(
-        visible = uiState.currentPage == AppPage.HOME,
-        enter = fadeIn(),
-        exit = fadeOut(),
-    ) {
-        HomePage(
-            currentRole = uiState.currentRole,
-            sessions = uiState.sessions,
-            miniApps = uiState.miniApps,
-            darkTheme = darkTheme,
-            onNavigate = { vm.navigate(it) },
-            onOpenApp = onOpenApp,
-            onDeleteApp = { vm.deleteApp(it) },
-            onSelectSession = { vm.loadSession(it) },
         )
     }
     AnimatedVisibility(
@@ -156,7 +138,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.SKILLS,
+        visible = uiState.currentPage == AppPage.SKILLS,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
@@ -204,7 +186,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.ROLES,
+        visible = uiState.currentPage == AppPage.ROLES,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
@@ -295,7 +277,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.APPS,
+        visible = uiState.currentPage == AppPage.APPS,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
@@ -378,7 +360,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.GROUPS,
+        visible = uiState.currentPage == AppPage.GROUPS,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
@@ -432,7 +414,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.SKILL_MARKET,
+        visible = uiState.currentPage == AppPage.SKILL_MARKET,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
@@ -443,7 +425,7 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
-        visible = !isClassicStyle && uiState.currentPage == AppPage.AI_PAGES,
+        visible = uiState.currentPage == AppPage.AI_PAGES,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {

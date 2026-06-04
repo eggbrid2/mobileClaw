@@ -19,6 +19,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.gson.JsonParser
 import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.LocalClawColors
 
@@ -333,17 +334,98 @@ private fun inlineAnnotated(text: String, c: ClawColors): AnnotatedString = buil
 
 private fun splitFenceBlocks(text: String): List<MarkdownPart> {
     val result = mutableListOf<MarkdownPart>()
-    // Match ```lang\ncontent``` or ~~~lang\ncontent~~~
-    val fenceRe = Regex("```(\\w*)\\s*\\n([\\s\\S]*?)```|~~~(\\w*)\\s*\\n([\\s\\S]*?)~~~")
+    // Match both standard fences and compact forms such as ```ui{"type":"column"}```.
+    val fenceRe = Regex("```(\\w*)\\s*([\\s\\S]*?)```|~~~(\\w*)\\s*([\\s\\S]*?)~~~")
     var cursor = 0
     for (m in fenceRe.findAll(text)) {
-        if (m.range.first > cursor) result.add(MarkdownPart.Prose(text.substring(cursor, m.range.first)))
+        if (m.range.first > cursor) result.addAll(splitInlineUiBlocks(text.substring(cursor, m.range.first)))
         val lang    = (m.groupValues[1].ifBlank { m.groupValues[3] })
         val content = (m.groupValues[2].ifBlank { m.groupValues[4] })
-        if (lang == "ui") result.add(MarkdownPart.UiBlock(content))
+        if (lang.equals("ui", ignoreCase = true) && content.isUiDslJson()) result.add(MarkdownPart.UiBlock(content))
         else result.add(MarkdownPart.Fence(lang, content))
         cursor = m.range.last + 1
     }
-    if (cursor < text.length) result.add(MarkdownPart.Prose(text.substring(cursor)))
+    if (cursor < text.length) result.addAll(splitInlineUiBlocks(text.substring(cursor)))
     return result
 }
+
+private fun splitInlineUiBlocks(text: String): List<MarkdownPart> {
+    if (!text.contains("\"type\"")) return listOfNotBlankProse(text)
+    val result = mutableListOf<MarkdownPart>()
+    var cursor = 0
+    while (cursor < text.length) {
+        val start = text.indexOfUiObjectStart(cursor)
+        if (start < 0) {
+            result.addProse(text.substring(cursor))
+            break
+        }
+        val end = text.findBalancedJsonEnd(start)
+        if (end < 0) {
+            result.addProse(text.substring(cursor))
+            break
+        }
+        val candidate = text.substring(start, end + 1)
+        if (!candidate.isUiDslJson()) {
+            result.addProse(text.substring(cursor, start + 1))
+            cursor = start + 1
+            continue
+        }
+        result.addProse(text.substring(cursor, start).stripDanglingUiConcat())
+        result.add(MarkdownPart.UiBlock(candidate))
+        cursor = end + 1
+    }
+    return result
+}
+
+private fun String.indexOfUiObjectStart(fromIndex: Int): Int {
+    val marker = Regex("""\{\s*"type"\s*:""")
+    return marker.find(this, fromIndex)?.range?.first ?: -1
+}
+
+private fun String.findBalancedJsonEnd(start: Int): Int {
+    var depth = 0
+    var inString = false
+    var escaped = false
+    for (i in start until length) {
+        val ch = this[i]
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                ch == '\\' -> escaped = true
+                ch == '"' -> inString = false
+            }
+            continue
+        }
+        when (ch) {
+            '"' -> inString = true
+            '{', '[' -> depth++
+            '}', ']' -> {
+                depth--
+                if (depth == 0) return i
+                if (depth < 0) return -1
+            }
+        }
+    }
+    return -1
+}
+
+private fun String.isUiDslJson(): Boolean =
+    runCatching {
+        val obj = JsonParser.parseString(trim()).asJsonObject
+        obj.has("type") && obj["type"].asString in setOf(
+            "column", "row", "card", "text", "button", "button_group", "input", "select",
+            "table", "chart_bar", "chart_line", "progress", "badge", "divider", "spacer",
+            "metric_grid", "info_rows",
+        )
+    }.getOrDefault(false)
+
+private fun MutableList<MarkdownPart>.addProse(text: String) {
+    if (text.isNotBlank()) add(MarkdownPart.Prose(text))
+}
+
+private fun listOfNotBlankProse(text: String): List<MarkdownPart> =
+    if (text.isBlank()) emptyList() else listOf(MarkdownPart.Prose(text))
+
+private fun String.stripDanglingUiConcat(): String =
+    replace(Regex("""(?s)\+\s*["'][\s\S]*?["']\s*\+\s*ui\s*$"""), "")
+        .replace(Regex("""(?m)^\s*\+\s*ui\s*$"""), "")

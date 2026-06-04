@@ -132,7 +132,9 @@ Routing principles:
 - If the user explicitly asks for an AI Native Page / native page / dashboard / form / management page, use APP_BUILD with primary_channel=ARTIFACT and include `ui_builder` in tool_hints.
 - If the user wants ordinary conversation or explanation, use CHAT or GENERAL.
 - If the user attaches an image and asks what it is, use GENERAL with CHAT channel, not WEB, unless they explicitly ask for web lookup.
-- If a short follow-up like "continue" refers to the active or latest task, keep that task type.
+- Active workflow is context only, not a command. Continue it only when the latest message explicitly asks to continue, revise, retry, or refers to the previous artifact/task.
+- If the latest message is ordinary chat, emotion, small talk, or entertainment request, use CHAT even when an active workflow exists.
+- If a short follow-up like "continue" clearly refers to the active or latest task, keep that task type.
 - Generate 2-4 short user-facing steps. These steps are shown directly in the UI while working.
 - Write them like concrete things the AI is about to do, not abstract workflow labels.
 - Never mention internal config keys, endpoint names, gateway field names, API key fields, capability ids, or raw parameter names in user_visible_steps unless the user is explicitly debugging configuration.

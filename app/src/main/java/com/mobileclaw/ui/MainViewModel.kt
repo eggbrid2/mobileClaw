@@ -19,7 +19,6 @@ import com.mobileclaw.agent.AiIntentRouter
 import com.mobileclaw.agent.AgentRuntime
 import com.mobileclaw.agent.AgentWorkspaceUpdate
 import com.mobileclaw.agent.ChatBubbleStyle
-import com.mobileclaw.agent.ChatRouter
 import com.mobileclaw.agent.ChannelType
 import com.mobileclaw.agent.ChannelPermissionPolicy
 import com.mobileclaw.agent.Role
@@ -1577,7 +1576,10 @@ class MainViewModel : ViewModel() {
 
     private fun beginVisibleUserTurn(goal: String): PendingUserTurn? {
         val sessionId = _uiState.value.currentSessionId
-        if (goal.isBlank() || _uiState.value.sessionStates[sessionId]?.isRunning == true) return null
+        if (goal.isBlank()) return null
+        if (_uiState.value.sessionStates[sessionId]?.isRunning == true || taskJobs[sessionId] != null) {
+            stopCurrentRunForNewUserTurn(sessionId)
+        }
         val attachedImage = _uiState.value.inputImageBase64
         val attachedFile = _uiState.value.inputFileAttachment
         val imageLocalPath = attachedImage?.let { persistUserImageForWorkspace(sessionId, it) }.orEmpty()
@@ -1613,6 +1615,24 @@ class MainViewModel : ViewModel() {
         return PendingUserTurn(sessionId, userMessage, attachedImage, imageLocalPath, attachedFile)
     }
 
+    private fun stopCurrentRunForNewUserTurn(sessionId: String) {
+        taskJobs[sessionId]?.cancel()
+        taskJobs.remove(sessionId)
+        runtimes.remove(sessionId)
+        overlay.hide()
+        auroraOverlay.hide()
+        updateSession(sessionId) { state ->
+            state.copy(
+                isRunning = false,
+                runStartedAt = 0L,
+                activeLogLines = emptyList(),
+                activeAttachments = emptyList(),
+                streamingToken = "",
+                streamingThought = "",
+            )
+        }
+    }
+
     private fun removePendingVisibleTurn(turn: PendingUserTurn) {
         updateSession(turn.sessionId) { s ->
             s.copy(
@@ -1634,20 +1654,6 @@ class MainViewModel : ViewModel() {
         hasFile: Boolean,
         activeWorkflow: ActiveWorkflow?,
     ): TaskRoute {
-        val fallback = taskRouter.resolve(
-            goal = goal,
-            effectiveGoal = effectiveGoal,
-            hasImage = hasImage,
-            hasFile = hasFile,
-            activeWorkflow = activeWorkflow,
-        )
-        Log.d(
-            TAG,
-            "Fallback route prepared. source=${fallback.source} taskType=${fallback.taskType} reason=${fallback.debugReason.take(240)} goal=${goal.take(160)}"
-        )
-        if (fallback.source == TaskRouteSource.ACTIVE_WORKFLOW || fallback.source == TaskRouteSource.RECENT_CONTEXT) {
-            return fallback
-        }
         val workspaceContext = workspaceRuntime.currentWorkspaceContext(
             sessionId = _uiState.value.currentSessionId,
             semanticFacts = currentSemanticFactsForWorkspace,
@@ -1668,9 +1674,19 @@ class MainViewModel : ViewModel() {
             hasFile = hasFile,
             activeWorkflow = activeWorkflow,
         )
+        val fallback by lazy {
+            taskRouter.resolve(
+                goal = goal,
+                effectiveGoal = effectiveGoal,
+                hasImage = hasImage,
+                hasFile = hasFile,
+                activeWorkflow = activeWorkflow,
+            )
+        }
         if (aiDecision == null) {
-            Log.w(TAG, "AI route decision unavailable. Using fallback. goal=${goal.take(160)} fallbackReason=${fallback.debugReason.take(240)}")
-            return fallback
+            val fallbackRoute = fallback
+            Log.w(TAG, "AI route decision unavailable. Using fallback. goal=${goal.take(160)} fallbackReason=${fallbackRoute.debugReason.take(240)}")
+            return fallbackRoute
         }
         val aiRoute = taskRouter.resolveWithAiDecision(
             goal = goal,
@@ -1681,11 +1697,12 @@ class MainViewModel : ViewModel() {
             decision = aiDecision,
         )
         if (aiRoute == null) {
+            val fallbackRoute = fallback
             Log.w(
                 TAG,
-                "AI route rejected. taskType=${aiDecision.taskType} confidence=${aiDecision.confidence} reason=${aiDecision.reason.take(180)}; using fallback=${fallback.taskType}/${fallback.source}"
+                "AI route rejected. taskType=${aiDecision.taskType} confidence=${aiDecision.confidence} reason=${aiDecision.reason.take(180)}; using fallback=${fallbackRoute.taskType}/${fallbackRoute.source}"
             )
-            return fallback
+            return fallbackRoute
         }
         Log.d(
             TAG,
@@ -1757,12 +1774,19 @@ class MainViewModel : ViewModel() {
                 debugReason = "Codex desktop session mode enabled.",
             )
         } else {
-            taskRouter.resolve(
-                goal = goal,
-                effectiveGoal = effectiveGoal,
-                hasImage = attachedImage != null,
-                hasFile = attachedFile != null,
-                activeWorkflow = activeWorkflowForCurrentSession(),
+            TaskRoute(
+                taskType = if (attachedImage != null) TaskType.GENERAL else TaskType.CHAT,
+                contextualIntent = ContextualTaskIntent(
+                    classificationGoal = goal,
+                    taskTypeOverride = if (attachedImage != null) TaskType.GENERAL else TaskType.CHAT,
+                    aiPrimaryChannel = ChannelType.CHAT,
+                    aiSupportingChannels = emptyList(),
+                    aiToolHints = emptyList(),
+                ),
+                goalForExecution = effectiveGoal,
+                source = TaskRouteSource.CLASSIFIER,
+                goalToRemember = goal,
+                debugReason = "Internal direct-chat fallback because routeOverride was missing.",
             )
         }
         val contextualIntent = route.contextualIntent
@@ -1788,7 +1812,7 @@ class MainViewModel : ViewModel() {
         val stickerAwareChat = attachedImage == null &&
             attachedFile == null &&
             (taskType == TaskType.GENERAL || taskType == TaskType.CHAT) &&
-            ChatRouter.classify(goal) == ChatRouter.Intent.CHAT &&
+            route.primaryChannelForExecution() == ChannelType.CHAT &&
             shouldUseStickerAwareChat(goal)
         val executionTaskType = if (stickerAwareChat) TaskType.CHAT else taskType
         val contextualGoal = taskRouter.applyContextualTaskConstraints(workspaceResumeGoal, contextualIntent, taskType)
@@ -1861,7 +1885,7 @@ class MainViewModel : ViewModel() {
         // Fast path: conversational message with no attachments → skip agent loop
         if (!stickerAwareChat &&
             attachedImage == null && attachedFile == null &&
-            shouldRunDirectChat(route, goal)) {
+            shouldRunDirectChat(route)) {
             runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, persistUserMessage = pendingTurn != null || showUserMessage)
             return
         }
@@ -2426,7 +2450,12 @@ If the latest user message clearly requires memory, skills, artifacts, files, we
 
 ## Optional Interactive UI
 For normal conversation, reply in plain text.
-Only embed a ${"```"}ui block when the user explicitly asks for interactive choices, forms, tables, comparisons, or dashboards. Keep it on as few lines as possible.
+Only embed a ${"```"}ui block when the user explicitly asks for interactive choices, forms, tables, comparisons, dashboards, or says they want buttons/cards.
+If you use the UI DSL, it MUST be wrapped exactly as:
+${"```"}ui
+{"type":"column","children":[...]}
+${"```"}
+Never output raw UI JSON, `+ ui`, string concatenation, or Kotlin/JavaScript snippets in a chat answer.
 Types: column/row(gap,padding,children) | card(title,children) | text(content,size,bold,color,align) | button(label,action,style) | input(key,placeholder) | select(key,options:[]) | table(headers:[],rows:[[]]) | chart_bar/chart_line(data:[],labels:[],title) | progress(value,label) | badge(text,color) | divider | spacer(size)
 Actions: "send:message" | "submit:text with {key}" | "copy:text"
 For pure conversational replies, greetings, explanations, and simple factual answers, do not output a ui block.""".trimIndent()
@@ -2903,7 +2932,22 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         val hiddenPrompt = prompt.ifBlank {
             "用户发送了一张表情包图片。请根据图片内容、情绪和当前聊天上下文自然回应；不要复述这段系统提示，也不要说“我看到了一个附件”。"
         }
-        runTaskInternal(hiddenPrompt, imageOverride = imageBase64, visibleUserText = "")
+        val sessionId = _uiState.value.currentSessionId
+        if (_uiState.value.sessionStates[sessionId]?.isRunning == true || taskJobs[sessionId] != null) {
+            stopCurrentRunForNewUserTurn(sessionId)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val route = resolveRouteWithAi(
+                goal = hiddenPrompt,
+                effectiveGoal = hiddenPrompt,
+                hasImage = true,
+                hasFile = false,
+                activeWorkflow = activeWorkflowForCurrentSession(),
+            )
+            withContext(Dispatchers.Main) {
+                runTaskInternal(hiddenPrompt, imageOverride = imageBase64, visibleUserText = "", routeOverride = route)
+            }
+        }
     }
 
     fun setFileAttachment(attachment: FileAttachment?) {
@@ -2913,7 +2957,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.CHAT) }
 
     fun navigate(page: AppPage) {
-        val targetPage = page
+        val targetPage = if (page == AppPage.HOME) AppPage.CHAT else page
         if (targetPage == AppPage.SKILLS) refreshPromotableSkills()
         if (targetPage == AppPage.PROFILE) loadProfileData()
         if (targetPage == AppPage.SETTINGS) {
@@ -2922,16 +2966,14 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
         if (targetPage == AppPage.VIDEO_GENERATOR) loadVideoTasks()
         if (targetPage == AppPage.WORKSPACE) loadCurrentWorkspaceSnapshot()
-        if (targetPage == AppPage.APPS || targetPage == AppPage.HOME) loadMiniApps()
+        if (targetPage == AppPage.APPS) loadMiniApps()
         if (targetPage == AppPage.ROLES || targetPage == AppPage.ROLE_DETAIL || targetPage == AppPage.AI_TOWN) townStore.ensureRooms(roleManager.all())
         if (targetPage == AppPage.GROUPS) loadGroups()
         if (targetPage == AppPage.GROUP_CHAT) {
             _uiState.update { it.copy(groupState = it.groupState.copy(unreadCount = 0)) }
         }
 
-        // CHAT and HOME are root-level peers — switching between them resets the stack
-        // so system back doesn't replay the toggle history.
-        if (targetPage == AppPage.CHAT || targetPage == AppPage.HOME) {
+        if (targetPage == AppPage.CHAT) {
             backStack.clear()
             backStack.addLast(targetPage)
         } else if (backStack.isEmpty() || backStack.last() != targetPage) {
@@ -2949,7 +2991,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         if (backStack.size > 1) {
             backStack.removeLast()
             val page = backStack.last()
-            if (page == AppPage.APPS || page == AppPage.HOME) loadMiniApps()
+            if (page == AppPage.APPS) loadMiniApps()
             val clearEdit = page != AppPage.ROLE_EDIT
             _uiState.update { it.copy(
                 currentPage = page,
@@ -4198,12 +4240,11 @@ $foundationalMemory
         return actionHit && appHit
     }
 
-    private fun shouldRunDirectChat(route: TaskRoute, goal: String): Boolean {
+    private fun shouldRunDirectChat(route: TaskRoute): Boolean {
         if (route.contextualIntent.disableToolNarrowing) return false
         if (route.taskType == TaskType.CHAT) {
             return route.contextualIntent.aiSupportingChannels.isEmpty() &&
-                route.contextualIntent.aiToolHints.isEmpty() &&
-                ChatRouter.classify(goal) == ChatRouter.Intent.CHAT
+                route.contextualIntent.aiToolHints.isEmpty()
         }
         if (route.taskType != TaskType.GENERAL) return false
         if (route.contextualIntent.aiPrimaryChannel != null) {
@@ -4211,8 +4252,20 @@ $foundationalMemory
                 route.contextualIntent.aiSupportingChannels.isEmpty() &&
                 route.contextualIntent.aiToolHints.isEmpty()
         }
-        return route.source == TaskRouteSource.CLASSIFIER && ChatRouter.classify(goal) == ChatRouter.Intent.CHAT
+        return false
     }
+
+    private fun TaskRoute.primaryChannelForExecution(): ChannelType =
+        contextualIntent.aiPrimaryChannel ?: when (taskType) {
+            TaskType.PHONE_CONTROL -> ChannelType.PHONE
+            TaskType.WEB_RESEARCH -> ChannelType.WEB
+            TaskType.FILE_CREATE, TaskType.APP_BUILD -> ChannelType.ARTIFACT
+            TaskType.IMAGE_GENERATION -> ChannelType.MEDIA
+            TaskType.VPN_CONTROL -> ChannelType.VPN
+            TaskType.SKILL_MANAGEMENT -> ChannelType.SKILL
+            TaskType.CODE_EXECUTION -> ChannelType.CODE
+            TaskType.CHAT, TaskType.GENERAL -> ChannelType.CHAT
+        }
 
     private fun isRecentContinuationRoute(route: TaskRoute, goal: String): Boolean {
         if (route.source != TaskRouteSource.RECENT_CONTEXT) return false
