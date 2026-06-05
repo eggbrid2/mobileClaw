@@ -20,9 +20,12 @@ from __future__ import annotations
 
 import json
 import os
+import base64
+import re
 import shlex
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +38,7 @@ PORT = int(os.environ.get("CODEX_BRIDGE_PORT", "52734"))
 TOKEN = os.environ.get("CODEX_BRIDGE_TOKEN", "")
 COMMAND = os.environ.get("CODEX_BRIDGE_COMMAND", "codex exec --dangerously-bypass-approvals-and-sandbox")
 MAX_OUTPUT = int(os.environ.get("CODEX_BRIDGE_MAX_OUTPUT", "12000"))
+MAX_ATTACHMENT_BYTES = int(os.environ.get("CODEX_BRIDGE_MAX_ATTACHMENT_BYTES", str(8 * 1024 * 1024)))
 CONFIG_PATH = Path(os.environ.get("CODEX_BRIDGE_CONFIG", "~/.mobileclaw_codex_bridge.json")).expanduser()
 SESSION_MAP_PATH = Path(os.environ.get("CODEX_BRIDGE_SESSION_MAP", "~/.mobileclaw_codex_sessions.json")).expanduser()
 DEFAULT_CODEX_CONFIG: dict[str, str] = {
@@ -138,6 +142,97 @@ def mobile_session_id(body: dict[str, Any]) -> str:
         if value:
             return value
     return ""
+
+
+def safe_attachment_name(name: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]+", "_", name.strip()).strip(" .")
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:120]
+
+
+def extension_for_mime(mime_type: str) -> str:
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+        "text/plain": ".txt",
+        "application/json": ".json",
+        "text/markdown": ".md",
+    }.get(mime_type.lower(), "")
+
+
+def decode_data_uri(data_uri: str) -> tuple[str, bytes]:
+    header, sep, payload = data_uri.partition(",")
+    if not sep or ";base64" not in header:
+        raise ValueError("invalid data_uri attachment")
+    mime_type = header.removeprefix("data:").split(";", 1)[0] or "application/octet-stream"
+    return mime_type, base64.b64decode(payload)
+
+
+def prepare_codex_prompt(prompt: str, body: dict[str, Any], cwd: str | None = None) -> str:
+    attachments = body.get("attachments")
+    if not isinstance(attachments, list) or not attachments:
+        return prompt
+
+    root = Path(tempfile.mkdtemp(prefix="mobileclaw-codex-"))
+    saved: list[dict[str, Any]] = []
+    for index, raw in enumerate(attachments, start=1):
+        if not isinstance(raw, dict):
+            continue
+        kind = str(raw.get("kind", "file") or "file").strip().lower()
+        name = safe_attachment_name(str(raw.get("name", "") or ""), f"attachment-{index}")
+        mime_type = str(raw.get("mime_type", "") or raw.get("mimeType", "") or "").strip()
+        is_text = bool(raw.get("is_text") or raw.get("isText"))
+
+        if "data_uri" in raw or "dataUri" in raw:
+            mime_from_data, data = decode_data_uri(str(raw.get("data_uri") or raw.get("dataUri") or ""))
+            mime_type = mime_type or mime_from_data
+            if "." not in Path(name).name:
+                name += extension_for_mime(mime_type)
+        elif is_text or "text" in raw:
+            text = str(raw.get("text", ""))
+            data = text.encode("utf-8")
+            mime_type = mime_type or "text/plain"
+            if "." not in Path(name).name:
+                name += extension_for_mime(mime_type) or ".txt"
+        else:
+            payload = str(raw.get("base64", "") or "")
+            if not payload:
+                continue
+            data = base64.b64decode(payload)
+            mime_type = mime_type or "application/octet-stream"
+
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            raise ValueError(f"attachment is too large: {name} ({len(data)} bytes)")
+
+        target = root / safe_attachment_name(name, f"attachment-{index}")
+        if target.exists():
+            target = root / f"{index}-{target.name}"
+        target.write_bytes(data)
+        saved.append({
+            "kind": kind,
+            "name": name,
+            "path": str(target),
+            "mime_type": mime_type,
+            "size": len(data),
+        })
+
+    if not saved:
+        return prompt
+
+    lines = [
+        "",
+        "MobileClaw attachments were saved on this desktop. Use these absolute paths directly when inspecting images or files:",
+    ]
+    for index, item in enumerate(saved, start=1):
+        lines.append(
+            f"- Attachment {index}: {item['name']} ({item['mime_type']}, {item['size']} bytes, kind={item['kind']})"
+        )
+        lines.append(f"  path: {item['path']}")
+    lines.append("Do not ask the user to upload these attachments again unless a listed path cannot be read.")
+    return prompt.rstrip() + "\n\n" + "\n".join(lines).strip()
 
 
 def split_exec_command() -> tuple[list[str], list[str]]:
@@ -395,12 +490,13 @@ class CodexBridgeHandler(BaseHTTPRequestHandler):
             run_config = request_codex_config(body)
             cwd = str(body.get("cwd", "")).strip() or run_config.get("cwd") or None
             timeout = int(body.get("timeout_seconds", 120))
-            if not prompt:
-                response(self, 400, {"ok": False, "output": "prompt is required"})
+            if not prompt and not body.get("attachments"):
+                response(self, 400, {"ok": False, "output": "prompt or attachments are required"})
                 return
             if cwd and not os.path.isdir(cwd):
                 response(self, 400, {"ok": False, "output": f"cwd does not exist: {cwd}"})
                 return
+            prompt = prepare_codex_prompt(prompt, body, cwd)
             with active_lock:
                 if active_process is not None and active_process.poll() is None:
                     response(self, 409, {"ok": False, "output": "A Codex task is already running."})
@@ -452,12 +548,13 @@ class CodexBridgeHandler(BaseHTTPRequestHandler):
             mobile_session = mobile_session_id(body)
             run_config = request_codex_config(body)
             cwd = str(body.get("cwd", "")).strip() or run_config.get("cwd") or None
-            if not prompt:
-                response(self, 400, {"ok": False, "output": "prompt is required"})
+            if not prompt and not body.get("attachments"):
+                response(self, 400, {"ok": False, "output": "prompt or attachments are required"})
                 return
             if cwd and not os.path.isdir(cwd):
                 response(self, 400, {"ok": False, "output": f"cwd does not exist: {cwd}"})
                 return
+            prompt = prepare_codex_prompt(prompt, body, cwd)
             with active_lock:
                 if active_process is not None and active_process.poll() is None:
                     response(self, 409, {"ok": False, "output": "A Codex task is already running."})

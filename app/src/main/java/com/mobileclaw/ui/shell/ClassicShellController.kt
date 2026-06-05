@@ -16,74 +16,80 @@ data class ClassicShellTopTab(
 )
 
 class ClassicShellController internal constructor() {
-    var tab by mutableStateOf(ClassicTab.CHAT)
+    var tab by mutableStateOf(ClassicTab.HOME)
 
     val title: String
         get() = when (tab) {
-            ClassicTab.CHAT -> str(R.string.home_859362)
+            ClassicTab.HOME -> "会话"
             ClassicTab.WORKSPACE -> str(R.string.classic_workspace)
-            ClassicTab.AGENTS -> str(R.string.classic_agents)
-            ClassicTab.TOOLS -> str(R.string.classic_tools)
             ClassicTab.ME -> str(R.string.classic_me)
         }
 
     val topTabs: List<ClassicShellTopTab>
         get() = when (tab) {
-            ClassicTab.CHAT,
+            ClassicTab.HOME,
             ClassicTab.WORKSPACE,
-            ClassicTab.AGENTS,
-            ClassicTab.TOOLS,
             ClassicTab.ME -> emptyList()
         }
 
     fun syncFromPage(currentPage: AppPage) {
         tab = when (currentPage) {
-            AppPage.CHAT,
-            AppPage.GROUP_CHAT -> ClassicTab.CHAT
+            AppPage.HOME,
+            AppPage.CHAT -> ClassicTab.HOME
             AppPage.SKILLS,
             AppPage.SKILL_MARKET,
             AppPage.CONSOLE,
-            AppPage.BROWSER -> ClassicTab.TOOLS
+            AppPage.BROWSER,
             AppPage.APPS,
             AppPage.AI_PAGES,
             AppPage.WORKSPACE,
             AppPage.IMAGE_GENERATOR,
-            AppPage.VIDEO_GENERATOR -> ClassicTab.WORKSPACE
+            AppPage.VIDEO_GENERATOR,
             AppPage.AI_TOWN,
             AppPage.GROUPS,
+            AppPage.GROUP_CHAT,
             AppPage.ROLES,
             AppPage.ROLE_DETAIL,
-            AppPage.ROLE_EDIT -> ClassicTab.AGENTS
+            AppPage.ROLE_EDIT -> ClassicTab.WORKSPACE
             AppPage.PROFILE,
             AppPage.VPN,
             AppPage.SETTINGS,
             AppPage.USER_CONFIG,
             AppPage.HELP -> ClassicTab.ME
-            else -> tab
         }
     }
 
     fun currentPageForBottomTab(selectedTab: ClassicTab): AppPage? = when (selectedTab) {
-        ClassicTab.CHAT -> AppPage.CHAT
+        ClassicTab.HOME -> AppPage.HOME
         ClassicTab.WORKSPACE -> null
-        ClassicTab.AGENTS -> null
-        ClassicTab.TOOLS -> null
         ClassicTab.ME -> null
     }
 
     fun applyTopTabSelection(index: Int): AppPage? = when (tab) {
-        ClassicTab.CHAT,
+        ClassicTab.HOME,
         ClassicTab.WORKSPACE,
-        ClassicTab.AGENTS,
-        ClassicTab.TOOLS,
         ClassicTab.ME -> null
     }
 
     fun shouldRenderShellRoot(currentPage: AppPage): Boolean = when (tab) {
-        ClassicTab.CHAT -> currentPage == AppPage.CHAT
-        ClassicTab.TOOLS -> currentPage !in setOf(AppPage.SKILLS, AppPage.SKILL_MARKET, AppPage.CONSOLE, AppPage.BROWSER)
-        ClassicTab.WORKSPACE -> currentPage !in setOf(AppPage.APPS, AppPage.AI_PAGES, AppPage.WORKSPACE, AppPage.IMAGE_GENERATOR, AppPage.VIDEO_GENERATOR)
-        ClassicTab.AGENTS -> currentPage !in setOf(AppPage.ROLES, AppPage.GROUPS, AppPage.GROUP_CHAT, AppPage.AI_TOWN, AppPage.ROLE_DETAIL, AppPage.ROLE_EDIT)
+        ClassicTab.HOME -> currentPage == AppPage.HOME
+        ClassicTab.WORKSPACE -> currentPage !in setOf(
+            AppPage.APPS,
+            AppPage.AI_PAGES,
+            AppPage.WORKSPACE,
+            AppPage.IMAGE_GENERATOR,
+            AppPage.VIDEO_GENERATOR,
+            AppPage.SKILLS,
+            AppPage.SKILL_MARKET,
+            AppPage.CONSOLE,
+            AppPage.BROWSER,
+            AppPage.ROLES,
+            AppPage.GROUPS,
+            AppPage.GROUP_CHAT,
+            AppPage.AI_TOWN,
+            AppPage.ROLE_DETAIL,
+            AppPage.ROLE_EDIT,
+        )
         ClassicTab.ME -> currentPage !in setOf(
             AppPage.PROFILE,
             AppPage.VPN,

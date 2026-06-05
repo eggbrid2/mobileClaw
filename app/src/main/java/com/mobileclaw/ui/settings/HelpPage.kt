@@ -103,19 +103,14 @@ private val HELP_CONTENT = listOf(
     )),
     HelpSection("download", "发布与更新", listOf(
         HelpItem(
-            "蒲公英配置",
-            "MobileClaw 内置 pgyer_release 工具，可检查蒲公英新版本并下载 APK。先在用户配置中保存蒲公英 API Key 和 App Key。",
-            "pgyer_api_key = 蒲公英 API Key\npgyer_app_key = 蒲公英 App Key\npgyer_install_password = 安装密码，可选",
+            "更新通道",
+            "MobileClaw 可以检测是否有新版本。先在用户配置中保存更新所需的 App Key 和 API Key。",
+            "app_key = 更新 App Key\napi_key = 更新 API Key",
         ),
         HelpItem(
-            "检查更新",
-            "在聊天中直接说“检查蒲公英更新”，Agent 会调用 pgyer_release 检查当前版本和蒲公英最新版本。",
-            "检查蒲公英更新",
-        ),
-        HelpItem(
-            "下载新版",
-            "在聊天中说“下载蒲公英最新版本”，MobileClaw 会通过系统下载管理器把 APK 下载到 Downloads。",
-            "下载蒲公英最新版本",
+            "检测更新",
+            "在“我的”页面点击“检测更新”，MobileClaw 会检查当前版本是否已经是最新。",
+            "检测更新",
         ),
         HelpItem(
             "版本规则",

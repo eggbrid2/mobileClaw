@@ -40,11 +40,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -147,6 +147,7 @@ fun ChatScreen(
     onOpenSettings: () -> Unit,
     onOpenSkillManager: () -> Unit,
     onOpenDrawer: () -> Unit = {},
+    onExitDetail: () -> Unit = onOpenDrawer,
     onAttachImage: (String?) -> Unit = {},
     onSendImage: (String, String) -> Unit = { image, _ -> onAttachImage(image) },
     onAttachFile: (FileAttachment?) -> Unit = {},
@@ -312,7 +313,9 @@ fun ChatScreen(
             TopBar(
                 sessionTitle = sessionTitle,
                 onOpenDrawer = onOpenDrawer,
+                onExitDetail = onExitDetail,
                 onRenameSession = { showRenameDialog = true },
+                canNavigateBack = uiState.canNavigateBack,
                 codexDesktopMode = codexDesktopMode,
                 codexDesktopConfigured = codexDesktopConfigured,
                 onToggleCodexDesktop = { onCodexDesktopModeChange(!codexDesktopMode) },
@@ -560,7 +563,7 @@ fun ChatScreen(
             input = input,
             isRunning = runState.isRunning,
             codexDesktopMode = codexDesktopMode,
-            supportsMultimodal = uiState.supportsMultimodal,
+            supportsMultimodal = uiState.supportsMultimodal || codexDesktopMode,
             attachedImageBase64 = uiState.inputImageBase64,
             attachedFile = uiState.inputFileAttachment,
             showAttachMenu = showAttachMenu,
@@ -1055,7 +1058,9 @@ private fun MiniAppPreviewPill(
 private fun TopBar(
     sessionTitle: String,
     onOpenDrawer: () -> Unit,
+    onExitDetail: () -> Unit,
     onRenameSession: () -> Unit,
+    canNavigateBack: Boolean,
     codexDesktopMode: Boolean = false,
     codexDesktopConfigured: Boolean = false,
     onToggleCodexDesktop: () -> Unit = {},
@@ -1074,8 +1079,17 @@ private fun TopBar(
                 .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onOpenDrawer) {
-                Icon(Icons.Default.Menu, contentDescription = null, tint = c.subtext, modifier = Modifier.size(22.dp))
+            Row(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onExitDetail)
+                    .padding(start = 10.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                Text("退出", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
             Box(
                 modifier = Modifier.weight(1f).clickable(onClick = onRenameSession),

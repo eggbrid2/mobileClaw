@@ -34,6 +34,9 @@ interface SemanticDao {
     @Query("SELECT * FROM semantic_facts")
     suspend fun allIncludingDisabled(): List<SemanticFactEntity>
 
+    @Query("SELECT * FROM semantic_facts ORDER BY pinned DESC, updatedAt DESC, `key` ASC LIMIT :limit OFFSET :offset")
+    suspend fun pageIncludingDisabled(limit: Int, offset: Int): List<SemanticFactEntity>
+
     @Query("SELECT * FROM semantic_facts WHERE `key` LIKE :prefix || '%' AND enabled = 1")
     suspend fun allWithPrefix(prefix: String): List<SemanticFactEntity>
 

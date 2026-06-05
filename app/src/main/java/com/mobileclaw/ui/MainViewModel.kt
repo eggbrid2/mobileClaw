@@ -387,7 +387,7 @@ class MainViewModel : ViewModel() {
         MainUiState(
             config = config.configFlow,
             isConfigured = config.isConfigured(),
-            currentPage = AppPage.CHAT,
+            currentPage = AppPage.HOME,
             currentModel = config.model,
             currentRole = Role.DEFAULT,
             consoleServerUrl = if (app.consoleServer.isEnabled()) app.consoleServer.getAccessUrl() else "",
@@ -535,7 +535,7 @@ class MainViewModel : ViewModel() {
                     "help"        -> AppPage.HELP
                     "workspace"   -> AppPage.WORKSPACE
                     "town", "ai_town" -> AppPage.ROLES
-                    else          -> AppPage.CHAT
+                    else          -> AppPage.HOME
                 }
                 navigate(page)
             }
@@ -640,6 +640,13 @@ class MainViewModel : ViewModel() {
     fun createNewSession() {
         viewModelScope.launch(Dispatchers.IO) {
             createNewSessionInternal()
+        }
+    }
+
+    fun createNewSessionAndOpen() {
+        viewModelScope.launch(Dispatchers.IO) {
+            createNewSessionInternal()
+            navigate(AppPage.CHAT)
         }
     }
 
@@ -890,10 +897,17 @@ class MainViewModel : ViewModel() {
     }
 
     private suspend fun refreshProfileFacts() {
-        val facts = runCatching { app.semanticMemory.all() }.getOrDefault(emptyMap())
-        val semanticFacts = runCatching { app.semanticMemory.allFactsIncludingDisabled() }.getOrDefault(emptyList())
+        val loadedCount = _uiState.value.profileState.semanticFacts.size.coerceAtLeast(PROFILE_MEMORY_PAGE_SIZE)
+        val semanticFacts = runCatching { app.semanticMemory.pageIncludingDisabled(limit = loadedCount, offset = 0) }.getOrDefault(emptyList())
+        val facts = semanticFacts.filter { it.enabled }.associate { it.key to it.value }
         _uiState.update {
-            it.copy(profileState = it.profileState.copy(facts = facts, semanticFacts = semanticFacts))
+            it.copy(
+                profileState = it.profileState.copy(
+                    facts = facts,
+                    semanticFacts = semanticFacts,
+                    memoryHasMore = semanticFacts.size >= loadedCount,
+                )
+            )
         }
     }
 
@@ -1400,7 +1414,10 @@ class MainViewModel : ViewModel() {
     // ── Task Execution ───────────────────────────────────────────────────────
 
     fun runTask(goal: String) {
-        val trimmed = goal.trim()
+        val hasPendingAttachment = _uiState.value.inputImageBase64 != null || _uiState.value.inputFileAttachment != null
+        val trimmed = goal.trim().ifBlank {
+            if (hasPendingAttachment) "请查看这个附件。" else ""
+        }
         if (trimmed.isBlank()) return
         if (_uiState.value.codexDesktopMode) {
             runTaskInternal(trimmed)
@@ -1753,6 +1770,9 @@ class MainViewModel : ViewModel() {
                 userMessage = userMessage,
                 userGoal = goal,
                 prompt = goal,
+                imageBase64 = attachedImage,
+                imageLocalPath = attachedImageLocalPath,
+                fileAttachment = attachedFile,
                 showUserMessage = showUserMessage,
                 persistUserMessage = pendingTurn != null || showUserMessage,
             )
@@ -2680,6 +2700,9 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         userMessage: ChatMessage,
         userGoal: String,
         prompt: String,
+        imageBase64: String?,
+        imageLocalPath: String,
+        fileAttachment: FileAttachment?,
         showUserMessage: Boolean,
         persistUserMessage: Boolean,
     ) {
@@ -2710,6 +2733,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             val result = streamCodexDesktop(
                 sessionId = sessionId,
                 prompt = prompt,
+                attachments = buildCodexDesktopAttachments(imageBase64, imageLocalPath, fileAttachment),
             )
             val finishedAt = System.currentTimeMillis()
             val statusLine = LogLine(
@@ -2758,6 +2782,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     private suspend fun streamCodexDesktop(
         sessionId: String,
         prompt: String,
+        attachments: JsonArray = JsonArray(),
     ): com.mobileclaw.skill.SkillResult = withContext(Dispatchers.IO) {
         val endpoint = userConfig.get("codex_desktop_endpoint")?.trim()?.trimEnd('/').orEmpty()
         val token = userConfig.get("codex_desktop_token")?.trim().orEmpty()
@@ -2776,6 +2801,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         val body = JsonObject().apply {
             addProperty("prompt", prompt)
             addProperty("mobile_session_id", sessionId)
+            if (attachments.size() > 0) add("attachments", attachments)
             addProperty("cwd", cwd)
             add("config", JsonObject().apply {
                 addProperty("cwd", cwd)
@@ -2869,6 +2895,34 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
     }
 
+    private fun buildCodexDesktopAttachments(
+        imageBase64: String?,
+        imageLocalPath: String,
+        fileAttachment: FileAttachment?,
+    ): JsonArray = JsonArray().apply {
+        if (!imageBase64.isNullOrBlank()) {
+            add(JsonObject().apply {
+                addProperty("kind", "image")
+                addProperty("name", imageLocalPath.substringAfterLast('/').ifBlank { "mobileclaw-image.jpg" })
+                addProperty("mime_type", imageBase64.substringAfter("data:", "").substringBefore(";").ifBlank { "image/jpeg" })
+                addProperty("data_uri", imageBase64)
+            })
+        }
+        if (fileAttachment != null) {
+            add(JsonObject().apply {
+                addProperty("kind", "file")
+                addProperty("name", fileAttachment.name.ifBlank { "attachment" })
+                addProperty("mime_type", fileAttachment.mimeType.ifBlank { "application/octet-stream" })
+                addProperty("is_text", fileAttachment.isText)
+                if (fileAttachment.isText) {
+                    addProperty("text", fileAttachment.content)
+                } else {
+                    addProperty("base64", fileAttachment.content)
+                }
+            })
+        }
+    }
+
     private fun shouldAnswerImageDirectly(goal: String): Boolean {
         val text = goal.trim().lowercase()
         if (text.isBlank()) return true
@@ -2954,10 +3008,10 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         _uiState.update { it.copy(inputFileAttachment = attachment) }
     }
 
-    private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.CHAT) }
+    private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.HOME) }
 
     fun navigate(page: AppPage) {
-        val targetPage = if (page == AppPage.HOME) AppPage.CHAT else page
+        val targetPage = page
         if (targetPage == AppPage.SKILLS) refreshPromotableSkills()
         if (targetPage == AppPage.PROFILE) loadProfileData()
         if (targetPage == AppPage.SETTINGS) {
@@ -2973,7 +3027,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             _uiState.update { it.copy(groupState = it.groupState.copy(unreadCount = 0)) }
         }
 
-        if (targetPage == AppPage.CHAT) {
+        if (targetPage == AppPage.HOME) {
             backStack.clear()
             backStack.addLast(targetPage)
         } else if (backStack.isEmpty() || backStack.last() != targetPage) {
@@ -3004,7 +3058,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     fun navigateToBrowser(url: String) {
         val currentPage = _uiState.value.currentPage
         if (backStack.isEmpty()) {
-            backStack.addLast(if (currentPage == AppPage.BROWSER) AppPage.CHAT else currentPage)
+            backStack.addLast(if (currentPage == AppPage.BROWSER) AppPage.HOME else currentPage)
         } else if (backStack.last() != currentPage && currentPage != AppPage.BROWSER) {
             backStack.addLast(currentPage)
         }
@@ -3789,16 +3843,43 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             _uiState.update { it.copy(profileState = it.profileState.copy(isLoading = true)) }
             val episodes = runCatching { app.database.episodeDao().recent(limit = 20) }.getOrDefault(emptyList())
             val convCount = runCatching { conversationMemory.messageCount() }.getOrDefault(0)
-            val facts = runCatching { app.semanticMemory.all() }.getOrDefault(emptyMap())
-            val semanticFacts = runCatching { app.semanticMemory.allFactsIncludingDisabled() }.getOrDefault(emptyList())
+            val semanticFacts = runCatching { app.semanticMemory.pageIncludingDisabled(limit = PROFILE_MEMORY_PAGE_SIZE, offset = 0) }.getOrDefault(emptyList())
+            val facts = semanticFacts.filter { it.enabled }.associate { it.key to it.value }
             _uiState.update {
                 it.copy(profileState = it.profileState.copy(
                     facts = facts,
                     semanticFacts = semanticFacts,
+                    memoryHasMore = semanticFacts.size >= PROFILE_MEMORY_PAGE_SIZE,
+                    memoryLoadingMore = false,
                     recentEpisodes = episodes,
                     conversationCount = convCount,
                     isLoading = false,
                 ))
+            }
+        }
+    }
+
+    fun loadMoreProfileMemory() {
+        val state = _uiState.value.profileState
+        if (state.memoryLoadingMore || !state.memoryHasMore) return
+        viewModelScope.launch {
+            val offset = _uiState.value.profileState.semanticFacts.size
+            _uiState.update { it.copy(profileState = it.profileState.copy(memoryLoadingMore = true)) }
+            val next = runCatching {
+                app.semanticMemory.pageIncludingDisabled(limit = PROFILE_MEMORY_PAGE_SIZE, offset = offset)
+            }.getOrDefault(emptyList())
+            _uiState.update { current ->
+                val merged = (current.profileState.semanticFacts + next)
+                    .distinctBy { it.key }
+                    .sortedWith(compareByDescending<com.mobileclaw.memory.MemoryFact> { it.pinned }.thenByDescending { it.updatedAt }.thenBy { it.key })
+                current.copy(
+                    profileState = current.profileState.copy(
+                        semanticFacts = merged,
+                        facts = merged.filter { it.enabled }.associate { it.key to it.value },
+                        memoryHasMore = next.size >= PROFILE_MEMORY_PAGE_SIZE,
+                        memoryLoadingMore = false,
+                    )
+                )
             }
         }
     }
@@ -3810,12 +3891,14 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             val convJob = launch { runCatching { profileExtractor.extractAndUpdate("", "") } }
             val epJob   = launch { runCatching { profileExtractor.extractFromEpisodes(episodes) } }
             convJob.join(); epJob.join()
-            val facts = runCatching { app.semanticMemory.all() }.getOrDefault(emptyMap())
-            val semanticFacts = runCatching { app.semanticMemory.allFactsIncludingDisabled() }.getOrDefault(emptyList())
+            val loadedCount = _uiState.value.profileState.semanticFacts.size.coerceAtLeast(PROFILE_MEMORY_PAGE_SIZE)
+            val semanticFacts = runCatching { app.semanticMemory.pageIncludingDisabled(limit = loadedCount, offset = 0) }.getOrDefault(emptyList())
+            val facts = semanticFacts.filter { it.enabled }.associate { it.key to it.value }
             _uiState.update {
                 it.copy(profileState = it.profileState.copy(
                     facts = facts,
                     semanticFacts = semanticFacts,
+                    memoryHasMore = semanticFacts.size >= loadedCount,
                     isExtracting = false,
                 ))
             }
@@ -3973,8 +4056,8 @@ $foundationalMemory
         }
     }
 
-    fun showSettings(show: Boolean) = navigate(if (show) AppPage.SETTINGS else AppPage.CHAT)
-    fun showSkillManager(show: Boolean) = navigate(if (show) AppPage.SKILLS else AppPage.CHAT)
+    fun showSettings(show: Boolean) = navigate(if (show) AppPage.SETTINGS else AppPage.HOME)
+    fun showSkillManager(show: Boolean) = navigate(if (show) AppPage.SKILLS else AppPage.HOME)
     fun openWorkspacePage() {
         loadCurrentWorkspaceSnapshot()
         navigate(AppPage.WORKSPACE)
@@ -4014,7 +4097,7 @@ $foundationalMemory
             if (snapshot.language != oldLanguage) {
                 _languageChanged.emit(snapshot.language)
             }
-            navigate(AppPage.CHAT)
+            navigate(AppPage.HOME)
         }
     }
 
@@ -4367,6 +4450,62 @@ $foundationalMemory
                 launch(Dispatchers.IO) { persistMessages(sessionId, userMessage, listOf(agentMessage)) }
             }
         }
+    }
+
+    fun checkAppUpdate() {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    PgyerReleaseSkill(app, userConfig).execute(mapOf("action" to "check_update"))
+                }.getOrElse {
+                    com.mobileclaw.skill.SkillResult(false, "request failed: ${it.message.orEmpty()}")
+                }
+            }
+            appendConfirmationResolution(formatAppUpdateResult(result.success, result.output))
+        }
+    }
+
+    private fun formatAppUpdateResult(success: Boolean, rawOutput: String): String {
+        val lines = rawOutput
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+        val current = lines.firstOrNull { it.startsWith("Current:", ignoreCase = true) }
+            ?.substringAfter(":")
+            ?.trim()
+        val remote = lines.firstOrNull { it.startsWith("Remote:", ignoreCase = true) }
+            ?.substringAfter(":")
+            ?.trim()
+        val notes = lines.firstOrNull { it.startsWith("Notes:", ignoreCase = true) }
+            ?.substringAfter(":")
+            ?.trim()
+
+        if (
+            rawOutput.contains("Configure pgyer_api_key", ignoreCase = true) ||
+            rawOutput.contains("Configure release channel", ignoreCase = true)
+        ) {
+            return "还没有配置更新通道，请先到用户配置里保存更新所需的 App Key 和 API Key。"
+        }
+
+        if (!success) {
+            val cleaned = rawOutput
+                .replace(Regex("(?i)pgyer"), "更新服务")
+                .replace("蒲公英", "更新服务")
+                .lineSequence()
+                .filterNot { it.startsWith("Download:", ignoreCase = true) }
+                .joinToString("\n")
+                .ifBlank { "网络或配置异常" }
+            return "检测更新失败：$cleaned"
+        }
+
+        val hasNew = rawOutput.contains("newer MobileClaw build", ignoreCase = true)
+        return buildString {
+            appendLine(if (hasNew) "发现新版本。" else "当前已经是最新版本。")
+            current?.takeIf { it.isNotBlank() }?.let { appendLine("当前版本：$it") }
+            remote?.takeIf { it.isNotBlank() }?.let { appendLine("最新版本：$it") }
+            notes?.takeIf { it.isNotBlank() }?.let { appendLine("更新内容：$it") }
+        }.trim()
     }
 
     private fun appendConfirmationResolution(text: String) {
@@ -5368,6 +5507,7 @@ private fun summarizeTechnicalResultForUser(skillId: String?, rawText: String): 
     }
 }
 
+private const val PROFILE_MEMORY_PAGE_SIZE = 40
 
 private fun supportsCurrentMultimodal(snapshot: ConfigSnapshot): Boolean {
     if (!snapshot.localModelEnabled && !snapshot.localNativeOnly) return snapshot.activeGateway?.supportsCapabilityMultimodal() ?: snapshot.supportsMultimodal

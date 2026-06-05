@@ -29,7 +29,7 @@ data class MainUiState(
     // Per-session run states (task may run in multiple sessions simultaneously)
     val sessionStates: Map<String, SessionRunState> = emptyMap(),
     // Convenience flat accessors kept as computed: use currentRunState extension instead
-    val currentPage: AppPage = AppPage.CHAT,
+    val currentPage: AppPage = AppPage.HOME,
     val canNavigateBack: Boolean = false,
     val userAvatarUri: String? = null,
     val promotableSkills: List<SkillMeta> = emptyList(),

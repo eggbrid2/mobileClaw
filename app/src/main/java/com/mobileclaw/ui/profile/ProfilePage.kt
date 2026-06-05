@@ -160,6 +160,8 @@ private fun buildDimensions(facts: Map<String, String>): List<ProfileDimension> 
 fun ProfilePage(
     facts: Map<String, String>,
     semanticFacts: List<MemoryFact> = emptyList(),
+    memoryHasMore: Boolean = false,
+    memoryLoadingMore: Boolean = false,
     episodes: List<EpisodeEntity>,
     isLoading: Boolean,
     isExtracting: Boolean,
@@ -170,6 +172,7 @@ fun ProfilePage(
     onPinMemory: (key: String, pinned: Boolean) -> Unit = { _, _ -> },
     onEnableMemory: (key: String, enabled: Boolean) -> Unit = { _, _ -> },
     onDeleteMemory: (key: String) -> Unit = {},
+    onLoadMoreMemory: () -> Unit = {},
     personalitySummary: String = "",
     personalitySummaryLoading: Boolean = false,
     onGenerateSummary: () -> Unit = {},
@@ -212,7 +215,7 @@ fun ProfilePage(
         return
     }
 
-    Column(Modifier.fillMaxSize().background(c.bg)) {
+    Column(Modifier.fillMaxSize().background(Color(0xFFF7F8F5))) {
         // ── Title bar ────────────────────────────────────────────────────────
         ClawPageHeader(title = str(R.string.profile_b6c018), onBack = onBack) {
             if (isLoading || isExtracting) {
@@ -267,9 +270,12 @@ fun ProfilePage(
                         MemoryBrowserCard(
                             facts = facts,
                             semanticFacts = semanticFacts,
+                            hasMore = memoryHasMore,
+                            isLoadingMore = memoryLoadingMore,
                             onPin = onPinMemory,
                             onEnable = onEnableMemory,
                             onDelete = onDeleteMemory,
+                            onLoadMore = onLoadMoreMemory,
                         )
                     }
                 }
@@ -400,28 +406,40 @@ private fun PersonalitySummaryCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .padding(horizontal = 24.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(24.dp))
             .background(
                 brush = Brush.linearGradient(
-                    listOf(c.accent.copy(alpha = 0.13f), c.purple.copy(alpha = 0.07f))
+                    listOf(
+                        Color.White.copy(alpha = 0.88f),
+                        Color(0xFFF4F6F3).copy(alpha = 0.64f),
+                        Color(0xFFEFF5F0).copy(alpha = 0.50f),
+                    )
                 )
             )
-            .border(1.dp, c.accent.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
+            .border(0.8.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(24.dp))
             .padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            ClawSymbolIcon("settings", tint = c.accent, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFF171716), Color(0xFF353A35)))),
+                contentAlignment = Alignment.Center,
+            ) {
+                ClawSymbolIcon("profile", tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(10.dp))
             Text(
                 str(R.string.profile_539d49),
-                color = c.accent,
+                color = c.text,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.weight(1f),
             )
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = c.accent, strokeWidth = 1.5.dp)
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = c.text, strokeWidth = 1.5.dp)
             } else if (summary.isNotBlank()) {
                 Box(
                     modifier = Modifier
@@ -480,9 +498,9 @@ private fun PersonalitySummaryCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .background(c.accent)
-                            .clickable(onClick = onRefresh)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .background(Color(0xFF171716))
+                        .clickable(onClick = onRefresh)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
                         Text(str(R.string.profile_303071), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
@@ -772,37 +790,36 @@ private fun SectionTabRow(active: ProfileSection, onSelect: (ProfileSection) -> 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.surface)
-            .padding(horizontal = 16.dp, vertical = 0.dp),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
+            .background(Color.Transparent)
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.42f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.70f), RoundedCornerShape(18.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         tabs.forEach { (sec, label) ->
             val isActive = sec == active
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(1f)
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (isActive) Color(0xFF171716) else Color.Transparent)
                     .clickable { onSelect(sec) }
-                    .padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,
-                    color = if (isActive) c.accent else c.subtext,
-                    fontSize = 13.sp,
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                )
-                Spacer(Modifier.height(4.dp))
-                Box(
-                    Modifier
-                        .height(2.dp)
-                        .fillMaxWidth(if (isActive) 0.5f else 0f)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(c.accent),
+                    color = if (isActive) Color.White else c.text.copy(alpha = 0.48f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                 )
             }
         }
     }
-    HorizontalDivider(color = c.border, thickness = 0.5.dp)
 }
 
 // ── Task Insights (PORTRAIT section) ─────────────────────────────────────────
@@ -1116,9 +1133,12 @@ private fun DimensionsListSection(
 private fun MemoryBrowserCard(
     facts: Map<String, String>,
     semanticFacts: List<MemoryFact>,
+    hasMore: Boolean,
+    isLoadingMore: Boolean,
     onPin: (key: String, pinned: Boolean) -> Unit,
     onEnable: (key: String, enabled: Boolean) -> Unit,
     onDelete: (key: String) -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     val c = LocalClawColors.current
     val displayFacts = remember(facts, semanticFacts) {
@@ -1128,9 +1148,14 @@ private fun MemoryBrowserCard(
     }
 
     if (displayFacts.isEmpty()) {
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
             Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.card).padding(28.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.White.copy(alpha = 0.70f))
+                    .border(0.8.dp, Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
+                    .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -1167,14 +1192,14 @@ private fun MemoryBrowserCard(
         .groupBy { it.key.substringBefore(".", it.key) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             stringResource(R.string.profile_cf1e47),
-            color = c.subtext,
+            color = c.text.copy(alpha = 0.48f),
             fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp,
             modifier = Modifier.padding(bottom = 2.dp),
         )
@@ -1186,6 +1211,27 @@ private fun MemoryBrowserCard(
                 onEnable = onEnable,
                 onDelete = onDelete,
             )
+        }
+        if (hasMore || isLoadingMore) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.62f))
+                    .border(0.7.dp, Color.White.copy(alpha = 0.82f), RoundedCornerShape(999.dp))
+                    .clickable(enabled = !isLoadingMore, onClick = onLoadMore),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isLoadingMore) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = c.text, strokeWidth = 1.5.dp)
+                        Text("加载中", color = c.text.copy(alpha = 0.68f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    Text("再加载 40 条", color = c.text.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -1202,24 +1248,28 @@ private fun MemoryGroup(
     var expanded by remember { mutableStateOf(true) }
 
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(c.card),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color.White.copy(alpha = 0.68f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(22.dp)),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text(str(R.string.entries_count, entries.size), color = c.subtext, fontSize = 11.sp)
+            Text(label, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text(str(R.string.entries_count, entries.size), color = c.text.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(6.dp))
-            Text(if (expanded) "▲" else "▼", color = c.subtext.copy(alpha = 0.45f), fontSize = 9.sp)
+            Text(if (expanded) "▲" else "▼", color = c.text.copy(alpha = 0.36f), fontSize = 9.sp)
         }
         AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp)
+                HorizontalDivider(color = c.text.copy(alpha = 0.06f), thickness = 0.5.dp)
                 Spacer(Modifier.height(4.dp))
                 entries.forEach { fact ->
                     MemoryFactRow(
@@ -1246,18 +1296,18 @@ private fun MemoryFactRow(
     val alpha = if (fact.enabled) 1f else 0.45f
     Column(
         modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (fact.pinned) c.accent.copy(alpha = 0.08f) else c.cardAlt)
-            .border(0.5.dp, if (fact.pinned) c.accent.copy(alpha = 0.22f) else c.border.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (fact.pinned) Color(0xFFEFF5F0).copy(alpha = 0.78f) else Color.White.copy(alpha = 0.46f))
+            .border(0.5.dp, if (fact.pinned) Color(0xFF56D6BA).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.52f), RoundedCornerShape(14.dp))
             .clickable { expanded = !expanded }
-            .padding(horizontal = 9.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (fact.pinned) {
-                        Text("PIN", color = c.accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text("PIN", color = Color(0xFF376651), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                     if (!fact.enabled) {
                         Text("OFF", color = c.subtext, fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -1272,7 +1322,7 @@ private fun MemoryFactRow(
                 }
                 Text(fact.value, color = c.text.copy(alpha = alpha), fontSize = 11.sp, lineHeight = 15.sp, maxLines = if (expanded) Int.MAX_VALUE else 2)
             }
-            Text(fact.type, color = c.subtext.copy(alpha = 0.65f), fontSize = 10.sp)
+            Text(fact.type, color = c.text.copy(alpha = 0.36f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         }
         AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

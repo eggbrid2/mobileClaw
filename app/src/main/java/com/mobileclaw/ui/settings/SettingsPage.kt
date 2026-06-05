@@ -35,6 +35,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -410,12 +412,12 @@ fun SettingsPage(
 
     if (subPage == null) {
         // ── Hub list ─────────────────────────────────────────────────────────
-        Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
             ClawPageHeader(title = str(R.string.drawer_settings), onBack = onBack)
 
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 val isConfigured = activeGateway != null && activeGateway.endpoint.isNotBlank() && activeGateway.apiKey.isNotBlank()
@@ -607,12 +609,33 @@ fun SettingsPage(
 private fun SettingsHubCard(c: ClawColors, content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(c.surface)
-            .border(0.5.dp, c.border, RoundedCornerShape(12.dp)),
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.10f else 0.035f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.14f else 0.06f),
+            )
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (c.isDark) 0.08f else 0.70f),
+                        Color.White.copy(alpha = if (c.isDark) 0.04f else 0.42f),
+                    )
+                )
+            )
+            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp)),
         content = content,
     )
 }
+
+private fun settingsWorkbenchBrush(c: ClawColors): Brush =
+    if (c.isDark) {
+        Brush.verticalGradient(listOf(Color(0xFF080807), Color(0xFF10100E), Color(0xFF080807)))
+    } else {
+        Brush.verticalGradient(listOf(Color(0xFFFFFCF8), Color(0xFFF8F9F6), Color(0xFFF7F8F5)))
+    }
 
 @Composable
 private fun SettingsCategoryRow(
@@ -624,22 +647,26 @@ private fun SettingsCategoryRow(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(c.cardAlt),
+            Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f))
+                .border(0.6.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f), RoundedCornerShape(17.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            ClawSymbolIcon(iconKey, tint = c.text, modifier = Modifier.size(17.dp))
+            ClawSymbolIcon(iconKey, tint = c.text.copy(alpha = 0.78f), modifier = Modifier.size(19.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text)
+            Text(title, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold, color = c.text, maxLines = 1)
             Text(
                 subtitle,
-                fontSize = 11.sp,
-                color = if (statusOk) c.subtext else c.red.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+                color = if (statusOk) c.text.copy(alpha = 0.48f) else c.red.copy(alpha = 0.7f),
                 maxLines = 1,
             )
         }
@@ -686,7 +713,7 @@ private fun GatewayListSubPage(
         return
     }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.settings_849b48), onBack = onBack) {
             Button(
                 onClick = {
@@ -870,9 +897,23 @@ private fun GatewayListItem(
 ) {
     Column(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(c.surface)
-            .border(1.dp, if (isActive) c.text else c.border, RoundedCornerShape(16.dp))
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.10f else 0.035f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.14f else 0.06f),
+            )
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (c.isDark) 0.08f else 0.70f),
+                        Color.White.copy(alpha = if (c.isDark) 0.04f else 0.42f),
+                    )
+                )
+            )
+            .border(0.8.dp, if (isActive) c.text.copy(alpha = 0.82f) else Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
             .clickable(onClick = onActivate)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -882,9 +923,9 @@ private fun GatewayListItem(
                 symbol = "gateway",
                 size = 38.dp,
                 iconSize = 18.dp,
-                tint = c.text,
-                background = c.cardAlt,
-                border = c.border,
+                tint = c.text.copy(alpha = 0.78f),
+                background = Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f),
+                border = Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f),
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1061,7 +1102,7 @@ private fun GatewayEditorSubPage(
         embModel = corrected.firstOrNull { it.type == "embedding" }?.model ?: embModel
     }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = if (gateway.endpoint.isBlank()) str(R.string.settings_add) else str(R.string.settings_edit), onBack = onBack) {
             Button(
                 onClick = {
@@ -1665,7 +1706,7 @@ private fun LocalModelSubPage(
     }
     val hasRunnableLocalModel = models.any { it.installed && it.supportsChatRuntime }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.local_model_title), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1803,9 +1844,23 @@ private fun LocalModelItem(
 ) {
     Column(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(c.surface)
-            .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+            .shadow(
+                elevation = 14.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.10f else 0.035f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.14f else 0.06f),
+            )
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (c.isDark) 0.08f else 0.70f),
+                        Color.White.copy(alpha = if (c.isDark) 0.04f else 0.42f),
+                    )
+                )
+            )
+            .border(0.8.dp, if (selected) c.text.copy(alpha = 0.82f) else Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1814,9 +1869,9 @@ private fun LocalModelItem(
                 symbol = "model",
                 size = 38.dp,
                 iconSize = 20.dp,
-                tint = c.text,
-                background = c.cardAlt,
-                border = c.border,
+                tint = c.text.copy(alpha = 0.78f),
+                background = Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f),
+                border = Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f),
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2109,7 +2164,7 @@ private fun AppearanceSubPage(
     onBack: () -> Unit,
     onSave: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.settings_ce650e), onBack = onBack) {
             Button(
                 onClick = onSave,
@@ -2231,7 +2286,7 @@ private fun PermissionsSubPage(c: ClawColors, onBack: () -> Unit) {
         contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
     ) { }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = stringResource(R.string.settings_permissions), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -2321,7 +2376,7 @@ private fun CacheSubPage(c: ClawColors, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { refresh() }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.cache_title), onBack = onBack) {
             TextButton(
                 enabled = !loading && clearingId == null && categories.any { it.sizeBytes > 0L },
@@ -2551,7 +2606,7 @@ private fun CodexDesktopSubPage(
         "CODEX_BRIDGE_TOKEN=$displayToken python3 scripts/codex_desktop_bridge.py"
     }
 
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = "Codex 桥接", onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -2766,7 +2821,7 @@ private fun VirtualDisplaySubPage(
     onTestVirtualDisplay: () -> Unit,
     onCheckPrivServer: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(c.bg).navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
         ClawPageHeader(title = str(R.string.section_virtual_display), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),

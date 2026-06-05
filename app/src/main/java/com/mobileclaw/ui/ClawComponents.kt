@@ -169,42 +169,50 @@ fun ClawPageHeader(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(c.surface)
+            .background(Color.Transparent)
             .statusBarsPadding(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = if (onBack != null) 4.dp else 16.dp,
-                    end = 8.dp,
-                    top = 4.dp,
-                    bottom = 4.dp,
+                    start = if (onBack != null) 10.dp else 24.dp,
+                    end = 16.dp,
+                    top = 10.dp,
+                    bottom = 8.dp,
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.52f))
+                        .border(0.6.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), CircleShape),
+                ) {
                     Icon(
                         Icons.Default.Close,
                         contentDescription = null,
-                        tint = c.text,
-                        modifier = Modifier.size(22.dp),
+                        tint = c.text.copy(alpha = 0.82f),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
             Text(
                 text = title,
                 color = c.text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                lineHeight = 25.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = if (onBack != null) 4.dp else 0.dp),
+                    .padding(start = if (onBack != null) 10.dp else 0.dp),
             )
             actions()
         }
-        HorizontalDivider(color = c.border, thickness = 0.5.dp)
     }
 }
 

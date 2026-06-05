@@ -29,6 +29,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -176,7 +178,7 @@ fun SkillsPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(c.bg)
+            .background(skillsWorkbenchBrush(c))
             .then(if (showHeader) Modifier.statusBarsPadding() else Modifier)
             .navigationBarsPadding(),
     ) {
@@ -184,16 +186,16 @@ fun SkillsPage(
         if (showHeader) Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(c.surface)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .background(Color.Transparent)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.Default.Close, contentDescription = str(R.string.btn_back), tint = c.text)
             }
             Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(str(R.string.drawer_skills), color = c.text, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(stringResource(R.string.skills_loaded, allSkills.size), color = c.subtext, fontSize = 11.sp)
+                Text(str(R.string.drawer_skills), color = c.text, fontWeight = FontWeight.Black, fontSize = 24.sp, lineHeight = 25.sp)
+                Text(stringResource(R.string.skills_loaded, allSkills.size), color = c.text.copy(alpha = 0.46f), fontSize = 12.sp)
             }
         }
 
@@ -206,13 +208,12 @@ fun SkillsPage(
             } + CompactTabItem(str(R.string.skills_0e0282), SkillMarket.catalog.size.toString(), isMarketTab) {
                 selectedTabIndex = tagGroups.size
             },
-            modifier = Modifier.background(c.surface),
+            modifier = Modifier.background(Color.Transparent),
         )
-        HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
         // ── Tab content ──────────────────────────────────────────────────────
         LazyColumn(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             if (isMarketTab) {
@@ -286,6 +287,13 @@ private fun skillCategoryLabel(category: SkillToolCategory, locale: String): Str
     }
 }
 
+private fun skillsWorkbenchBrush(c: ClawColors): Brush =
+    if (c.isDark) {
+        Brush.verticalGradient(listOf(Color(0xFF080807), Color(0xFF10100E), Color(0xFF080807)))
+    } else {
+        Brush.verticalGradient(listOf(Color(0xFFFFFCF8), Color(0xFFF8F9F6), Color(0xFFF7F8F5)))
+    }
+
 @Composable
 fun CompactScrollableTabs(
     items: List<CompactTabItem>,
@@ -295,7 +303,7 @@ fun CompactScrollableTabs(
     LazyRow(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         lazyItems(items) { item ->
@@ -304,10 +312,16 @@ fun CompactScrollableTabs(
                     .height(38.dp)
                     .widthIn(min = 74.dp, max = 132.dp)
                     .clip(RoundedCornerShape(19.dp))
-                    .background(if (item.selected) c.text else c.cardAlt)
+                    .background(
+                        if (item.selected) {
+                            c.text
+                        } else {
+                            Color.White.copy(alpha = if (c.isDark) 0.08f else 0.46f)
+                        }
+                    )
                     .border(
-                        0.5.dp,
-                        if (item.selected) c.text else c.border,
+                        0.7.dp,
+                        if (item.selected) c.text else Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f),
                         RoundedCornerShape(19.dp),
                     )
                     .clickable(onClick = item.onClick)
@@ -317,7 +331,7 @@ fun CompactScrollableTabs(
             ) {
                 Text(
                     item.label,
-                    color = if (item.selected) c.bg else c.text,
+                    color = if (item.selected) c.bg else c.text.copy(alpha = 0.76f),
                     fontSize = 12.sp,
                     fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
@@ -329,7 +343,7 @@ fun CompactScrollableTabs(
                 if (item.meta.isNotBlank()) {
                     Text(
                         item.meta,
-                        color = if (item.selected) c.bg.copy(alpha = 0.72f) else c.subtext,
+                        color = if (item.selected) c.bg.copy(alpha = 0.72f) else c.text.copy(alpha = 0.44f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -354,9 +368,9 @@ private fun SkillMarketSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(c.cardAlt)
-                .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.62f))
+                .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -376,12 +390,12 @@ private fun SkillMarketSection(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (selected) c.accent else c.card)
-                        .border(0.5.dp, if (selected) c.accent else c.border, RoundedCornerShape(16.dp))
+                        .background(if (selected) c.text else Color.White.copy(alpha = if (c.isDark) 0.08f else 0.46f))
+                        .border(0.6.dp, if (selected) c.text else Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f), RoundedCornerShape(16.dp))
                         .clickable { selectedCategory = cat }
                         .padding(horizontal = 12.dp, vertical = 5.dp),
                 ) {
-                    Text(cat, fontSize = 12.sp, color = if (selected) Color.White else c.text, fontWeight = FontWeight.Medium)
+                    Text(cat, fontSize = 12.sp, color = if (selected) c.bg else c.text.copy(alpha = 0.76f), fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -411,9 +425,10 @@ private fun MarketSkillCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.card)
-            .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
+            .shadow(10.dp, RoundedCornerShape(24.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.03f), spotColor = Color.Black.copy(alpha = 0.055f))
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.62f))
+            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -421,9 +436,9 @@ private fun MarketSkillCard(
             symbol = entry.emoji,
             size = 38.dp,
             iconSize = 20.dp,
-            tint = c.text,
-            background = c.cardAlt,
-            border = c.border,
+            tint = c.text.copy(alpha = 0.78f),
+            background = Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f),
+            border = Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f),
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -662,8 +677,10 @@ private fun SkillRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.card, RoundedCornerShape(8.dp))
-            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .shadow(10.dp, RoundedCornerShape(24.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.03f), spotColor = Color.Black.copy(alpha = 0.055f))
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.62f))
+            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
             .padding(12.dp),
     ) {
         // ── Header row: name + type badge + delete ───────────────────────────

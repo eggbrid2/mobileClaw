@@ -69,6 +69,9 @@ class SemanticMemory(private val dao: SemanticDao) {
     suspend fun allFactsIncludingDisabled(): List<MemoryFact> =
         dao.allIncludingDisabled().map { it.toMemoryFact() }
 
+    suspend fun pageIncludingDisabled(limit: Int, offset: Int): List<MemoryFact> =
+        dao.pageIncludingDisabled(limit = limit, offset = offset).map { it.toMemoryFact() }
+
     suspend fun allWithPrefix(prefix: String): Map<String, String> =
         dao.allWithPrefix(prefix).associate { it.key to it.value }
 

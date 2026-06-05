@@ -8,6 +8,8 @@ import com.mobileclaw.ui.chat.AiQuizQuestion
 data class ProfileUiState(
     val facts: Map<String, String> = emptyMap(),
     val semanticFacts: List<MemoryFact> = emptyList(),
+    val memoryHasMore: Boolean = false,
+    val memoryLoadingMore: Boolean = false,
     val recentEpisodes: List<EpisodeEntity> = emptyList(),
     val isLoading: Boolean = false,
     val isExtracting: Boolean = false,

@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +42,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
@@ -98,19 +101,19 @@ fun SkillMarketPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(c.surface),
+            .background(skillMarketWorkbenchBrush(c)),
     ) {
         // Top bar
         if (showHeader) Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(c.surface)
+                .background(Color.Transparent)
                 .statusBarsPadding(),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 4.dp, end = 14.dp, top = 3.dp, bottom = 3.dp),
+                    .padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -118,13 +121,14 @@ fun SkillMarketPage(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
                         tint = c.text,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
                 Text(
                     text = str(R.string.skill_market_5917e2),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Black,
                     color = c.text,
                 )
             }
@@ -132,17 +136,15 @@ fun SkillMarketPage(
                 items = tabs.mapIndexed { idx, label ->
                     CompactTabItem(label = label, selected = selectedTab == idx) { selectedTab = idx }
                 },
-                modifier = Modifier.background(c.surface),
+                modifier = Modifier.background(Color.Transparent),
             )
-            HorizontalDivider(color = c.border, thickness = 0.5.dp)
         } else {
             CompactScrollableTabs(
                 items = tabs.mapIndexed { idx, label ->
                     CompactTabItem(label = label, selected = selectedTab == idx) { selectedTab = idx }
                 },
-                modifier = Modifier.background(c.surface),
+                modifier = Modifier.background(Color.Transparent),
             )
-            HorizontalDivider(color = c.border, thickness = 0.5.dp)
         }
 
         when (selectedTab) {
@@ -171,7 +173,10 @@ private fun RecommendedTab(
     val c = LocalClawColors.current
     val grouped = remember { SkillMarket.catalog.groupBy { it.category } }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+    ) {
         grouped.forEach { (category, entries) ->
             item {
                 Text(
@@ -313,7 +318,10 @@ private fun RemoteSearchTab(
                     )
                 }
             }
-            results.isNotEmpty() -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+            results.isNotEmpty() -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            ) {
                 items(results, key = { it.id }) { entry ->
                     MarketSkillRow(
                         emoji = "gateway",
@@ -366,16 +374,21 @@ private fun MarketSkillRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .shadow(10.dp, RoundedCornerShape(24.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.03f), spotColor = Color.Black.copy(alpha = 0.055f))
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.62f))
+            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Icon
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(c.cardAlt)
-                .border(0.5.dp, c.border, RoundedCornerShape(10.dp)),
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f))
+                .border(0.6.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f), RoundedCornerShape(17.dp)),
             contentAlignment = Alignment.Center,
         ) {
             ClawSymbolIcon(emoji, tint = c.text, modifier = Modifier.size(20.dp))
@@ -462,10 +475,17 @@ private fun MarketSkillRow(
 
     HorizontalDivider(
         modifier = Modifier.padding(start = 72.dp),
-        color = c.border.copy(alpha = 0.4f),
+        color = Color.Transparent,
         thickness = 0.5.dp,
     )
 }
+
+private fun skillMarketWorkbenchBrush(c: com.mobileclaw.ui.ClawColors): Brush =
+    if (c.isDark) {
+        Brush.verticalGradient(listOf(Color(0xFF080807), Color(0xFF10100E), Color(0xFF080807)))
+    } else {
+        Brush.verticalGradient(listOf(Color(0xFFFFFCF8), Color(0xFFF8F9F6), Color(0xFFF7F8F5)))
+    }
 
 private fun searchRemotePlatform(
     platform: String,

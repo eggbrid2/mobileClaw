@@ -42,24 +42,23 @@ class PgyerReleaseSkill(
 ) : Skill {
     override val meta = SkillMeta(
         id = "pgyer_release",
-        name = "Pgyer Release",
-        nameZh = "蒲公英发布",
-        description = "Checks MobileClaw updates from Pgyer, downloads the latest APK, or uploads an APK to Pgyer. " +
-            "Requires user config pgyer_api_key and pgyer_app_key for check/download; upload requires pgyer_api_key and apk_path.",
-        descriptionZh = "检查蒲公英上的 MobileClaw 更新、下载最新 APK，或上传 APK 到蒲公英。检查/下载需要 pgyer_api_key 与 pgyer_app_key；上传需要 pgyer_api_key 与 apk_path。",
+        name = "App Update",
+        nameZh = "应用更新",
+        description = "Checks MobileClaw updates, downloads the latest APK, or uploads an APK to the configured release channel.",
+        descriptionZh = "检查 MobileClaw 更新、下载最新 APK，或上传 APK 到已配置的发布通道。",
         parameters = listOf(
             SkillParam("action", "string", "status | check_update | download | upload", required = false),
-            SkillParam("api_key", "string", "Optional Pgyer API key override. Defaults to user config pgyer_api_key.", required = false),
-            SkillParam("app_key", "string", "Optional Pgyer appKey override. Defaults to user config pgyer_app_key.", required = false),
+            SkillParam("api_key", "string", "Optional release channel API key override.", required = false),
+            SkillParam("app_key", "string", "Optional release channel app key override.", required = false),
             SkillParam("apk_path", "string", "Local APK path for action=upload.", required = false),
             SkillParam("update_description", "string", "Release notes for action=upload.", required = false),
-            SkillParam("install_type", "number", "Pgyer install type. 1 public, 2 password, 3 invite. Default 1.", required = false),
-            SkillParam("install_password", "string", "Optional install password for password-protected Pgyer releases.", required = false),
+            SkillParam("install_type", "number", "Install type. 1 public, 2 password, 3 invite. Default 1.", required = false),
+            SkillParam("install_password", "string", "Optional install password for password-protected releases.", required = false),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
         categories = listOf(SkillToolCategory.SYSTEM, SkillToolCategory.CODE),
-        tags = listOf("pgyer", "蒲公英", "release", "update", "download", "apk"),
+        tags = listOf("release", "update", "download", "apk"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult = withContext(Dispatchers.IO) {
@@ -86,9 +85,9 @@ class PgyerReleaseSkill(
         return SkillResult(
             true,
             buildString {
-                appendLine("Pgyer release config:")
-                appendLine("- pgyer_api_key: ${if (hasApiKey) "configured" else "missing"}")
-                appendLine("- pgyer_app_key: ${if (hasAppKey) "configured" else "missing"}")
+                appendLine("Release channel config:")
+                appendLine("- api_key: ${if (hasApiKey) "configured" else "missing"}")
+                appendLine("- app_key: ${if (hasAppKey) "configured" else "missing"}")
                 appendLine("- current MobileClaw version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 appendLine("- git: ${BuildConfig.GIT_VERSION} / ${BuildConfig.GIT_BRANCH} / ${BuildConfig.GIT_COMMIT}")
             }.trim(),
@@ -99,10 +98,10 @@ class PgyerReleaseSkill(
         val apiKey = apiKey(params)
         val appKey = appKey(params)
         if (apiKey.isBlank() || appKey.isBlank()) {
-            return SkillResult(false, "Configure pgyer_api_key and pgyer_app_key first.")
+            return SkillResult(false, "Configure release channel api_key and app_key first.")
         }
         val json = postPgyerCheck(apiKey, appKey)
-            ?: return SkillResult(false, "Pgyer check_update returned an empty response.")
+            ?: return SkillResult(false, "Update check returned an empty response.")
         val data = json["data"]?.asJsonObject ?: json
         val hasNew = data.boolString("buildHaveNewVersion") == "true" ||
             data.string("buildVersionNo").toIntOrNull().let { it != null && it > BuildConfig.VERSION_CODE }
@@ -111,7 +110,7 @@ class PgyerReleaseSkill(
         return SkillResult(
             true,
             buildString {
-                appendLine(if (hasNew) "Pgyer has a newer MobileClaw build." else "No newer Pgyer build detected.")
+                appendLine(if (hasNew) "Update service has a newer MobileClaw build." else "No newer build detected.")
                 appendLine("Current: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                 appendLine("Git: ${BuildConfig.GIT_VERSION} / ${BuildConfig.GIT_COMMIT}")
                 if (remoteVersion.isNotBlank()) appendLine("Remote: $remoteVersion")
@@ -125,30 +124,30 @@ class PgyerReleaseSkill(
         val apiKey = apiKey(params)
         val appKey = appKey(params)
         if (apiKey.isBlank() || appKey.isBlank()) {
-            return SkillResult(false, "Configure pgyer_api_key and pgyer_app_key first.")
+            return SkillResult(false, "Configure release channel api_key and app_key first.")
         }
         val data = postPgyerCheck(apiKey, appKey)?.get("data")?.asJsonObject
-            ?: return SkillResult(false, "Pgyer did not return build data.")
+            ?: return SkillResult(false, "Update service did not return build data.")
         val url = data.string("downloadURL").ifBlank { data.fallbackInstallUrl() }
-        if (url.isBlank()) return SkillResult(false, "Pgyer did not return a downloadable URL.")
+        if (url.isBlank()) return SkillResult(false, "Update service did not return a downloadable URL.")
         val version = data.string("buildVersion").ifBlank { data.string("buildVersionNo").ifBlank { "latest" } }
         val fileName = "MobileClaw-$version.apk".replace(Regex("""[^\w.\-]+"""), "_")
         val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("MobileClaw $version")
-            .setDescription("Downloading MobileClaw from Pgyer")
+            .setDescription("Downloading MobileClaw update")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(true)
         val manager = app.getSystemService(DownloadManager::class.java)
         val id = manager.enqueue(request)
-        return SkillResult(true, "Pgyer download started. Download id=$id, file=Downloads/$fileName\n$url")
+        return SkillResult(true, "Download started. Download id=$id, file=Downloads/$fileName\n$url")
     }
 
     private suspend fun uploadApk(params: Map<String, Any>): SkillResult {
         val apiKey = apiKey(params)
         val apkPath = (params["apk_path"] as? String)?.trim().orEmpty()
-        if (apiKey.isBlank()) return SkillResult(false, "Configure pgyer_api_key or pass api_key.")
+        if (apiKey.isBlank()) return SkillResult(false, "Configure release channel api_key or pass api_key.")
         if (apkPath.isBlank()) return SkillResult(false, "apk_path is required for upload.")
         val apk = File(apkPath)
         if (!apk.exists() || !apk.isFile) return SkillResult(false, "APK does not exist: $apkPath")
@@ -167,7 +166,7 @@ class PgyerReleaseSkill(
             .addFormDataPart("file", apk.name, apk.asRequestBody("application/vnd.android.package-archive".toMediaType()))
             .build()
         val req = Request.Builder().url(PGYER_UPLOAD_URL).post(body).build()
-        return executePgyerRequest(req, "Pgyer upload completed.")
+        return executePgyerRequest(req, "Release upload completed.")
     }
 
     private fun postPgyerCheck(apiKey: String, appKey: String): JsonObject? {
@@ -190,7 +189,7 @@ class PgyerReleaseSkill(
         runCatching {
             client.newCall(req).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) return SkillResult(false, "Pgyer HTTP ${resp.code}: ${text.take(2000)}")
+                if (!resp.isSuccessful) return SkillResult(false, "Update service HTTP ${resp.code}: ${text.take(2000)}")
                 val json = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull()
                 val code = json?.get("code")?.asInt ?: 0
                 val message = json?.get("message")?.asString.orEmpty()
@@ -204,7 +203,7 @@ class PgyerReleaseSkill(
                 SkillResult(code == 0, output.ifBlank { text.take(12000) })
             }
         }.getOrElse {
-            SkillResult(false, "Pgyer request failed: ${it.message}")
+            SkillResult(false, "Update service request failed: ${it.message}")
         }
 }
 
