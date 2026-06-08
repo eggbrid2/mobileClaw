@@ -10,9 +10,10 @@ class ClawIME : InputMethodService() {
         var instance: ClawIME? = null
             private set
 
-        fun inputText(text: String) {
-            instance?.currentInputConnection?.commitText(text, 1)
-        }
+        fun isReady(): Boolean = instance?.currentInputConnection != null
+
+        fun inputText(text: String): Boolean =
+            instance?.currentInputConnection?.commitText(text, 1) == true
     }
 
     override fun onCreate() {

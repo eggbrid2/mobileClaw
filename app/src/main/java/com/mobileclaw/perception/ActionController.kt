@@ -12,6 +12,7 @@ import android.graphics.Point
 import android.os.Bundle
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
@@ -64,11 +65,15 @@ class ActionController(private val service: ClawAccessibilityService) {
     suspend fun inputText(nodeId: String, text: String) {
         val node = requireNode(nodeId)
         if (!node.isEditable) throw IllegalStateException("Node $nodeId is not editable")
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        if (!node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args))
-            throw RuntimeException("Input text failed on node $nodeId")
+        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) && nodeTextMatchesAfterDelay(node, text)) return
+        delay(120)
+        if (ClawIME.inputText(text)) return
+        if (pasteTextViaClipboard(node, text)) return
+        throw RuntimeException("Input text failed on node $nodeId. ACTION_SET_TEXT failed, MobileClaw IME is not active or rejected input, and paste fallback failed.")
     }
 
     suspend fun inputTextFocused(text: String) {
@@ -76,7 +81,14 @@ class ActionController(private val service: ClawAccessibilityService) {
             ?: throw IllegalStateException("No UI tree available")
         val focused = nodeMap.values.firstOrNull { it.info.isFocused && it.isEditable }
             ?: throw IllegalStateException("No focused editable node found")
-        inputText(focused.id, text)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        if (focused.info.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) && nodeTextMatchesAfterDelay(focused.info, text)) return
+        delay(120)
+        if (ClawIME.inputText(text)) return
+        if (pasteTextViaClipboard(focused.info, text)) return
+        throw RuntimeException("Input text failed on focused node. ACTION_SET_TEXT failed, MobileClaw IME is not active or rejected input, and paste fallback failed.")
     }
 
     suspend fun clickCoordinate(x: Float, y: Float) = gestureClick(x, y, 50L)
@@ -116,6 +128,19 @@ class ActionController(private val service: ClawAccessibilityService) {
     fun copyToClipboard(text: String) {
         val cm = service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("claw", text))
+    }
+
+    private suspend fun pasteTextViaClipboard(node: AccessibilityNodeInfo, text: String): Boolean {
+        copyToClipboard(text)
+        delay(120)
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+    }
+
+    private suspend fun nodeTextMatchesAfterDelay(node: AccessibilityNodeInfo, text: String): Boolean {
+        delay(160)
+        node.refresh()
+        return node.text?.toString() == text
     }
 
     // --- Private ---
