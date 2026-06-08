@@ -81,8 +81,8 @@ internal class ChatContextComposer(
             .replace(Regex("```[\\s\\S]*?```"), "[code/file content omitted]")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
-        val rolePrefix = if (msg.role == MessageRole.AGENT && msg.senderRoleName.isNotBlank()) {
-            "[role=${msg.senderRoleName}] "
+        val rolePrefix = if (compact && msg.role == MessageRole.AGENT && msg.senderRoleName.isNotBlank()) {
+            "Assistant (${msg.senderRoleName}): "
         } else ""
         val attachmentSummary = if (includeAttachmentSummary) {
             summarizeAttachments(msg.attachments)

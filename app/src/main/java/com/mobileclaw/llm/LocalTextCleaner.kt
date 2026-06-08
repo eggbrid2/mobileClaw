@@ -31,6 +31,7 @@ fun String.cleanLocalGeneratedText(): String {
     val normalized = normalizeLocalModelTranscript()
     val assistantText = normalized.extractLatestAssistantText()
         .stripLocalControlTokens()
+        .stripBracketRolePrefixes()
         .stripRoleOnlyLines()
         .trim()
 
@@ -47,6 +48,9 @@ fun String.cleanLocalGeneratedText(): String {
         .replace(Regex("""\n{3,}"""), "\n\n")
         .trim()
 }
+
+private fun String.stripBracketRolePrefixes(): String =
+    replace(Regex("""(?m)^\s*\[role=[^\]\n]{1,40}]\s*[:：,，-]?\s*"""), "")
 
 private fun CharSequence.mightEndInsideLocalControlToken(): Boolean {
     val tail = takeLast(48).toString()

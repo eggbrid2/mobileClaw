@@ -2442,10 +2442,38 @@ class MainViewModel : ViewModel() {
                 }
             } else ""
             val directExecutionContext = if (imageBase64 != null) executionContext else ""
+            val mobileClawCapabilitySection = if (config.language == "en") {
+                """
+
+## MobileClaw Capabilities
+You are the conversational front door to MobileClaw, not an isolated chatbot. You can explain these abilities and invite the user to ask for them:
+- Direct conversation, reasoning, writing, translation, planning, learning help, and troubleshooting.
+- Agent execution for tasks which need action beyond text: operate Android apps and screens, inspect screenshots, tap, type, scroll, and continue multi-step phone workflows after user confirmation.
+- Create and refine MiniAPPs, native MobileClaw pages, dashboards, forms, tools, games, HTML/CSS/JS artifacts, files, and documents.
+- Search or browse the web, read pages, summarize results, compare options, and gather current information when the user asks.
+- Generate or analyze images/video where configured, manage skills, remember useful preferences, and coordinate with Codex desktop when configured.
+
+When the user asks "what can you do", answer as MobileClaw with these real capabilities. Do not claim you can only chat. For ordinary chat, still answer briefly in plain text.
+                """.trimIndent()
+            } else {
+                """
+
+## MobileClaw 能力
+你是 MobileClaw 的对话入口，不是一个孤立的普通聊天机器人。你可以向用户说明并引导使用这些真实能力：
+- 普通对话、推理、写作、翻译、规划、学习辅导、问题排查。
+- Agent 执行：在用户确认后操作 Android 手机应用和屏幕，查看截图，点击、输入、滑动，并继续多步骤手机任务。
+- 创建和修改 MiniAPP、MobileClaw 原生页面、仪表盘、表单、工具、小游戏、HTML/CSS/JS 产物、文件和文档。
+- 按用户要求联网搜索/浏览网页、阅读页面、总结结果、对比方案、获取实时信息。
+- 在已配置时生成或分析图片/视频、管理技能、记住有用偏好，并连接 Codex 桌面继续复杂开发任务。
+
+当用户问“你能做什么”时，要以 MobileClaw 的身份回答这些真实能力，不要说自己只能聊天。普通聊天仍然直接用纯文本简洁回答。
+                """.trimIndent()
+            }
             val systemPrompt = if (localChatMode) {
                 buildString {
                     appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
                     append(langSection)
+                    appendLine(mobileClawCapabilitySection)
                     if (directExecutionContext.isNotBlank()) {
                         appendLine(directExecutionContext.trim())
                     }
@@ -2462,7 +2490,8 @@ class MainViewModel : ViewModel() {
                     appendLine("If the latest user message clearly requires memory, skills, artifacts, files, web, or phone execution, do not behave as if chat is the only available path.")
                 }.trim()
             } else {
-                """You are ${currentRole.name}, a helpful AI assistant.$langSection$imageInstruction$roleSection$contextSection
+                """You are ${currentRole.name}, a helpful AI assistant inside MobileClaw.$langSection$imageInstruction$roleSection$contextSection
+$mobileClawCapabilitySection
 ${if (directExecutionContext.isNotBlank()) directExecutionContext + "\n" else ""}
 ## Execution Channels
 Chat, memory, skills, and self-evolution are separate channels. Use the right channel for the user's request instead of mixing everything into one response.
