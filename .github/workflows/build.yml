@@ -107,13 +107,32 @@ jobs:
 
       - name: Sign APK
         id: sign
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -n "$build_tools"
+
+          unsigned_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          aligned_apk="$RUNNER_TEMP/mobileclaw-${GITHUB_REF_NAME}-aligned.apk"
+          signed_apk="$RUNNER_TEMP/mobileclaw-${GITHUB_REF_NAME}-signed.apk"
+          keystore_file="$RUNNER_TEMP/mobileclaw-release.jks"
+
+          test -f "$unsigned_apk"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore_file"
+          "$build_tools/zipalign" -p -f 4 "$unsigned_apk" "$aligned_apk"
+          "$build_tools/apksigner" sign \
+            --ks "$keystore_file" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$signed_apk" \
+            "$aligned_apk"
+          echo "signedReleaseFile=$signed_apk" >> "$GITHUB_OUTPUT"
 
       - name: Collect release APK
         run: |
