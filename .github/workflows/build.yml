@@ -62,7 +62,7 @@ jobs:
     if: github.ref_type == 'tag'
     needs: build
     env:
-      KEYSTORE_AVAILABLE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      RELEASE_SIGNING_READY: ${{ secrets.KEYSTORE_BASE64 != '' && secrets.KEY_ALIAS != '' && secrets.KEYSTORE_PASSWORD != '' && secrets.KEY_PASSWORD != '' }}
 
     steps:
       - name: Checkout
@@ -96,11 +96,16 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Require release signing secrets
+        if: env.RELEASE_SIGNING_READY != 'true'
+        run: |
+          echo "Release tags must be signed. Configure KEYSTORE_BASE64, KEY_ALIAS, KEYSTORE_PASSWORD, and KEY_PASSWORD repository secrets."
+          exit 1
+
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Sign APK
-        if: env.KEYSTORE_AVAILABLE == 'true'
         id: sign
         uses: r0adkll/sign-android-release@v1
         with:
@@ -114,17 +119,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-artifacts
-          if [ -n "${{ steps.sign.outputs.signedReleaseFile }}" ] && [ -f "${{ steps.sign.outputs.signedReleaseFile }}" ]; then
-            cp "${{ steps.sign.outputs.signedReleaseFile }}" "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk"
+          signed_apk="${{ steps.sign.outputs.signedReleaseFile }}"
+          if [ -z "$signed_apk" ] || [ ! -f "$signed_apk" ]; then
+            echo "Signing did not produce an APK; refusing to publish an unsigned release artifact."
+            exit 1
           fi
-          find app/build/outputs/apk/release -maxdepth 1 -name "*.apk" -print0 \
-            | while IFS= read -r -d '' apk; do
-                base="$(basename "$apk" .apk)"
-                if [ ! -f "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk" ] || [[ "$base" != *signed* ]]; then
-                  cp "$apk" "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-${base}.apk"
-                fi
-              done
-          test -n "$(find release-artifacts -name '*.apk' -print -quit)"
+          cp "$signed_apk" "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk"
+
+      - name: Verify release APK signature
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" verify --verbose "release-artifacts/mobileclaw-${GITHUB_REF_NAME}-signed.apk"
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,13 @@ def run(cmd: list[str], cwd: Path = ROOT) -> str:
     if proc.returncode != 0:
         raise SystemExit(proc.stdout.strip() or f"Command failed: {' '.join(cmd)}")
     return proc.stdout
+
+
+def optional_output(cmd: list[str], cwd: Path = ROOT) -> str:
+    try:
+        return subprocess.check_output(cmd, cwd=cwd, text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return ""
 
 
 def git_output(*args: str) -> str:
@@ -64,6 +72,58 @@ def parse_json(raw: str) -> dict[str, Any]:
         return {"raw": raw}
 
 
+def find_apksigner() -> str:
+    android_home = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    if android_home:
+        build_tools = Path(android_home) / "build-tools"
+        candidates = sorted(build_tools.glob("*/apksigner"))
+        if candidates:
+            return str(candidates[-1])
+    return shutil.which("apksigner") or ""
+
+
+def verify_apk_signature(apk: Path) -> None:
+    apksigner = find_apksigner()
+    if not apksigner:
+        if "release-unsigned" in apk.name or apk.name.endswith("-unsigned.apk"):
+            raise SystemExit(
+                f"Refusing to upload likely unsigned APK without apksigner available: {apk}"
+            )
+        print("Warning: apksigner not found; skipping APK signature verification.", file=sys.stderr)
+        return
+
+    proc = subprocess.run(
+        [apksigner, "verify", "--verbose", str(apk)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(
+            f"APK signature verification failed for {apk}.\n{proc.stdout.strip()}"
+        )
+
+
+def default_release_apk() -> Path:
+    release_dir = ROOT / "app" / "build" / "outputs" / "apk" / "release"
+    signed = optional_output(
+        [
+            "find",
+            str(release_dir.relative_to(ROOT)),
+            "-maxdepth",
+            "1",
+            "-name",
+            "*signed*.apk",
+            "-print",
+            "-quit",
+        ]
+    )
+    if signed:
+        return (ROOT / signed).resolve()
+    return release_dir / "app-release-unsigned.apk"
+
+
 def upload(args: argparse.Namespace) -> dict[str, Any]:
     api_key = require_api_key(args.api_key)
     apk = Path(args.apk or DEFAULT_APK).expanduser()
@@ -71,6 +131,7 @@ def upload(args: argparse.Namespace) -> dict[str, Any]:
         apk = (ROOT / apk).resolve()
     if not apk.exists():
         raise SystemExit(f"APK does not exist: {apk}")
+    verify_apk_signature(apk)
 
     cmd = [
         "curl",
@@ -100,7 +161,7 @@ def build_upload(args: argparse.Namespace) -> dict[str, Any]:
     task = args.gradle_task or "assembleDebug"
     run(["./gradlew", task])
     if not args.apk:
-        args.apk = str(DEFAULT_APK)
+        args.apk = str(default_release_apk() if "release" in task.lower() else DEFAULT_APK)
     return upload(args)
 
 
