@@ -1924,8 +1924,13 @@ class MainViewModel : ViewModel() {
         runtimes[sessionIdAtStart] = rt
 
         overlay.show(visibleGoalLabel)
-        if (isPhoneControlTask) {
+        val phoneAuroraOverlayShown = if (isPhoneControlTask) {
             auroraOverlay.beginTask()
+        } else {
+            false
+        }
+        if (isPhoneControlTask) {
+            Log.d(TAG, "Phone aurora overlay begin requested. shown=$phoneAuroraOverlayShown")
         }
 
         consoleServer.broadcast("task_started", visibleGoalLabel)
@@ -1973,8 +1978,20 @@ class MainViewModel : ViewModel() {
             updateSession(resolvedSessionId) { s ->
                 val firstStep = route.contextualIntent.userVisibleSteps.firstOrNull()
                 val secondStep = route.contextualIntent.userVisibleSteps.drop(1).firstOrNull()
+                val overlayWarning = if (isPhoneControlTask && !phoneAuroraOverlayShown) {
+                    listOf(
+                        LogLine(
+                            type = LogType.INFO,
+                            text = "极光悬浮框没有显示，请检查悬浮窗权限",
+                            details = listOf(
+                                "本步结果：系统没有允许 MobileClaw 显示悬浮窗，手机操作仍会继续，但你看不到极光边框提示。",
+                                "接下来：在系统设置里开启 MobileClaw 的悬浮窗 / Display over other apps 权限。",
+                            ),
+                        ).withLifecycle(running = false)
+                    )
+                } else emptyList()
                 s.copy(
-                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + overlayWarning + LogLine(
                         type = LogType.THINKING,
                         text = userFacingInitialIntent(firstStep, secondStep, channelSummary),
                         details = emptyList(),

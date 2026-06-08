@@ -68,15 +68,19 @@ class AuroraOverlayManager(private val context: Context) {
     private var fullScreen by mutableStateOf(false)
 
     /** Persistent pass-through border shown for the whole VLM phone-control task. */
-    fun beginTask(fullScreenPulse: Boolean = false) {
+    fun beginTask(fullScreenPulse: Boolean = false): Boolean {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             scope.launch { beginTask(fullScreenPulse) }
-            return
+            return false
         }
-        if (!Settings.canDrawOverlays(context)) return
+        if (!Settings.canDrawOverlays(context)) return false
         taskHoldCount += 1
         fullScreen = fullScreenPulse
         ensureWindow()
+        if (hostFrame == null) {
+            taskHoldCount = maxOf(0, taskHoldCount - 1)
+            return false
+        }
         hideJob?.cancel()
         visible = true
         if (fullScreenPulse) {
@@ -85,6 +89,7 @@ class AuroraOverlayManager(private val context: Context) {
                 if (taskHoldCount > 0) fullScreen = false
             }
         }
+        return true
     }
 
     fun endTask() {
@@ -206,8 +211,14 @@ class AuroraOverlayManager(private val context: Context) {
         frame.setViewTreeLifecycleOwner(owner)
         frame.setViewTreeSavedStateRegistryOwner(owner)
         frame.addView(cv)
-        runCatching { wm.addView(frame, params) }
-        hostFrame = frame
+        val added = runCatching { wm.addView(frame, params) }
+        if (added.isSuccess) {
+            hostFrame = frame
+        } else {
+            owner.stop()
+            lifecycleOwner = null
+            hostFrame = null
+        }
     }
 
     private fun removeWindow() {

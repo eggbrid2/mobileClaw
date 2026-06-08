@@ -10,6 +10,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import com.mobileclaw.perception.ClawAccessibilityService
+import com.mobileclaw.perception.ClawIME
 
 // ── ROM Detection ─────────────────────────────────────────────────────────────
 
@@ -375,9 +376,16 @@ class PermissionManager(private val context: Context) {
 
         lines += "## Feature diagnosis for: $feature"
         lines += when (feature.lowercase()) {
-            "screen_read", "screenshot", "tap", "input" ->
+            "screen_read", "screenshot", "tap" ->
                 if (isAccessibilityEnabled()) "✓ Accessibility OK — screen interaction should work."
                 else "✗ Accessibility Service is DISABLED. User must enable it in Settings > Accessibility > MobileClaw."
+            "input" ->
+                buildString {
+                    append(if (isAccessibilityEnabled()) "✓ Accessibility OK. " else "✗ Accessibility Service is DISABLED. ")
+                    append("Input method status: ")
+                    append(ClawIME.statusSummary(context))
+                    append(" For WeChat and other protected input fields, MobileClaw 输入法 usually must be enabled and selected as the current keyboard.")
+                }
             "overlay", "floating_window" ->
                 if (isOverlayEnabled()) "✓ Overlay OK — floating window can be shown."
                 else "✗ Overlay permission MISSING. User must grant in Settings > Special App Access > Display Over Other Apps."

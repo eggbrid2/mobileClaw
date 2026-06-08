@@ -73,7 +73,7 @@ class ActionController(private val service: ClawAccessibilityService) {
         delay(120)
         if (ClawIME.inputText(text)) return
         if (pasteTextViaClipboard(node, text)) return
-        throw RuntimeException("Input text failed on node $nodeId. ACTION_SET_TEXT failed, MobileClaw IME is not active or rejected input, and paste fallback failed.")
+        throw RuntimeException("Input text failed on node $nodeId. ACTION_SET_TEXT failed; ${ClawIME.statusSummary()} Clipboard paste and long-press paste menu fallback also failed.")
     }
 
     suspend fun inputTextFocused(text: String) {
@@ -88,7 +88,7 @@ class ActionController(private val service: ClawAccessibilityService) {
         delay(120)
         if (ClawIME.inputText(text)) return
         if (pasteTextViaClipboard(focused.info, text)) return
-        throw RuntimeException("Input text failed on focused node. ACTION_SET_TEXT failed, MobileClaw IME is not active or rejected input, and paste fallback failed.")
+        throw RuntimeException("Input text failed on focused node. ACTION_SET_TEXT failed; ${ClawIME.statusSummary()} Clipboard paste and long-press paste menu fallback also failed.")
     }
 
     suspend fun clickCoordinate(x: Float, y: Float) = gestureClick(x, y, 50L)
@@ -134,13 +134,43 @@ class ActionController(private val service: ClawAccessibilityService) {
         copyToClipboard(text)
         delay(120)
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        if (node.performAction(AccessibilityNodeInfo.ACTION_PASTE) && nodeTextContainsAfterDelay(node, text)) return true
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+        val cx = bounds.exactCenterX().takeIf { it > 0f } ?: (screenW / 2f)
+        val cy = bounds.exactCenterY().takeIf { it > 0f } ?: (screenH / 2f)
+        longClickCoordinate(cx, cy)
+        delay(450)
+        val pasteNode = ClawAccessibilityService.getNodeMap()
+            ?.values
+            ?.firstOrNull { candidate ->
+                val label = listOfNotNull(candidate.text, candidate.contentDesc)
+                    .joinToString(" ")
+                    .trim()
+                    .lowercase()
+                label == "粘贴" || label == "paste" || label.contains("粘贴") || label.contains("paste")
+            }
+        if (pasteNode != null) {
+            val pasteCx = ((pasteNode.bounds.left + pasteNode.bounds.right) / 2).toFloat()
+            val pasteCy = ((pasteNode.bounds.top + pasteNode.bounds.bottom) / 2).toFloat()
+            clickCoordinate(pasteCx, pasteCy)
+            delay(220)
+            node.refresh()
+            return node.text?.toString()?.contains(text) == true
+        }
+        return false
     }
 
     private suspend fun nodeTextMatchesAfterDelay(node: AccessibilityNodeInfo, text: String): Boolean {
         delay(160)
         node.refresh()
         return node.text?.toString() == text
+    }
+
+    private suspend fun nodeTextContainsAfterDelay(node: AccessibilityNodeInfo, text: String): Boolean {
+        delay(220)
+        node.refresh()
+        return node.text?.toString()?.contains(text) == true
     }
 
     // --- Private ---
