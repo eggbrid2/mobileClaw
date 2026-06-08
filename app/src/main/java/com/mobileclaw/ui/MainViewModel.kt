@@ -2394,6 +2394,10 @@ class MainViewModel : ViewModel() {
             var resolvedSessionId = sessionIdAtStart
             try {
             resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
+            Log.d(
+                TAG,
+                "Direct chat started. session=$resolvedSessionId role=${currentRole.id} hasImage=${imageBase64 != null} goal=${goal.take(160)}"
+            )
             workspaceRuntime.ensureSessionBinding(
                 sessionId = resolvedSessionId,
                 taskType = if (imageBase64 != null) TaskType.GENERAL else TaskType.CHAT,
@@ -2505,6 +2509,10 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                         },
                     ))
                 }
+                Log.d(
+                    TAG,
+                    "Direct chat request finished. session=$resolvedSessionId attempt=${attemptIndex + 1} success=${result.isSuccess} contentLength=${result.getOrNull()?.content?.length ?: 0} error=${result.exceptionOrNull()?.message?.take(160).orEmpty()}"
+                )
                 val shouldRetry = attemptIndex < LLM_RETRY_MAX_ATTEMPTS - 1 && shouldRetryDirectChat(result.exceptionOrNull())
                 if (!shouldRetry) return@repeat
                 appendRetryLogLine(
@@ -2546,6 +2554,10 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 activeLogLines = emptyList(),
                 activeAttachments = emptyList(),
             )}
+            Log.d(
+                TAG,
+                "Direct chat completed. session=$resolvedSessionId success=${result.isSuccess} summaryLength=${summary.length}"
+            )
 
             if (resolvedSessionId.isNotBlank()) {
                 launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { persistUserMessage }, listOf(finalAgentMsg)) }
@@ -2594,6 +2606,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                         activeAttachments = emptyList(),
                     )
                 }
+                Log.e(TAG, "Direct chat failed. session=$cleanupSessionId goal=${goal.take(160)}", e)
             } finally {
                 clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
             }

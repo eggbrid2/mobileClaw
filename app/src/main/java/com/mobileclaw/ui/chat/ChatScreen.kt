@@ -431,59 +431,17 @@ fun ChatScreen(
                             )
                         }
                     } else {
-                        itemsIndexed(
-                            stableLiveMessages,
-                            key = { idx, msg ->
-                                val firstLogId = msg.logLines.firstOrNull()?.entryId
-                                val lastLogId = msg.logLines.lastOrNull()?.entryId
-                                when {
-                                    firstLogId != null || lastLogId != null -> "live_logs_${firstLogId.orEmpty()}_${lastLogId.orEmpty()}_$idx"
-                                    msg.attachments.isNotEmpty() -> "live_attachment_${msg.attachments.joinToString("|") { it.stableUiSignature() }.hashCode()}_$idx"
-                                    else -> "live_slot_$idx"
-                                }
-                            },
-                        ) { idx, msg ->
-                            val showHeader = idx == 0
-                            if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(0.93f),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    if (showHeader) {
-                                        AgentMessageHeader(
-                                            role = uiState.currentRole,
-                                            model = uiState.currentModel,
-                                            onPickModel = { showModelPicker = true },
-                                            onSwitchRole = onSwitchRole,
-                                        )
-                                    }
-                                    RunningPhaseHint(
-                                        phase = inferRunningPhaseLabel(
-                                            logLines = runState.activeLogLines,
-                                            attachments = msg.attachments,
-                                            streamingThought = runState.streamingThought,
-                                            streamingToken = runState.streamingToken,
-                                        ),
-                                        runStartedAt = runState.runStartedAt,
-                                    )
-                                    AttachmentBubble(
-                                        attachments = msg.attachments,
-                                        onOpenHtmlViewer = onOpenHtmlViewer,
-                                        onOpenBrowser = onOpenBrowser,
-                                        onSendGoal = onSendGoal,
-                                        onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                                    )
-                                }
-                            } else {
+                        if (stableLiveMessages.isEmpty()) {
+                            item(key = "live_thinking_placeholder") {
                                 AgentBubble(
-                                    summary = msg.text,
-                                    logLines = msg.logLines,
+                                    summary = "",
+                                    logLines = emptyList(),
                                     attachments = emptyList(),
                                     currentRole = uiState.currentRole,
                                     currentModel = uiState.currentModel,
-                                    showHeader = showHeader,
+                                    showHeader = true,
                                     isRunning = true,
-                                    showRunningPhaseHint = idx == 0,
+                                    showRunningPhaseHint = true,
                                     runStartedAt = runState.runStartedAt,
                                     streamingThought = runState.streamingThought,
                                     streamingToken = runState.streamingToken,
@@ -495,6 +453,73 @@ fun ChatScreen(
                                     onOpenAccessibilitySettings = onOpenAccessibilitySettings,
                                     onSelectStep = { selectedStepLog = it },
                                 )
+                            }
+                        } else {
+                            itemsIndexed(
+                                stableLiveMessages,
+                                key = { idx, msg ->
+                                    val firstLogId = msg.logLines.firstOrNull()?.entryId
+                                    val lastLogId = msg.logLines.lastOrNull()?.entryId
+                                    when {
+                                        firstLogId != null || lastLogId != null -> "live_logs_${firstLogId.orEmpty()}_${lastLogId.orEmpty()}_$idx"
+                                        msg.attachments.isNotEmpty() -> "live_attachment_${msg.attachments.joinToString("|") { it.stableUiSignature() }.hashCode()}_$idx"
+                                        else -> "live_slot_$idx"
+                                    }
+                                },
+                            ) { idx, msg ->
+                                val showHeader = idx == 0
+                                if (msg.text.isBlank() && msg.logLines.isEmpty() && msg.attachments.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(0.93f),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        if (showHeader) {
+                                            AgentMessageHeader(
+                                                role = uiState.currentRole,
+                                                model = uiState.currentModel,
+                                                onPickModel = { showModelPicker = true },
+                                                onSwitchRole = onSwitchRole,
+                                            )
+                                        }
+                                        RunningPhaseHint(
+                                            phase = inferRunningPhaseLabel(
+                                                logLines = runState.activeLogLines,
+                                                attachments = msg.attachments,
+                                                streamingThought = runState.streamingThought,
+                                                streamingToken = runState.streamingToken,
+                                            ),
+                                            runStartedAt = runState.runStartedAt,
+                                        )
+                                        AttachmentBubble(
+                                            attachments = msg.attachments,
+                                            onOpenHtmlViewer = onOpenHtmlViewer,
+                                            onOpenBrowser = onOpenBrowser,
+                                            onSendGoal = onSendGoal,
+                                            onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                        )
+                                    }
+                                } else {
+                                    AgentBubble(
+                                        summary = msg.text,
+                                        logLines = msg.logLines,
+                                        attachments = emptyList(),
+                                        currentRole = uiState.currentRole,
+                                        currentModel = uiState.currentModel,
+                                        showHeader = showHeader,
+                                        isRunning = true,
+                                        showRunningPhaseHint = idx == 0,
+                                        runStartedAt = runState.runStartedAt,
+                                        streamingThought = runState.streamingThought,
+                                        streamingToken = runState.streamingToken,
+                                        onSwitchRole = onSwitchRole,
+                                        onPickModel = { showModelPicker = true },
+                                        onOpenHtmlViewer = onOpenHtmlViewer,
+                                        onOpenBrowser = onOpenBrowser,
+                                        onSendGoal = onSendGoal,
+                                        onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                                        onSelectStep = { selectedStepLog = it },
+                                    )
+                                }
                             }
                         }
                     }
