@@ -103,7 +103,11 @@ Enum values must be uppercase exactly as documented. Arrays must be JSON arrays 
         hasFile: Boolean,
         activeWorkflow: ActiveWorkflow?,
     ): String = """
-Route the latest MobileClaw user message into an execution channel.
+Route the latest MobileClaw user message into either direct chat or an agent execution path.
+
+Your most important decision is whether THIS LATEST TURN needs the agent runtime.
+The agent runtime is only for doing work outside a normal reply: operating the phone, browsing/searching the web, creating/editing files, building MiniAPPs/pages/artifacts, generating media, running code, changing skills/settings, or continuing a previous execution task.
+If the latest turn can be satisfied by a normal assistant answer, explanation, acknowledgement, casual conversation, or emotional response, route it to direct chat.
 
 Latest user message:
 $goal
@@ -126,6 +130,15 @@ CHAT, MEMORY, SKILL, SELF_EVOLUTION, PLAN, ARTIFACT, PHONE, WEB, MEDIA, VPN, COD
 
 Routing principles:
 - Decide from meaning and context, not fixed keywords.
+- Treat recent context as reference, not as an automatic command to continue. The latest user message wins.
+- Direct chat route: use task_type=CHAT, primary_channel=CHAT, supporting_channels=[], tool_hints=[], and user_visible_steps=[].
+- Use direct chat for greetings, small talk, thanks, emotional support, explanations, questions, ordinary conversation, and commands like "和我聊天吧 / just chat with me".
+- Do not add MEMORY, SKILL, ARTIFACT, PLAN, or tool_hints to direct chat just because those capabilities exist. Supporting channels mean the agent runtime should actually use them in this turn.
+- Agent route: use a non-chat execution path only when this latest turn asks MobileClaw to act, create, inspect, modify, operate, search, generate, run, continue, retry, or revise something beyond a normal text reply.
+- Continuation examples:
+  - User sequence ["你好", "帮我生成miniapp", "继续", "很好,和我聊天吧"] should route as [CHAT, APP_BUILD/ARTIFACT, APP_BUILD/ARTIFACT, CHAT].
+  - "继续 / 接着 / 继续做" continues the active/latest execution task only when it clearly refers to that task.
+  - "很好,和我聊天吧 / 不做了,聊会天" exits the execution context and routes to CHAT.
 - If the user wants MobileClaw to operate another phone app or inspect the screen, use PHONE_CONTROL.
 - If the user says they want to go into, open, search inside, click inside, buy/order/send in, or interact with a named phone app, use PHONE_CONTROL even if the sentence looks conversational.
 - If the user explicitly asks to create/update a mini-app/app/program/game, or asks for HTML/CSS/JavaScript/WebView/canvas/Python-backend/SQLite runtime, use APP_BUILD with primary_channel=ARTIFACT and include `app_manager` in tool_hints.
@@ -135,13 +148,14 @@ Routing principles:
 - Active workflow is context only, not a command. Continue it only when the latest message explicitly asks to continue, revise, retry, or refers to the previous artifact/task.
 - If the latest message is ordinary chat, emotion, small talk, or entertainment request, use CHAT even when an active workflow exists.
 - If a short follow-up like "continue" clearly refers to the active or latest task, keep that task type.
-- Generate 2-4 short user-facing steps. These steps are shown directly in the UI while working.
+- Generate 2-4 short user-facing steps only for agent routes. For direct chat, user_visible_steps must be [].
 - Write them like concrete things the AI is about to do, not abstract workflow labels.
 - Never mention internal config keys, endpoint names, gateway field names, API key fields, capability ids, or raw parameter names in user_visible_steps unless the user is explicitly debugging configuration.
 - Say "确认视频生成能力是否可用" or "确认图片生成能力是否可用", not "验证 video_api_endpoint / api_key / gateway.video".
 - Good: "先查找附近可用的餐厅", "打开美团并进入下单页面", "把钢琴按键代码补全并修掉报错"
 - Bad: "确认目标", "继续推进流程", "验证结果", "完善实现"
 - Tool hints are optional known tool ids; include only obvious ids. Leave empty if unsure.
+- For direct chat, tool_hints must be [] even if memory might help the wording.
 - Do not route explicit MiniAPP/program/runtime requests to ui_builder.
 - Do not route explicit native-page requests to app_manager unless the user also explicitly asks for runtime features.
 - Set confidence above 0.7 when the channel is clear. Use low confidence only when the latest message is genuinely ambiguous.

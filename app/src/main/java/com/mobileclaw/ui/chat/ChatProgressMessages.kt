@@ -121,7 +121,7 @@ internal fun buildNarrativeAgentMessages(
         )
     }
 
-    if (messages.isEmpty()) {
+    if (messages.isEmpty() && !isRunning) {
         addTextMessage(if (isRunning) str(R.string.chat_working_update) else "Done.")
     }
     val deduped = messages.fold(mutableListOf<ChatMessage>()) { acc, msg ->
@@ -174,7 +174,7 @@ private fun composePlanningNarratives(
     val opening = firstPurpose.orEmpty()
     val nextMove = conciseSteps.firstOrNull()
         ?: nextSteps.firstOrNull()
-        ?: if (isRunning) str(R.string.chat_working_update) else ""
+        ?: ""
 
     val narratives = mutableListOf<String>()
     if (opening.isNotBlank()) {
@@ -182,7 +182,7 @@ private fun composePlanningNarratives(
     }
     nextMove.takeIf { it.isNotBlank() && narratives.none { existing -> sameMeaning(existing, it) } }
         ?.let { narratives += it }
-    if (narratives.isEmpty()) {
+    if (narratives.isEmpty() && !isRunning) {
         narratives += if (isRunning) str(R.string.chat_working_update) else "Done."
     }
     return narratives.distinctBy { it.normalizeMeaning() }
