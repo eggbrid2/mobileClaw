@@ -71,9 +71,8 @@ class ActionController(private val service: ClawAccessibilityService) {
         }
         if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) && nodeTextMatchesAfterDelay(node, text)) return
         delay(120)
-        if (ClawIME.inputText(text)) return
         if (pasteTextViaClipboard(node, text)) return
-        throw RuntimeException("Input text failed on node $nodeId. ACTION_SET_TEXT failed; ${ClawIME.statusSummary()} Clipboard paste and long-press paste menu fallback also failed.")
+        throw RuntimeException("Input text failed on node $nodeId. ACTION_SET_TEXT failed; clipboard long-press paste and ACTION_PASTE fallback also failed.")
     }
 
     suspend fun inputTextFocused(text: String) {
@@ -86,9 +85,8 @@ class ActionController(private val service: ClawAccessibilityService) {
         }
         if (focused.info.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) && nodeTextMatchesAfterDelay(focused.info, text)) return
         delay(120)
-        if (ClawIME.inputText(text)) return
         if (pasteTextViaClipboard(focused.info, text)) return
-        throw RuntimeException("Input text failed on focused node. ACTION_SET_TEXT failed; ${ClawIME.statusSummary()} Clipboard paste and long-press paste menu fallback also failed.")
+        throw RuntimeException("Input text failed on focused node. ACTION_SET_TEXT failed; clipboard long-press paste and ACTION_PASTE fallback also failed.")
     }
 
     suspend fun clickCoordinate(x: Float, y: Float) = gestureClick(x, y, 50L)
@@ -110,11 +108,44 @@ class ActionController(private val service: ClawAccessibilityService) {
     fun goHome() = performGlobal(AccessibilityService.GLOBAL_ACTION_HOME)
     fun goBack() = performGlobal(AccessibilityService.GLOBAL_ACTION_BACK)
 
-    fun launchApp(packageName: String) {
+    suspend fun launchApp(packageName: String): String {
         val intent = service.packageManager.getLaunchIntentForPackage(packageName)
             ?: throw IllegalArgumentException("App not found: $packageName")
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         service.startActivity(intent)
+        val launched = waitForForegroundPackage(packageName)
+        if (launched) return "Foreground app verified: package=$packageName."
+
+        val retryIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setPackage(packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        }
+        val resolved = service.packageManager.queryIntentActivities(retryIntent, 0)
+            .firstOrNull()
+            ?.activityInfo
+        if (resolved != null) {
+            retryIntent.setClassName(resolved.packageName, resolved.name)
+            service.startActivity(retryIntent)
+            if (waitForForegroundPackage(packageName)) {
+                return "Foreground app verified after launcher retry: package=$packageName."
+            }
+        }
+
+        val currentPackage = ClawAccessibilityService.getCurrentPackage().ifBlank { "unknown" }
+        val currentActivity = ClawAccessibilityService.getCurrentActivity().ifBlank { "unknown" }
+        throw IllegalStateException(
+            "Launch requested for $packageName, but foreground app is still package=$currentPackage, activity=$currentActivity. " +
+                "The system or ROM may have blocked starting this app from MobileClaw.",
+        )
+    }
+
+    private suspend fun waitForForegroundPackage(packageName: String): Boolean {
+        repeat(12) {
+            delay(180)
+            if (ClawAccessibilityService.getCurrentPackage() == packageName) return true
+        }
+        return false
     }
 
     fun listInstalledApps(): List<AppInfo> {
@@ -134,7 +165,6 @@ class ActionController(private val service: ClawAccessibilityService) {
         copyToClipboard(text)
         delay(120)
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-        if (node.performAction(AccessibilityNodeInfo.ACTION_PASTE) && nodeTextContainsAfterDelay(node, text)) return true
         val bounds = android.graphics.Rect()
         node.getBoundsInScreen(bounds)
         val cx = bounds.exactCenterX().takeIf { it > 0f } ?: (screenW / 2f)
@@ -158,7 +188,8 @@ class ActionController(private val service: ClawAccessibilityService) {
             node.refresh()
             return node.text?.toString()?.contains(text) == true
         }
-        return false
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE) && nodeTextContainsAfterDelay(node, text)
     }
 
     private suspend fun nodeTextMatchesAfterDelay(node: AccessibilityNodeInfo, text: String): Boolean {

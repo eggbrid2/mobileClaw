@@ -301,7 +301,7 @@ class InputTextSkill : Skill {
         } else {
             ClawAccessibilityService.inputTextFocused(text)
         }
-        return SkillResult(success = true, output = "Typed: $text\n${foregroundStatus()}")
+        return SkillResult(success = true, output = "Input text completed: $text\n${foregroundStatus()}")
     }
 }
 
@@ -350,12 +350,15 @@ class NavigateSkill(
                         )
                     }.getOrElse {
                         // Virtual display failed — fall back to foreground
-                        ClawAccessibilityService.launchApp(pkg)
-                        SkillResult(true, "Launched $pkg on main display (virtual display failed: ${it.message}). Use see_screen + tap(x,y).\n${foregroundStatus()}")
+                        val launchStatus = ClawAccessibilityService.launchApp(pkg)
+                        SkillResult(
+                            true,
+                            "Launched $pkg on main display (virtual display failed: ${it.message}). $launchStatus Use see_screen + tap(x,y).\n${foregroundStatus()}",
+                        )
                     }
                 }
-                ClawAccessibilityService.launchApp(pkg)
-                SkillResult(true, "Launched $pkg on main display. Use see_screen then tap(x=..., y=...) to interact.\n${foregroundStatus()}")
+                val launchStatus = ClawAccessibilityService.launchApp(pkg)
+                SkillResult(true, "Launched $pkg on main display. $launchStatus Use see_screen then tap(x=..., y=...) to interact.\n${foregroundStatus()}")
             }
             else -> SkillResult(false, "Unknown action: $action. Use home, back, or launch.")
         }

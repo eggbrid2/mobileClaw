@@ -801,15 +801,43 @@ This note is for your own next step, so be direct and operational.
         if (steps.none { it.skillId == "list_apps" }) {
             return DeterministicToolCall("list_apps", emptyMap(), thought = "Deterministic phone app discovery")
         }
-        if (steps.any { it.skillId == "navigate" && !it.isError }) return null
         val appList = steps.lastOrNull { it.skillId == "list_apps" && !it.isError }?.observation.orEmpty()
         val packageName = resolvePackageNameFromListApps(appList, requestedApp) ?: return null
+        val lastLaunchIndex = steps.indexOfLast {
+            it.skillId == "navigate" &&
+                it.skillParams?.get("action") == "launch" &&
+                it.skillParams["package_name"] == packageName &&
+                !it.isError
+        }
+        val foregroundPackage = latestForegroundPackage(steps)
+        if (lastLaunchIndex >= 0 && foregroundPackage == packageName) return null
+        if (lastLaunchIndex >= 0 && foregroundPackage.isBlank()) return null
+        if (lastLaunchIndex >= 0 && foregroundPackage != packageName) {
+            return DeterministicToolCall(
+                skillId = "navigate",
+                params = mapOf("action" to "launch", "package_name" to packageName, "foreground" to true),
+                finalAfterSuccess = false,
+                thought = "Deterministic target app foreground recovery",
+            )
+        }
         return DeterministicToolCall(
             skillId = "navigate",
             params = mapOf("action" to "launch", "package_name" to packageName, "foreground" to true),
             finalAfterSuccess = isLaunchOnlyPhoneGoal(goal),
             thought = "Deterministic phone app launch",
         )
+    }
+
+    private fun latestForegroundPackage(steps: List<AgentStep>): String {
+        val regex = Regex("""Foreground app:\s*package=([^,\s]+)""")
+        return steps.asReversed()
+            .firstNotNullOfOrNull { step ->
+                regex.find(step.observation)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.takeIf { it.isNotBlank() && it != "unknown" }
+            }
+            .orEmpty()
     }
 
     private data class ArtifactPatchContract(

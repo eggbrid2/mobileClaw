@@ -2,10 +2,19 @@ package com.mobileclaw.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
 import android.provider.Settings
-import android.widget.Toast
 import android.util.Base64
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -199,8 +208,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.File
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import com.mobileclaw.R
@@ -402,9 +411,6 @@ class MainViewModel : ViewModel() {
     private val taskJobs = mutableMapOf<String, Job>()
     private val runtimes = mutableMapOf<String, AgentRuntime>()
     private val pendingConfirmedRoutes = mutableMapOf<String, TaskRoute>()
-    private val autoPortraitRequestedRoleIds = mutableSetOf<String>()
-    private val autoPortraitQueue = ArrayDeque<Role>()
-    private var autoPortraitJob: Job? = null
     private var videoTaskAutoRefreshJob: Job? = null
 
     private fun updateSession(sessionId: String, transform: (SessionRunState) -> SessionRunState) {
@@ -978,10 +984,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(rolePortraitGeneratingIds = it.rolePortraitGeneratingIds + role.id) }
             val result = runCatching {
-                val imageGenerator = registry.get("generate_image")
-                    ?: error("generate_image tool is unavailable")
                 val selfBrief = createRoleSelfPortraitBrief(role)
-                val model = chooseRolePortraitImageModel()
                 // 角色页的“生图”现在只生成静态肖像，彻底避免落回动态 spritesheet。
                 val basePrompt = selfBrief["portrait_prompt"]?.asString?.takeIf { it.isNotBlank() }
                     ?: selfBrief["render_prompt"]?.asString?.takeIf { it.isNotBlank() }
@@ -996,53 +999,176 @@ class MainViewModel : ViewModel() {
                     - Do not simulate animation frames, sprite strips, repeated poses, or multi-panel sheets.
                     - No text, UI, multi-view sheet, lineup, or poster layout.
                 """.trimIndent()
-                val pack = AgentSpritePack(
-                    id = "portrait_${role.id.replace(Regex("[^a-zA-Z0-9_]+"), "_")}",
-                    name = "${role.name.ifBlank { role.id }} Portrait",
-                    kind = "portrait",
-                    frameWidth = 1024,
-                    frameHeight = 1024,
-                    columns = 1,
-                    rows = 1,
-                    notes = "$ROLE_PORTRAIT_STYLE_VERSION. Static AI-generated role portrait from the role's own identity brief.",
+                val pack = rolePortraitPack(
+                    role = role,
+                    notes = "$ROLE_PORTRAIT_STYLE_VERSION. Static role portrait from the role's own identity brief.",
                 )
-                val image = imageGenerator.execute(
-                    mapOf(
-                        "prompt" to prompt,
-                        "model" to model,
-                        "size" to "1024x1024",
-                        "quality" to "high",
-                    )
-                ).let { primary ->
-                    if (primary.success || model == "pollinations") primary
-                    else imageGenerator.execute(
-                        mapOf(
-                            "prompt" to prompt,
-                            "model" to "pollinations",
-                            "size" to "1024x1024",
-                            "quality" to "high",
-                        )
-                    )
+                val configuredModel = configuredRolePortraitImageModelOrNull()
+                val generatedDataUri = configuredModel?.let { model ->
+                    val imageGenerator = registry.get("generate_image")
+                    if (imageGenerator == null) {
+                        Log.w(TAG, "Role portrait image model is configured, but generate_image tool is unavailable.")
+                        null
+                    } else {
+                        imageGenerator.execute(
+                            mapOf(
+                                "prompt" to prompt,
+                                "model" to model,
+                                "size" to "1024x1024",
+                                "quality" to "high",
+                            )
+                        ).takeIf { it.success }?.let { image ->
+                            image.imageBase64 ?: (image.data as? SkillAttachment.ImageData)?.base64
+                        }.also { dataUri ->
+                            if (dataUri == null) {
+                                Log.w(TAG, "Role portrait image generation failed or returned empty data. model=$model")
+                            }
+                        }
+                    }
                 }
-                if (!image.success) error(image.output)
-                val dataUri = image.imageBase64
-                    ?: (image.data as? SkillAttachment.ImageData)?.base64
-                    ?: error("Image generator did not return image data")
-                val saved = townStore.registerSpritePack(pack, dataUri)
+                val dataUri = generatedDataUri ?: createFallbackRolePortraitDataUri(role)
+                val saved = townStore.registerSpritePack(
+                    if (generatedDataUri == null) {
+                        pack.copy(notes = "$ROLE_PORTRAIT_STYLE_VERSION. Local fallback role portrait; image generation model was not configured or failed.")
+                    } else {
+                        pack
+                    },
+                    dataUri,
+                )
                 // 静态肖像单独绑定到 portrait 槽位，避免角色详情继续播放房间动画。
                 townStore.assignRolePortraitPack(role.id, saved.id)
                 applyRoleHomeLayout(role)
-                saved
+                RolePortraitGenerationResult(
+                    pack = saved,
+                    usedFallback = generatedDataUri == null,
+                    hadConfiguredImageModel = configuredModel != null,
+                )
             }
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(rolePortraitGeneratingIds = it.rolePortraitGeneratingIds - role.id) }
-                result.onSuccess {
-                    Toast.makeText(app, str(R.string.role_portrait_generation_done), Toast.LENGTH_SHORT).show()
+                result.onSuccess { portrait ->
+                    val message = when {
+                        !portrait.usedFallback -> str(R.string.role_portrait_generation_done)
+                        portrait.hadConfiguredImageModel -> "图片模型生成失败，已使用本地兜底形象"
+                        else -> "未配置图片生成模型，已使用本地兜底形象"
+                    }
+                    Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
                 }.onFailure { e ->
                     Toast.makeText(app, str(R.string.role_portrait_generation_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
                 }
             }
         }
+    }
+
+    private data class RolePortraitGenerationResult(
+        val pack: AgentSpritePack,
+        val usedFallback: Boolean,
+        val hadConfiguredImageModel: Boolean,
+    )
+
+    private fun rolePortraitPack(role: Role, notes: String): AgentSpritePack =
+        AgentSpritePack(
+            id = "portrait_${role.id.replace(Regex("[^a-zA-Z0-9_]+"), "_")}",
+            name = "${role.name.ifBlank { role.id }} Portrait",
+            kind = "portrait",
+            frameWidth = 512,
+            frameHeight = 512,
+            columns = 1,
+            rows = 1,
+            notes = notes,
+        )
+
+    private fun createFallbackRolePortraitDataUri(role: Role): String {
+        val size = 512
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f,
+                0f,
+                size.toFloat(),
+                size.toFloat(),
+                intArrayOf(Color.rgb(250, 250, 247), Color.rgb(230, 232, 224), Color.rgb(252, 252, 249)),
+                floatArrayOf(0f, 0.58f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        }
+        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
+
+        val frame = RectF(28f, 28f, size - 28f, size - 28f)
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 8f
+            color = Color.rgb(17, 17, 17)
+        }
+        canvas.drawRoundRect(frame, 42f, 42f, borderPaint)
+
+        val accent = roleAccentColor(role)
+        val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = accent
+            alpha = 42
+        }
+        canvas.drawCircle(size * 0.5f, size * 0.42f, 158f, haloPaint)
+
+        val facePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.rgb(18, 18, 18)
+        }
+        canvas.drawRoundRect(RectF(150f, 116f, 362f, 328f), 72f, 72f, facePaint)
+
+        val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.WHITE
+        }
+        canvas.drawCircle(218f, 218f, 13f, eyePaint)
+        canvas.drawCircle(294f, 218f, 13f, eyePaint)
+
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.rgb(34, 34, 34)
+        }
+        canvas.drawRoundRect(RectF(126f, 312f, 386f, 468f), 60f, 60f, bodyPaint)
+
+        val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 10f
+            strokeCap = Paint.Cap.ROUND
+            color = accent
+        }
+        canvas.drawLine(178f, 362f, 334f, 362f, accentPaint)
+        canvas.drawLine(214f, 406f, 298f, 406f, accentPaint)
+
+        val initial = role.name.trim().takeIf { it.isNotBlank() }
+            ?.let { it.first().uppercaseChar().toString() }
+            ?: role.id.trim().takeIf { it.isNotBlank() }?.first()?.uppercaseChar()?.toString()
+            ?: "A"
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 92f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val textBounds = Rect()
+        textPaint.getTextBounds(initial, 0, initial.length, textBounds)
+        canvas.drawText(initial, size * 0.5f, 254f - textBounds.exactCenterY(), textPaint)
+
+        val out = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        bitmap.recycle()
+        return "data:image/png;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    }
+
+    private fun roleAccentColor(role: Role): Int {
+        val palette = intArrayOf(
+            Color.rgb(199, 244, 58),
+            Color.rgb(86, 158, 255),
+            Color.rgb(255, 113, 91),
+            Color.rgb(164, 123, 255),
+            Color.rgb(0, 184, 148),
+        )
+        val source = (role.id.ifBlank { role.name }).fold(0) { acc, c -> acc * 31 + c.code }
+        return palette[kotlin.math.abs(source) % palette.size]
     }
 
     private suspend fun applyRoleHomeLayout(role: Role) {
@@ -1169,62 +1295,42 @@ class MainViewModel : ViewModel() {
     }
 
     private fun ensureRolePortraits(roles: List<Role>) {
-        roles.forEach { role ->
-            val room = townStore.state.value.rooms[role.id]
-            val hasPortrait = room?.portraitSpritePack
-                ?.takeIf { it.isNotBlank() }
-                ?.let { townStore.state.value.spritePacks[it] }
-                ?.let {
-                    it.imagePath.isNotBlank() &&
-                        File(it.imagePath).exists() &&
-                        it.notes.contains(ROLE_PORTRAIT_STYLE_VERSION)
-                } == true
-            if (!hasPortrait && autoPortraitRequestedRoleIds.add(role.id)) {
-                autoPortraitQueue.addLast(role)
-            }
-        }
-        drainAutoPortraitQueue()
+        // 角色页首次打开不再自动生成形象。用户点击“生成形象”时再根据图片模型配置决定
+        // 调用真实生图模型或使用本地兜底头像，避免无配置时静默触发外部兜底接口。
     }
 
-    private fun drainAutoPortraitQueue() {
-        if (autoPortraitJob?.isActive == true) return
-        autoPortraitJob = viewModelScope.launch(Dispatchers.IO) {
-            while (autoPortraitQueue.isNotEmpty()) {
-                val role = autoPortraitQueue.removeFirst()
-                generateRolePortrait(role)
-                delay(1000L)
-                while (role.id in _uiState.value.rolePortraitGeneratingIds) {
-                    delay(800L)
-                }
-                delay(1200L)
-            }
-        }
-    }
-
-    private suspend fun chooseRolePortraitImageModel(): String {
+    private suspend fun configuredRolePortraitImageModelOrNull(): String? {
         userConfig.get("role_portrait_image_model")
-            ?.takeIf { it.isNotBlank() && it.isSupportedImageModel() }
+            ?.takeIf { it.isNotBlank() && it.isConfiguredImageModel() }
             ?.let { return it }
         userConfig.get("image_model")
-            ?.takeIf { it.isNotBlank() && it.isSupportedImageModel() }
+            ?.takeIf { it.isNotBlank() && it.isConfiguredImageModel() }
             ?.let { return it }
         val snap = config.snapshot()
         snap.imageModel
-            ?.takeIf { it.isNotBlank() && it.isSupportedImageModel() }
+            ?.takeIf { it.isNotBlank() && it.isConfiguredImageModel() }
+            ?.let { return it }
+        userConfig.get("image_api_model")
+            ?.takeIf { it.isNotBlank() && it.isConfiguredImageModel() }
             ?.let { return it }
         val endpoint = (
             snap.activeGateway?.capabilityEndpoint("image")?.takeIf { it.isNotBlank() }
                 ?: userConfig.get("image_api_endpoint")?.takeIf { it.isNotBlank() }
-                ?: snap.endpoint
+                ?: snap.endpoint.takeIf { snap.activeGateway?.hasCapability("image") == true }
+                ?: ""
             ).lowercase()
-        val currentModel = snap.model.takeIf { it.isNotBlank() }.orEmpty()
+        val currentModel = snap.activeGateway
+            ?.takeIf { it.hasCapability("image") }
+            ?.model
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
         return when {
-            currentModel.isSupportedImageModel() -> currentModel
+            currentModel.isConfiguredImageModel() -> currentModel
             "api.openai.com" in endpoint || "openai" in endpoint -> "gpt-image-2"
             "siliconflow" in endpoint -> "black-forest-labs/FLUX.1-schnell"
             "together" in endpoint -> "black-forest-labs/FLUX.1-schnell-Free"
             userConfig.get("huggingface_api_key")?.isNotBlank() == true -> "hf-flux-schnell"
-            else -> "pollinations"
+            else -> null
         }
     }
 
@@ -5780,6 +5886,11 @@ private fun String.isSupportedImageModel(): Boolean {
         value.startsWith("gpt-image-") ||
         value.startsWith("dall-e-") ||
         value.startsWith("black-forest-labs/FLUX.1")
+}
+
+private fun String.isConfiguredImageModel(): Boolean {
+    val value = trim()
+    return value.isNotBlank() && value.isSupportedImageModel() && value != "pollinations" && value != "pollinations-flux"
 }
 
 private fun JsonObject.intOrNull(name: String): Int? =
