@@ -323,6 +323,13 @@ private val HtmlPlusIcon = htmlStrokeIcon(
     strokeCap = StrokeCap.Round,
 )
 
+private val HtmlLightPlusIcon = htmlStrokeIcon(
+    name = "html_light_plus",
+    paths = listOf("M12 6v12M6 12h12"),
+    strokeWidth = 1.55f,
+    strokeCap = StrokeCap.Round,
+)
+
 private val HtmlGroupIcon = htmlStrokeIcon(
     name = "html_group",
     paths = listOf(
@@ -801,15 +808,14 @@ private fun ClassicNewChatPanel(
                 Box(
                     Modifier
                         .size(34.dp)
-                        .shadow(6.dp, RoundedCornerShape(14.dp), clip = false)
                         .clip(RoundedCornerShape(14.dp))
                         .background(
-                            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.72f), Color.White.copy(alpha = 0.34f)))
+                            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.72f), Color.White.copy(alpha = 0.42f)))
                         )
-                        .border(0.8.dp, c.text.copy(alpha = 0.055f), RoundedCornerShape(14.dp)),
+                        .border(0.7.dp, c.text.copy(alpha = 0.045f), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(HtmlPlusIcon, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                    Icon(HtmlLightPlusIcon, contentDescription = null, tint = c.text.copy(alpha = 0.88f), modifier = Modifier.size(17.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
