@@ -686,6 +686,7 @@ fun ClassicHomePage(
         ClassicConversationFilter(
             selected = filter,
             onSelected = { filter = it },
+            enabled = isConfigured && conversationItems.isNotEmpty(),
         )
         Spacer(Modifier.height(16.dp))
         if (!isConfigured || filteredItems.isEmpty()) {
@@ -715,7 +716,7 @@ fun ClassicHomePage(
             ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 2.dp, bottom = 132.dp),
+                    contentPadding = PaddingValues(top = 2.dp, bottom = 92.dp),
                 ) {
                     itemsIndexed(
                         items = filteredItems,
@@ -740,21 +741,6 @@ fun ClassicHomePage(
                         )
                     }
                 }
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(118.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    if (c.isDark) c.surface.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.34f),
-                                    if (c.isDark) c.bg.copy(alpha = 0.92f) else Color(0xFFF7F8F5).copy(alpha = 0.92f),
-                                )
-                            )
-                        )
-                )
             }
         }
     }
@@ -858,6 +844,7 @@ private fun ClassicNewChatPanel(
 private fun ClassicConversationFilter(
     selected: String,
     onSelected: (String) -> Unit,
+    enabled: Boolean = true,
 ) {
     val c = LocalClawColors.current
     Row(
@@ -875,29 +862,19 @@ private fun ClassicConversationFilter(
                     .clip(RoundedCornerShape(15.dp))
                     .background(
                         if (selected == item) {
-                            Brush.verticalGradient(
-                                if (c.isDark) {
-                                    listOf(Color.White.copy(alpha = 0.94f), Color.White.copy(alpha = 0.78f))
-                                } else {
-                                    listOf(Color(0xFF171716), Color(0xFF24231F))
-                                }
-                            )
+                            Brush.verticalGradient(listOf(Color.White.copy(alpha = if (enabled) 0.86f else 0.62f), Color.White.copy(alpha = if (enabled) 0.86f else 0.62f)))
                         } else {
                             Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
                         }
                     )
-                    .clickable { onSelected(item) }
+                    .clickable(enabled = enabled) { onSelected(item) }
                     .widthIn(min = 54.dp)
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     item,
-                    color = if (selected == item) {
-                        if (c.isDark) Color(0xFF111111) else Color.White
-                    } else {
-                        c.text.copy(alpha = 0.48f)
-                    },
+                    color = c.text.copy(alpha = if (!enabled && selected != item) 0.34f else if (selected == item) 0.90f else 0.48f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1110,13 +1087,12 @@ fun ClassicMePage(
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            Color.White.copy(alpha = if (c.isDark) 0.12f else 0.88f),
-                            Color(0xFFFFF4E2).copy(alpha = if (c.isDark) 0.08f else 0.34f),
+                            Color.White.copy(alpha = if (c.isDark) 0.12f else 0.84f),
                             Color(0xFFF6F7F4).copy(alpha = if (c.isDark) 0.08f else 0.50f),
                         )
                     )
                 )
-                .border(0.8.dp, Color(0xFFE8C69A).copy(alpha = if (c.isDark) 0.12f else 0.36f), RoundedCornerShape(22.dp))
+                .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.10f else 0.68f), RoundedCornerShape(22.dp))
                 .clickable(onClick = onProfile)
                 .padding(horizontal = 11.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1198,10 +1174,6 @@ fun ClassicMePage(
             }
         }
 
-        ClassicMeUpdateCard(
-            onCheckUpdate = onCheckUpdate,
-        )
-
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             ClassicMeServiceButton("Skill 市场", onSkillMarket, Modifier.weight(1f))
             ClassicMeServiceButton("控制台", onConsole, Modifier.weight(1f))
@@ -1252,13 +1224,6 @@ private fun ClassicMeRoleCard(
             .clickable(onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 14.dp),
     ) {
-        Canvas(Modifier.matchParentSize()) {
-            drawCircle(
-                color = Color(0xFF56D6BA).copy(alpha = 0.32f),
-                radius = 54.dp.toPx(),
-                center = Offset(size.width * 0.82f, size.height * 0.08f),
-            )
-        }
         Column(Modifier.fillMaxWidth()) {
             Text(label, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(22.dp))
@@ -1284,13 +1249,12 @@ private fun ClassicMePortraitCard(
             .background(
                 Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = if (c.isDark) 0.10f else 0.66f),
-                        Color(0xFFFFF1D9).copy(alpha = if (c.isDark) 0.06f else 0.30f),
+                        Color.White.copy(alpha = if (c.isDark) 0.10f else 0.60f),
                         Color(0xFFF4F6F3).copy(alpha = if (c.isDark) 0.08f else 0.36f),
                     )
                 )
             )
-            .border(0.8.dp, Color(0xFFE8C69A).copy(alpha = if (c.isDark) 0.10f else 0.34f), RoundedCornerShape(23.dp))
+            .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.10f else 0.54f), RoundedCornerShape(23.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 14.dp),
     ) {
@@ -1393,12 +1357,12 @@ private fun ClassicMeTile(
             .clip(RoundedCornerShape(20.dp))
             .background(
                 if (quiet) {
-                    Color(0xFFF7E7CF).copy(alpha = if (c.isDark) 0.08f else 0.36f)
+                    Color(0xFFEFF2EE).copy(alpha = if (c.isDark) 0.08f else 0.42f)
                 } else {
-                    Color(0xFFFFF8EC).copy(alpha = if (c.isDark) 0.08f else 0.46f)
+                    Color.White.copy(alpha = if (c.isDark) 0.08f else 0.35f)
                 }
             )
-            .border(0.8.dp, Color(0xFFE2B56F).copy(alpha = if (c.isDark) 0.10f else 0.30f), RoundedCornerShape(20.dp))
+            .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.08f else 0.38f), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(13.dp),
     ) {
@@ -1419,8 +1383,8 @@ private fun ClassicMeServiceButton(
         modifier
             .height(34.dp)
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFFFFF3DE).copy(alpha = if (c.isDark) 0.08f else 0.42f))
-            .border(0.7.dp, Color(0xFFE2B56F).copy(alpha = if (c.isDark) 0.08f else 0.24f), RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.34f))
+            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.08f else 0.32f), RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center,
