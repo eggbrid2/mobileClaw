@@ -679,8 +679,8 @@ fun ClassicHomePage(
             .padding(start = 24.dp, end = 24.dp, top = 0.dp),
     ) {
         ClassicNewChatPanel(
-            onNewChat = onNewChat,
-            onOpenGroups = onOpenGroups,
+            onNewChat = if (isConfigured) onNewChat else onConfigureGateway,
+            onOpenGroups = if (isConfigured) onOpenGroups else onConfigureGateway,
         )
         Spacer(Modifier.height(18.dp))
         ClassicConversationFilter(
@@ -688,7 +688,7 @@ fun ClassicHomePage(
             onSelected = { filter = it },
         )
         Spacer(Modifier.height(16.dp))
-        if (filteredItems.isEmpty()) {
+        if (!isConfigured || filteredItems.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 ClassicEmptyHome(
                     isConfigured = isConfigured,
