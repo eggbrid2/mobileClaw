@@ -2385,6 +2385,11 @@ class MainViewModel : ViewModel() {
             // 如果聊天内预览在上一轮暴露了真实运行问题，这里直接续跑自动修复，不等用户补一句“继续”。
             resumePendingMiniAppAutoRepair(resolvedSessionId)
         }
+        if (isPhoneControlTask) {
+            newJob.invokeOnCompletion {
+                auroraOverlay.hide()
+            }
+        }
         taskJobs[sessionIdAtStart] = newJob
     }
 
