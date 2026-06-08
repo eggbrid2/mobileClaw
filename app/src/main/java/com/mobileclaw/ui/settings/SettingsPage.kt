@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
@@ -702,6 +703,7 @@ private fun GatewayListSubPage(
     var activeId by remember(activeGatewayId) { mutableStateOf(activeGatewayId) }
     var editingGateway by remember { mutableStateOf<GatewayConfig?>(null) }
     var deleteTarget by remember { mutableStateOf<GatewayConfig?>(null) }
+    var showMoreProviders by remember { mutableStateOf(false) }
 
     if (editingGateway != null) {
         GatewayEditorSubPage(
@@ -723,64 +725,91 @@ private fun GatewayListSubPage(
     }
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = str(R.string.settings_849b48), onBack = onBack) {
-            Button(
-                onClick = {
-                editingGateway = GatewayConfig(
-                    name = str(R.string.settings_7acaf4),
-                    endpoint = "",
-                    apiKey = "",
-                    model = "gpt-4o",
-                    embeddingModel = "text-embedding-3-small",
-                    capabilities = buildPresetCapabilities(
-                        preset = GATEWAY_PRESETS.first { it.name == "Custom" },
-                    ),
-                )
-            },
-                shape = RoundedCornerShape(999.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(str(R.string.settings_ed7823), fontSize = 13.sp, maxLines = 1)
-            }
-        }
+        ClawPageHeader(title = "网关配置", onBack = onBack)
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SettingsHubCard(c) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(str(R.string.gateway_list_summary_title), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        str(R.string.gateway_list_summary_subtitle),
-                        color = c.subtext,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
+            GatewayConnectionHero(
+                connected = list.any { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() },
+                activeGateway = activeId?.let { id -> list.find { it.id == id } } ?: list.firstOrNull(),
+                c = c,
+            )
+
+            Text("选择服务商", color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text("先选你正在使用的 AI 服务，只需要再粘贴 API Key 就能开始。", color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.DIRECT }.take(5).forEach { preset ->
+                    GatewayProviderRow(
+                        preset = preset,
+                        c = c,
+                        onClick = {
+                            editingGateway = GatewayConfig(
+                                name = preset.name,
+                                endpoint = preset.endpoint,
+                                apiKey = "",
+                                model = preset.model,
+                                embeddingModel = preset.embeddingModel,
+                                supportsMultimodal = preset.supportsMultimodal,
+                                capabilities = buildPresetCapabilities(preset),
+                            )
+                        },
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        GatewayPill(text = str(R.string.gateway_active_label), c = c, active = true)
-                        GatewayPill(text = activeId?.let { list.find { gw -> gw.id == it }?.name }.orEmpty().ifBlank { "-" }, c = c)
-                        GatewayPill(text = str(R.string.gateways_status, list.size, list.find { it.id == activeId }?.name ?: "-"), c = c)
+                }
+                Box(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (c.isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.48f))
+                        .clickable { showMoreProviders = !showMoreProviders }
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.size(28.dp).clip(RoundedCornerShape(12.dp)).background(c.cardAlt), contentAlignment = Alignment.Center) {
+                            Text("...", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("更多服务商 / 自定义", color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Claude 中转、GPT 兼容网关、本地 Ollama", color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.subtext, modifier = Modifier.size(18.dp))
+                    }
+                }
+                AnimatedVisibility(showMoreProviders) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GATEWAY_PRESETS.drop(5).forEach { preset ->
+                            GatewayProviderRow(
+                                preset = preset,
+                                c = c,
+                                onClick = {
+                                    editingGateway = GatewayConfig(
+                                        name = preset.name,
+                                        endpoint = preset.endpoint,
+                                        apiKey = "",
+                                        model = preset.model,
+                                        embeddingModel = preset.embeddingModel,
+                                        supportsMultimodal = preset.supportsMultimodal,
+                                        capabilities = buildPresetCapabilities(preset),
+                                    )
+                                }
+                            )
+                        }
+                        GatewayCustomProviderRow(c = c) {
+                            editingGateway = GatewayConfig(
+                                name = str(R.string.settings_7acaf4),
+                                endpoint = "",
+                                apiKey = "",
+                                model = "gpt-4o",
+                                embeddingModel = "text-embedding-3-small",
+                                capabilities = buildPresetCapabilities(GATEWAY_PRESETS.first { it.name == "Custom" }),
+                            )
+                        }
                     }
                 }
             }
 
-            if (list.isEmpty()) {
-                SettingsHubCard(c) {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 34.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ClawIconTile(symbol = "gateway", size = 42.dp, iconSize = 22.dp, tint = c.text, background = c.cardAlt, border = c.border)
-                            Text(str(R.string.settings_0733e8), fontSize = 15.sp, color = c.text, fontWeight = FontWeight.Medium)
-                            Text(str(R.string.settings_tap), fontSize = 12.sp, color = c.subtext.copy(alpha = 0.7f))
-                        }
-                    }
-                }
-            } else {
+            if (list.isNotEmpty()) {
+                Text("已保存", color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
                 list.forEach { gw ->
                     val isActive = gw.id == activeId || (activeId == null && gw == list.first())
                     GatewayListItem(
@@ -796,80 +825,34 @@ private fun GatewayListSubPage(
                     )
                 }
             }
+        }
+    }
 
-            SettingsHubCard(c) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(str(R.string.gateway_quick_add_title), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        str(R.string.gateway_editor_setup_body),
-                        color = c.subtext,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
+    if (list.isEmpty() && editingGateway == null) {
+        // Keep the first-run path obvious even after scrolling.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Button(
+                onClick = {
+                    val preset = GATEWAY_PRESETS.first()
+                    editingGateway = GatewayConfig(
+                        name = preset.name,
+                        endpoint = preset.endpoint,
+                        apiKey = "",
+                        model = preset.model,
+                        embeddingModel = preset.embeddingModel,
+                        supportsMultimodal = preset.supportsMultimodal,
+                        capabilities = buildPresetCapabilities(preset),
                     )
-                    Text(str(R.string.gateway_provider_direct), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.DIRECT }) { preset ->
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(c.card)
-                                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        editingGateway = GatewayConfig(
-                                            name = preset.name,
-                                            endpoint = preset.endpoint,
-                                            apiKey = "",
-                                            model = preset.model,
-                                            embeddingModel = preset.embeddingModel,
-                                            supportsMultimodal = preset.supportsMultimodal,
-                                            capabilities = buildPresetCapabilities(preset),
-                                        )
-                                    }
-                                    .width(188.dp)
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(preset.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
-                                    Text(gatewayHostLabel(preset.endpoint), fontSize = 11.sp, color = c.subtext, maxLines = 2)
-                                    GatewayPill(text = gatewayPresetTypeLabel(preset), c = c)
-                                }
-                            }
-                        }
-                    }
-                    Text(str(R.string.gateway_provider_template), color = c.subtext, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.TEMPLATE }) { preset ->
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(c.card)
-                                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        editingGateway = GatewayConfig(
-                                            name = preset.name,
-                                            endpoint = preset.endpoint,
-                                            apiKey = "",
-                                            model = preset.model,
-                                            embeddingModel = preset.embeddingModel,
-                                            supportsMultimodal = preset.supportsMultimodal,
-                                            capabilities = buildPresetCapabilities(preset),
-                                        )
-                                    }
-                                    .width(188.dp)
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(preset.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
-                                    Text(gatewayHostLabel(preset.endpoint), fontSize = 11.sp, color = c.subtext, maxLines = 2)
-                                    GatewayPill(text = gatewayPresetTypeLabel(preset), c = c)
-                                }
-                            }
-                        }
-                    }
-                }
+                },
+                shape = RoundedCornerShape(24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                    .height(48.dp),
+            ) {
+                Text("用 OpenAI 开始配置", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
     }
@@ -892,6 +875,188 @@ private fun GatewayListSubPage(
                 TextButton(onClick = { deleteTarget = null }) { Text(str(R.string.btn_cancel)) }
             },
         )
+    }
+}
+
+@Composable
+private fun GatewayConnectionHero(
+    connected: Boolean,
+    activeGateway: GatewayConfig?,
+    c: ClawColors,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        if (c.isDark) Color(0xFF111315) else Color(0xFF16181A),
+                        if (c.isDark) Color(0xFF2A2D2D) else Color(0xFF424641),
+                    )
+                )
+            )
+            .padding(15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(if (connected) Color(0xFFC7F43A) else Color.White.copy(alpha = 0.46f)),
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(if (connected) "网关已连接" else "先连接 AI 网关", color = Color.White, fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
+            Text(
+                if (connected) "${activeGateway?.name.orEmpty().ifBlank { "默认网关" }} · 会话、工作台和角色可用"
+                else "选择服务商，粘贴 API Key，保存后即可开始会话。",
+                color = Color.White.copy(alpha = 0.68f),
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GatewaySetupHero(
+    title: String,
+    subtitle: String,
+    ready: Boolean,
+    c: ClawColors,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        if (c.isDark) Color(0xFF111315) else Color(0xFF16181A),
+                        if (c.isDark) Color(0xFF2A2D2D) else Color(0xFF424641),
+                    )
+                )
+            )
+            .padding(15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(17.dp))
+                .background(Color.White.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(if (ready) "3" else "2", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = Color.White, fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
+            Text(subtitle, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun GatewaySelectedProviderSummary(
+    providerName: String,
+    endpoint: String,
+    model: String,
+    c: ClawColors,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (c.isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.48f))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier.size(32.dp).clip(RoundedCornerShape(13.dp)).background(c.text),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(providerName.firstOrNull()?.uppercaseChar()?.toString() ?: "A", color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(providerName.ifBlank { "当前服务商" }, color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                listOf(gatewayHostLabel(endpoint), model.ifBlank { "默认模型" }).joinToString(" · "),
+                color = c.subtext,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun GatewayProviderRow(
+    preset: GatewayPreset,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (c.isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.58f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.text),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(preset.name.firstOrNull()?.uppercaseChar()?.toString() ?: "A", color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.Black)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(preset.name, color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(gatewayHostLabel(preset.endpoint), color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(if (preset.group == GatewayPresetGroup.TEMPLATE) "高级" else "推荐", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun GatewayCustomProviderRow(c: ClawColors, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (c.isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.58f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.size(34.dp).clip(RoundedCornerShape(14.dp)).background(c.text), contentAlignment = Alignment.Center) {
+            Text("+", color = c.bg, fontSize = 16.sp, fontWeight = FontWeight.Black)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("自定义兼容网关", color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("已有中转地址时使用", color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp)
+        }
+        Text("高级", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1029,6 +1194,7 @@ private fun GatewayEditorSubPage(
     var aiFillLoading by remember { mutableStateOf(false) }
     var aiFillFailed by remember { mutableStateOf(false) }
     var capabilityDetailsExpanded by remember(gateway.id) { mutableStateOf(false) }
+    var advancedGatewaySettingsExpanded by remember(gateway.id) { mutableStateOf(gateway.endpoint.isBlank()) }
 
     val resolvedChatCapability = capabilities.firstOrNull { it.type.equals("chat", ignoreCase = true) }
     val resolvedChatEndpoint = resolvedChatCapability?.endpoint?.trim().orEmpty().ifBlank { endpoint.trim() }
@@ -1112,7 +1278,7 @@ private fun GatewayEditorSubPage(
     }
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = if (gateway.endpoint.isBlank()) str(R.string.settings_add) else str(R.string.settings_edit), onBack = onBack) {
+        ClawPageHeader(title = "连接网关", onBack = onBack) {
             Button(
                 onClick = {
                     val normalizedCapabilities = capabilities
@@ -1141,79 +1307,24 @@ private fun GatewayEditorSubPage(
                 colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg, disabledContainerColor = c.border),
                 shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text(str(R.string.role_save), fontSize = 13.sp, maxLines = 1) }
+            ) { Text("保存并使用", fontSize = 13.sp, maxLines = 1) }
             Spacer(Modifier.width(4.dp))
         }
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SettingsHubCard(c) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(str(R.string.gateway_editor_setup_title), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        str(R.string.gateway_editor_setup_body),
-                        color = c.subtext,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        GatewayPill(
-                            text = if (isValid) str(R.string.gateway_editor_connection_ready) else str(R.string.gateway_editor_connection_missing),
-                            c = c,
-                            active = isValid,
-                        )
-                        GatewayPill(
-                            text = if (capabilities.isEmpty()) str(R.string.gateway_editor_capabilities_empty)
-                            else str(R.string.gateway_editor_capabilities_ready, capabilities.count { it.model.isNotBlank() }),
-                            c = c,
-                        )
-                    }
-                }
-            }
-            // Presets are split into direct providers and templates so users can
-            // distinguish one-tap official-compatible gateways from relay-style setups.
-            SettingsSection(str(R.string.gateway_editor_provider_title), c) {
-                Text(
-                    str(R.string.gateway_provider_direct),
-                    color = c.subtext,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(10.dp))
+            GatewaySetupHero(
+                title = if (isValid) "可以保存了" else "只差 API Key",
+                subtitle = if (isValid) "${name.ifBlank { "当前服务商" }} 已填写完成，保存后立即用于会话。"
+                else "选服务商、粘贴 Key、保存。其它模型设置可以之后再调。",
+                ready = isValid,
+                c = c,
+            )
+
+            SettingsSection("1 选择服务商", c) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     directPresets.forEach { preset ->
-                        val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
-                        Box(
-                            Modifier.clip(RoundedCornerShape(999.dp))
-                                .background(if (active) c.text else c.surface)
-                                .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
-                                .clickable { applyPreset(preset) }
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                        ) {
-                            Text(
-                                preset.name,
-                                color = if (active) c.bg else c.text,
-                                fontSize = 11.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    str(R.string.gateway_provider_template),
-                    color = c.subtext,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(10.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    templatePresets.forEach { preset ->
                         val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
                         Box(
                             Modifier.clip(RoundedCornerShape(999.dp))
@@ -1242,12 +1353,111 @@ private fun GatewayEditorSubPage(
                     )
                 }
             }
-            SettingsSection(str(R.string.gateway_editor_connection_title), c) {
-                ClawPageTextField(name, { name = it }, str(R.string.role_field_name), "OpenAI", c)
-                ClawPageTextField(endpoint, { endpoint = it }, str(R.string.field_endpoint), "https://api.openai.com", c)
-                ClawPageTextField(apiKey, { apiKey = it }, str(R.string.field_api_key), "sk-...", c, isSecret = true)
+
+            SettingsSection("2 粘贴 API Key", c) {
+                GatewaySelectedProviderSummary(
+                    providerName = name,
+                    endpoint = endpoint,
+                    model = model,
+                    c = c,
+                )
+                Spacer(Modifier.height(12.dp))
+                ClawPageTextField(apiKey, { apiKey = it }, "API Key", "sk-...", c, isSecret = true)
+                if (endpoint.isBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    ClawPageTextField(endpoint, { endpoint = it }, "网关地址", "https://api.example.com/v1", c)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("Key 只保存在本机配置里。保存前不会发起会话请求。", color = c.subtext.copy(alpha = 0.72f), fontSize = 11.sp, lineHeight = 15.sp)
             }
-            SettingsSection(str(R.string.gateway_editor_models_title), c) {
+
+            Button(
+                onClick = {
+                    val normalizedCapabilities = capabilities
+                        .map {
+                            it.copy(
+                                type = it.type.trim().lowercase(),
+                                model = it.model.trim(),
+                                endpoint = it.endpoint.trim(),
+                                apiKey = it.apiKey.trim(),
+                            )
+                        }
+                        .filter { it.enabled && it.type.isNotBlank() && it.model.isNotBlank() }
+                    val chatModel = normalizedCapabilities.firstOrNull { it.type == "chat" }?.model ?: model.trim()
+                    val embeddingModel = normalizedCapabilities.firstOrNull { it.type == "embedding" }?.model ?: embModel.trim()
+                    onSave(gateway.copy(
+                        name = name.trim().ifBlank { selectedPreset?.name ?: "OpenAI" },
+                        endpoint = endpoint.trim(),
+                        apiKey = apiKey.trim(),
+                        model = chatModel.ifBlank { selectedPreset?.model ?: "gpt-4o" },
+                        embeddingModel = embeddingModel.ifBlank { "text-embedding-3-small" },
+                        supportsMultimodal = supportsMultimodal || normalizedCapabilities.any { it.type == "image" || it.type == "video" },
+                        capabilities = normalizedCapabilities.ifEmpty {
+                            buildPresetCapabilities(
+                                selectedPreset ?: GatewayPreset(
+                                    name = name.ifBlank { "Custom" },
+                                    endpoint = endpoint,
+                                    model = model.ifBlank { "gpt-4o" },
+                                    embeddingModel = embModel.ifBlank { "text-embedding-3-small" },
+                                    supportsMultimodal = supportsMultimodal,
+                                ),
+                            )
+                        },
+                    ))
+                },
+                enabled = isValid,
+                shape = RoundedCornerShape(24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg, disabledContainerColor = c.border),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) {
+                Text("3 保存并开始使用", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (c.isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.46f))
+                    .clickable { advancedGatewaySettingsExpanded = !advancedGatewaySettingsExpanded }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("高级设置", color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("模型、图片/视频能力、自定义中转地址", color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(if (advancedGatewaySettingsExpanded) "收起" else "展开", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+
+            AnimatedVisibility(advancedGatewaySettingsExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    SettingsSection("服务商模板", c) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            templatePresets.forEach { preset ->
+                                val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
+                                Box(
+                                    Modifier.clip(RoundedCornerShape(999.dp))
+                                        .background(if (active) c.text else c.surface)
+                                        .border(1.dp, if (active) c.text else c.border, RoundedCornerShape(999.dp))
+                                        .clickable { applyPreset(preset) }
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                ) {
+                                    Text(
+                                        preset.name,
+                                        color = if (active) c.bg else c.text,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    SettingsSection("网关地址", c) {
+                        ClawPageTextField(name, { name = it }, str(R.string.role_field_name), "OpenAI", c)
+                        ClawPageTextField(endpoint, { endpoint = it }, str(R.string.field_endpoint), "https://api.openai.com", c)
+                    }
+                    SettingsSection(str(R.string.gateway_editor_models_title), c) {
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1562,6 +1772,8 @@ private fun GatewayEditorSubPage(
                 }
             }
         }
+    }
+    }
     }
 
     if (showAiFillDialog) {
