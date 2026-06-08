@@ -126,13 +126,14 @@ Available task_type values:
 CHAT, GENERAL, PHONE_CONTROL, WEB_RESEARCH, FILE_CREATE, APP_BUILD, IMAGE_GENERATION, VPN_CONTROL, SKILL_MANAGEMENT, CODE_EXECUTION
 
 Available channel values:
-CHAT, MEMORY, SKILL, SELF_EVOLUTION, PLAN, ARTIFACT, PHONE, WEB, MEDIA, VPN, CODE
+CHAT, INFO, MEMORY, SKILL, SELF_EVOLUTION, PLAN, ARTIFACT, PHONE, WEB, MEDIA, VPN, CODE
 
 Routing principles:
 - Decide from meaning and context, not fixed keywords.
 - Treat recent context as reference, not as an automatic command to continue. The latest user message wins.
 - Direct chat route: use task_type=CHAT, primary_channel=CHAT, supporting_channels=[], tool_hints=[], and user_visible_steps=[].
 - Use direct chat for greetings, small talk, thanks, emotional support, explanations, questions, ordinary conversation, and commands like "和我聊天吧 / just chat with me".
+- If the user asks what MobileClaw can do, what tools/capabilities are available, whether a kind of task is supported, or how to choose a capability, keep task_type=CHAT and use primary_channel=INFO.
 - Do not add MEMORY, SKILL, ARTIFACT, PLAN, or tool_hints to direct chat just because those capabilities exist. Supporting channels mean the agent runtime should actually use them in this turn.
 - Agent route: use a non-chat execution path only when this latest turn asks MobileClaw to act, create, inspect, modify, operate, search, generate, run, continue, retry, or revise something beyond a normal text reply.
 - Continuation examples:

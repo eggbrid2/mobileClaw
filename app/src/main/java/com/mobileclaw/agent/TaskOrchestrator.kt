@@ -66,6 +66,7 @@ class TaskOrchestrator(
     private fun buildContract(decision: ChannelDecision, taskType: TaskType): TaskExecutionContract {
         val inputSpec = when (decision.primary) {
             ChannelType.PHONE -> "Latest phone screen state, latest observation, and user goal."
+            ChannelType.INFO -> "User question and current MobileClaw capability directory."
             ChannelType.WEB -> "User question, any attached reference, and recent facts."
             ChannelType.ARTIFACT -> "Target artifact, user change request, and existing artifact context."
             ChannelType.MEDIA -> "Creative prompt, style hint, and any attached reference."
@@ -79,6 +80,7 @@ class TaskOrchestrator(
         }
         val outputSpec = when (decision.primary) {
             ChannelType.PHONE -> "Give the user a clear result, blocker, or next observed state."
+            ChannelType.INFO -> "Return a concise explanation of currently available capabilities and what the user can ask next."
             ChannelType.WEB -> "Return a concise answer with evidence summary."
             ChannelType.ARTIFACT -> "Return where the artifact lives and what was changed."
             ChannelType.MEDIA -> "Return the generated media or its location."
@@ -92,6 +94,7 @@ class TaskOrchestrator(
         }
         val stopConditions = when (decision.primary) {
             ChannelType.PHONE -> "Stop when the screen state matches the goal, the task is blocked, or the user changes the task."
+            ChannelType.INFO -> "Stop after answering the capability or tool question."
             ChannelType.WEB -> "Stop when the needed evidence is gathered and synthesized."
             ChannelType.ARTIFACT -> "Stop when the artifact is usable and the user can continue from it."
             ChannelType.MEDIA -> "Stop when the media result is generated or the request is blocked."
@@ -105,6 +108,7 @@ class TaskOrchestrator(
         }
         val recoveryPlan = when (decision.primary) {
             ChannelType.PHONE -> "If the screen is unclear, re-read once; if that fails, fall back to screenshot; if still blocked, ask the user."
+            ChannelType.INFO -> "If the capability is unavailable or unconfigured, say so and name the setup needed."
             ChannelType.WEB -> "If a page fails, try another source or use search results; if evidence remains thin, say so."
             ChannelType.ARTIFACT -> "If the current artifact is wrong, update the existing artifact before creating a new one."
             ChannelType.MEDIA -> "If the generation fails, simplify the prompt or ask for the missing style detail."

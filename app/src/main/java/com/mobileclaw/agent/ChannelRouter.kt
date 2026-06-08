@@ -5,6 +5,7 @@ import com.mobileclaw.skill.SkillToolTaxonomy
 
 enum class ChannelType {
     CHAT,
+    INFO,
     MEMORY,
     SKILL,
     SELF_EVOLUTION,
@@ -67,6 +68,7 @@ class ChannelRouter {
             ChannelType.ARTIFACT -> supporting += ChannelType.SKILL
             ChannelType.SKILL -> supporting += ChannelType.SELF_EVOLUTION
             ChannelType.SELF_EVOLUTION -> supporting += ChannelType.SKILL
+            ChannelType.INFO -> Unit
             ChannelType.CHAT -> {
                 if (taskType == TaskType.GENERAL) {
                     supporting += ChannelType.SKILL
@@ -89,6 +91,7 @@ class ChannelRouter {
 
     private fun toolHintsFor(channel: ChannelType): List<String> = when (channel) {
         ChannelType.PHONE -> SkillToolTaxonomy.idsFor(SkillToolCategory.PHONE, SkillToolCategory.VPN)
+        ChannelType.INFO -> emptyList()
         ChannelType.WEB -> SkillToolTaxonomy.idsFor(SkillToolCategory.WEB, SkillToolCategory.VPN)
         ChannelType.ARTIFACT -> SkillToolTaxonomy.idsFor(SkillToolCategory.ARTIFACT, SkillToolCategory.SKILL)
         ChannelType.MEDIA -> SkillToolTaxonomy.idsFor(SkillToolCategory.MEDIA)
@@ -130,6 +133,7 @@ class ChannelRouter {
     private fun buildUserSummary(primary: ChannelType, supporting: List<ChannelType>): String {
         val primaryLabel = when (primary) {
             ChannelType.CHAT -> "聊天"
+            ChannelType.INFO -> "能力目录"
             ChannelType.MEMORY -> "记忆"
             ChannelType.SKILL -> "技能"
             ChannelType.SELF_EVOLUTION -> "自我升级"
@@ -144,6 +148,7 @@ class ChannelRouter {
         val supportLabel = supporting.joinToString("、") {
             when (it) {
                 ChannelType.CHAT -> "聊天"
+                ChannelType.INFO -> "能力目录"
                 ChannelType.MEMORY -> "记忆"
                 ChannelType.SKILL -> "技能"
                 ChannelType.SELF_EVOLUTION -> "自我升级"

@@ -51,6 +51,8 @@ import com.mobileclaw.memory.db.SessionMessageEntity
 import com.mobileclaw.perception.ClawAccessibilityService
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillLoader
+import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.skill.builtin.BgLaunchSkill
 import com.mobileclaw.skill.builtin.BgReadScreenSkill
 import com.mobileclaw.skill.builtin.BgScreenshotSkill
@@ -1894,6 +1896,12 @@ class MainViewModel : ViewModel() {
         } else {
             updateSession(sessionIdAtStart) { s -> s.copy(streamingToken = "", streamingThought = "") }
         }
+        if (attachedImage == null &&
+            attachedFile == null &&
+            route.primaryChannelForExecution() == ChannelType.INFO) {
+            runInfoChannelAnswer(sessionIdAtStart, userMessage, goal, scheduledRole, persistUserMessage = pendingTurn != null || showUserMessage)
+            return
+        }
         // Fast path: image understanding is a VLM chat, not an agentic web/search task.
         if (attachedImage != null &&
             attachedFile == null &&
@@ -2442,38 +2450,16 @@ class MainViewModel : ViewModel() {
                 }
             } else ""
             val directExecutionContext = if (imageBase64 != null) executionContext else ""
-            val mobileClawCapabilitySection = if (config.language == "en") {
-                """
-
-## MobileClaw Capabilities
-You are the conversational front door to MobileClaw, not an isolated chatbot. You can explain these abilities and invite the user to ask for them:
-- Direct conversation, reasoning, writing, translation, planning, learning help, and troubleshooting.
-- Agent execution for tasks which need action beyond text: operate Android apps and screens, inspect screenshots, tap, type, scroll, and continue multi-step phone workflows after user confirmation.
-- Create and refine MiniAPPs, native MobileClaw pages, dashboards, forms, tools, games, HTML/CSS/JS artifacts, files, and documents.
-- Search or browse the web, read pages, summarize results, compare options, and gather current information when the user asks.
-- Generate or analyze images/video where configured, manage skills, remember useful preferences, and coordinate with Codex desktop when configured.
-
-When the user asks "what can you do", answer as MobileClaw with these real capabilities. Do not claim you can only chat. For ordinary chat, still answer briefly in plain text.
-                """.trimIndent()
+            val capabilityInfoInstruction = if (config.language == "en") {
+                "If the user asks what MobileClaw can do or which tools are available, do not guess from memory; that request is handled by the INFO capability directory."
             } else {
-                """
-
-## MobileClaw 能力
-你是 MobileClaw 的对话入口，不是一个孤立的普通聊天机器人。你可以向用户说明并引导使用这些真实能力：
-- 普通对话、推理、写作、翻译、规划、学习辅导、问题排查。
-- Agent 执行：在用户确认后操作 Android 手机应用和屏幕，查看截图，点击、输入、滑动，并继续多步骤手机任务。
-- 创建和修改 MiniAPP、MobileClaw 原生页面、仪表盘、表单、工具、小游戏、HTML/CSS/JS 产物、文件和文档。
-- 按用户要求联网搜索/浏览网页、阅读页面、总结结果、对比方案、获取实时信息。
-- 在已配置时生成或分析图片/视频、管理技能、记住有用偏好，并连接 Codex 桌面继续复杂开发任务。
-
-当用户问“你能做什么”时，要以 MobileClaw 的身份回答这些真实能力，不要说自己只能聊天。普通聊天仍然直接用纯文本简洁回答。
-                """.trimIndent()
+                "如果用户询问 MobileClaw 能做什么、有哪些工具或某类任务是否支持，不要凭记忆展开能力清单；这类请求由 INFO 能力目录处理。"
             }
             val systemPrompt = if (localChatMode) {
                 buildString {
                     appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
                     append(langSection)
-                    appendLine(mobileClawCapabilitySection)
+                    appendLine(capabilityInfoInstruction)
                     if (directExecutionContext.isNotBlank()) {
                         appendLine(directExecutionContext.trim())
                     }
@@ -2491,7 +2477,7 @@ When the user asks "what can you do", answer as MobileClaw with these real capab
                 }.trim()
             } else {
                 """You are ${currentRole.name}, a helpful AI assistant inside MobileClaw.$langSection$imageInstruction$roleSection$contextSection
-$mobileClawCapabilitySection
+$capabilityInfoInstruction
 ${if (directExecutionContext.isNotBlank()) directExecutionContext + "\n" else ""}
 ## Execution Channels
 Chat, memory, skills, and self-evolution are separate channels. Use the right channel for the user's request instead of mixing everything into one response.
@@ -2636,6 +2622,79 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     )
                 }
                 Log.e(TAG, "Direct chat failed. session=$cleanupSessionId goal=${goal.take(160)}", e)
+            } finally {
+                clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+            }
+        }
+        taskJobs[sessionIdAtStart] = newJob
+    }
+
+    private fun runInfoChannelAnswer(
+        sessionIdAtStart: String,
+        userMessage: ChatMessage,
+        goal: String,
+        currentRole: Role,
+        persistUserMessage: Boolean = true,
+    ) {
+        val newJob = viewModelScope.launch {
+            var resolvedSessionId = sessionIdAtStart
+            try {
+                resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
+                Log.d(TAG, "Info channel answer started. session=$resolvedSessionId goal=${goal.take(160)}")
+                val summary = withContext(Dispatchers.IO) { buildMobileClawCapabilityDirectory(goal) }
+                val finalAgentMsg = ChatMessage(
+                    role = MessageRole.AGENT,
+                    text = summary,
+                    senderRoleId = currentRole.id,
+                    senderRoleName = currentRole.name,
+                    senderRoleAvatar = currentRole.avatar,
+                )
+                updateSession(resolvedSessionId) { s -> s.copy(
+                    isRunning = false,
+                    runStartedAt = 0L,
+                    streamingToken = "",
+                    streamingThought = "",
+                    messages = s.messages + finalAgentMsg,
+                    activeLogLines = emptyList(),
+                    activeAttachments = emptyList(),
+                )}
+                if (resolvedSessionId.isNotBlank()) {
+                    launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { persistUserMessage }, listOf(finalAgentMsg)) }
+                }
+                launch(Dispatchers.IO) {
+                    runCatching {
+                        val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)
+                        conversationMemory.addUserMessage(goal, taskId = workspaceId)
+                        conversationMemory.addAgentMessage(summary, taskId = workspaceId)
+                    }
+                }
+                Log.d(TAG, "Info channel answer completed. session=$resolvedSessionId summaryLength=${summary.length}")
+            } catch (e: Throwable) {
+                val cleanupSessionId = resolvedSessionId.ifBlank { sessionIdAtStart }
+                if (e is kotlinx.coroutines.CancellationException) {
+                    updateSession(cleanupSessionId) { s ->
+                        s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
+                    }
+                    return@launch
+                }
+                updateSession(cleanupSessionId) { s ->
+                    s.copy(
+                        isRunning = false,
+                        runStartedAt = 0L,
+                        streamingToken = "",
+                        streamingThought = "",
+                        messages = s.messages + ChatMessage(
+                            role = MessageRole.AGENT,
+                            text = e.message ?: "能力目录读取失败。",
+                            senderRoleId = currentRole.id,
+                            senderRoleName = currentRole.name,
+                            senderRoleAvatar = currentRole.avatar,
+                        ),
+                        activeLogLines = emptyList(),
+                        activeAttachments = emptyList(),
+                    )
+                }
+                Log.e(TAG, "Info channel answer failed. session=$cleanupSessionId goal=${goal.take(160)}", e)
             } finally {
                 clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
             }
@@ -4387,6 +4446,7 @@ $foundationalMemory
 
     private fun shouldRunDirectChat(route: TaskRoute): Boolean {
         if (route.contextualIntent.disableToolNarrowing) return false
+        if (route.contextualIntent.aiPrimaryChannel == ChannelType.INFO) return true
         if (route.taskType == TaskType.CHAT) {
             return route.contextualIntent.aiSupportingChannels.isEmpty() &&
                 route.contextualIntent.aiToolHints.isEmpty()
@@ -4403,14 +4463,72 @@ $foundationalMemory
     private fun TaskRoute.primaryChannelForExecution(): ChannelType =
         contextualIntent.aiPrimaryChannel ?: when (taskType) {
             TaskType.PHONE_CONTROL -> ChannelType.PHONE
+            TaskType.CHAT, TaskType.GENERAL ->
+                if (looksLikeCapabilityInfoQuestion(contextualIntent.classificationGoal)) ChannelType.INFO else ChannelType.CHAT
             TaskType.WEB_RESEARCH -> ChannelType.WEB
             TaskType.FILE_CREATE, TaskType.APP_BUILD -> ChannelType.ARTIFACT
             TaskType.IMAGE_GENERATION -> ChannelType.MEDIA
             TaskType.VPN_CONTROL -> ChannelType.VPN
             TaskType.SKILL_MANAGEMENT -> ChannelType.SKILL
             TaskType.CODE_EXECUTION -> ChannelType.CODE
-            TaskType.CHAT, TaskType.GENERAL -> ChannelType.CHAT
         }
+
+    private fun looksLikeCapabilityInfoQuestion(goal: String): Boolean {
+        val text = goal.trim().lowercase()
+        if (text.isBlank() || text.length > 80) return false
+        val capabilityNeedles = listOf(
+            "你能做什么", "你可以做什么", "你会什么", "你有什么能力", "有哪些能力", "有什么能力",
+            "有哪些工具", "有什么工具", "能力列表", "工具列表", "能干什么", "能帮我干嘛",
+            "mobileclaw能做什么", "mobileclaw 可以做什么", "支持什么", "能不能做",
+            "what can you do", "what are your capabilities", "available tools", "capability list",
+        )
+        return capabilityNeedles.any { text.contains(it) }
+    }
+
+    private suspend fun buildMobileClawCapabilityDirectory(goal: String): String {
+        val metas = registry.userVisibleMetasWithTaxonomy()
+        val byCategory = metas.flatMap { meta ->
+            meta.categories.ifEmpty { emptyList() }.map { category -> category to meta }
+        }.groupBy({ it.first }, { it.second })
+        val snap = config.snapshot()
+        val accessibility = if (ClawAccessibilityService.isEnabled()) "已开启" else "未开启，需要先授权无障碍"
+        val codexDesktop = if (
+            _uiState.value.userConfigEntries["codex_desktop_endpoint"]?.value.orEmpty().isNotBlank() &&
+            _uiState.value.userConfigEntries["codex_desktop_token"]?.value.orEmpty().isNotBlank()
+        ) "已配置" else "未配置"
+        val imageReady = registry.contains("generate_image") && (
+            snap.activeGateway?.hasCapability("image") == true ||
+                userConfig.get("image_api_endpoint")?.isNotBlank() == true ||
+                userConfig.get("huggingface_api_key")?.isNotBlank() == true
+            )
+        val videoReady = registry.contains("generate_video") && (
+            snap.activeGateway?.hasCapability("video") == true ||
+                userConfig.get("video_api_endpoint")?.isNotBlank() == true
+            )
+        fun examples(category: SkillToolCategory, limit: Int = 4): String {
+            val items = byCategory[category].orEmpty()
+                .distinctBy { it.id }
+                .filterNot { it.internalTool }
+                .sortedWith(compareBy<SkillMeta> { it.injectionLevel }.thenBy { it.id })
+                .take(limit)
+                .map { it.nameZh ?: it.name }
+            return items.joinToString("、").ifBlank { "当前未发现可见工具" }
+        }
+        return """
+我可以做这些事，具体会按任务需要再读取对应能力目录，不会每次聊天都塞满上下文：
+
+- 普通聊天和思考：回答问题、解释概念、写作润色、翻译、规划、学习辅导。
+- 手机操作：查看屏幕、点击、输入、滑动、打开应用并完成多步骤流程。状态：$accessibility。代表工具：${examples(SkillToolCategory.PHONE)}。
+- 创建产物：MiniAPP、原生页面、仪表盘、表单、HTML/CSS/JS、文件和文档。代表工具：${examples(SkillToolCategory.ARTIFACT)}。
+- 网页与信息检索：搜索、打开网页、读取页面内容、提炼结论。代表工具：${examples(SkillToolCategory.WEB)}。
+- 图片/视频：图片生成状态：${if (imageReady) "可用" else "未完整配置"}；视频生成状态：${if (videoReady) "可用" else "未完整配置"}。代表工具：${examples(SkillToolCategory.MEDIA)}。
+- 记忆和配置：记住偏好、读取会话/工作区上下文、管理默认配置。代表工具：${examples(SkillToolCategory.MEMORY)}。
+- 技能和自我改进：安装/创建技能、切换角色、调整页面或能力策略。代表工具：${examples(SkillToolCategory.SKILL)}。
+- 电脑 Codex 协作：把复杂开发任务交给电脑端 Codex bridge。状态：$codexDesktop。
+
+你可以直接说目标，比如“帮我生成一个记账 MiniAPP”“打开美团搜附近烤肉”“总结这个网页”“记住我喜欢简洁黑白风”。我会先判断是普通聊天、INFO 目录，还是需要进入 agent 执行通道。
+        """.trimIndent()
+    }
 
     private fun isRecentContinuationRoute(route: TaskRoute, goal: String): Boolean {
         if (route.source != TaskRouteSource.RECENT_CONTEXT) return false
