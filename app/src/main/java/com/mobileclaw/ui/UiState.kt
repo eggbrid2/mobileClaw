@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.Flow
 
 enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_DETAIL, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN, AI_TOWN, WORKSPACE, IMAGE_GENERATOR, VIDEO_GENERATOR }
 
+enum class SettingsLaunchTarget { GATEWAY }
+
 const val LATENCY_TESTING = -1L
 const val LATENCY_ERROR   = -2L
 
@@ -36,6 +38,7 @@ data class MainUiState(
     val allSkills: List<SkillMeta> = emptyList(),
     val config: Flow<ConfigSnapshot>,
     val isConfigured: Boolean = false,
+    val settingsLaunchTarget: SettingsLaunchTarget? = null,
     val supportsMultimodal: Boolean = true,
     val virtualDisplayTestResult: String? = null,
     val inputImageBase64: String? = null,

@@ -422,9 +422,10 @@ class MainViewModel : ViewModel() {
 
         viewModelScope.launch {
             config.configFlow.collect { snap ->
+                val configured = (snap.chatEndpoint.isNotBlank() && snap.chatApiKey.isNotBlank()) ||
+                    ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null)
                 _uiState.update { it.copy(
-                    isConfigured = (snap.chatEndpoint.isNotBlank() && snap.chatApiKey.isNotBlank()) ||
-                        ((snap.localModelEnabled || snap.localNativeOnly) && app.localModelManager.modelPath(snap.localModelId) != null),
+                    isConfigured = configured,
                     currentModel = snap.model,
                     supportsMultimodal = supportsCurrentMultimodal(snap),
                 ) }
@@ -3009,6 +3010,25 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     }
 
     private val backStack = ArrayDeque<AppPage>().apply { add(AppPage.HOME) }
+
+    fun consumeSettingsLaunchTarget() {
+        _uiState.update { it.copy(settingsLaunchTarget = null) }
+    }
+
+    fun openGatewayConfig() {
+        checkPrivServer()
+        loadVideoTasks()
+        if (backStack.isEmpty() || backStack.last() != AppPage.SETTINGS) {
+            backStack.addLast(AppPage.SETTINGS)
+        }
+        _uiState.update {
+            it.copy(
+                currentPage = AppPage.SETTINGS,
+                canNavigateBack = backStack.size > 1,
+                settingsLaunchTarget = SettingsLaunchTarget.GATEWAY,
+            )
+        }
+    }
 
     fun navigate(page: AppPage) {
         val targetPage = page

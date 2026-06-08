@@ -631,8 +631,10 @@ fun ClassicHomePage(
     groups: List<Group>,
     groupPreviews: Map<String, GroupPreview>,
     currentSessionId: String,
+    isConfigured: Boolean,
     onNewChat: () -> Unit,
     onOpenGroups: () -> Unit,
+    onConfigureGateway: () -> Unit,
     onOpenSession: (String) -> Unit,
     onOpenGroup: (Group) -> Unit,
 ) {
@@ -688,7 +690,11 @@ fun ClassicHomePage(
         Spacer(Modifier.height(16.dp))
         if (filteredItems.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                ClassicEmptyHome(onNewChat = onNewChat)
+                ClassicEmptyHome(
+                    isConfigured = isConfigured,
+                    onNewChat = onNewChat,
+                    onConfigureGateway = onConfigureGateway,
+                )
             }
         } else {
             Box(
@@ -993,7 +999,11 @@ private fun classicConversationAvatarColors(
 }
 
 @Composable
-private fun ClassicEmptyHome(onNewChat: () -> Unit) {
+private fun ClassicEmptyHome(
+    isConfigured: Boolean,
+    onNewChat: () -> Unit,
+    onConfigureGateway: () -> Unit,
+) {
     val c = LocalClawColors.current
     Column(
         Modifier
@@ -1011,18 +1021,30 @@ private fun ClassicEmptyHome(onNewChat: () -> Unit) {
             Icon(Icons.Filled.ChatBubbleOutline, contentDescription = null, tint = c.subtext, modifier = Modifier.size(32.dp))
         }
         Spacer(Modifier.height(16.dp))
-        Text("还没有会话", color = c.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "暂无会话",
+            color = c.text,
+            fontSize = 18.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.Bold,
+        )
         Spacer(Modifier.height(14.dp))
         Box(
             Modifier
                 .height(38.dp)
                 .clip(RoundedCornerShape(19.dp))
                 .background(c.text)
-                .clickable(onClick = onNewChat)
+                .clickable(onClick = if (isConfigured) onNewChat else onConfigureGateway)
                 .padding(horizontal = 18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text("新建会话", color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (isConfigured) "新建会话" else "去配置网关",
+                color = c.bg,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -1480,35 +1502,40 @@ private fun ClassicWorkspaceEntry(
                 elevation = 10.dp,
                 shape = RoundedCornerShape(24.dp),
                 clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.035f),
-                spotColor = Color.Black.copy(alpha = 0.055f),
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.12f else 0.035f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.18f else 0.055f),
             )
             .clip(RoundedCornerShape(24.dp))
             .background(if (c.isDark) Color(0xFF171716) else Color(0xFFFAF7EF))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 15.dp, vertical = 14.dp),
+            .clickable(onClick = onClick),
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val warm = Color(0xFFD2975E)
-            val ivory = Color(0xFFF8F3EA)
             val paper = Color.White
             drawRect(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        paper.copy(alpha = if (c.isDark) 0.08f else 0.88f),
-                        ivory.copy(alpha = if (c.isDark) 0.06f else 0.74f),
-                        warm.copy(alpha = if (c.isDark) 0.05f else 0.13f),
+                    colorStops = arrayOf(
+                        0.00f to paper.copy(alpha = if (c.isDark) 0.09f else 0.92f),
+                        0.58f to Color(0xFFF5EFE5).copy(alpha = if (c.isDark) 0.07f else 0.72f),
+                        1.00f to Color(0xFFECE3D7).copy(alpha = if (c.isDark) 0.05f else 0.55f),
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(size.width, size.height),
                 )
             )
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        paper.copy(alpha = if (c.isDark) 0.08f else 0.78f),
+                        paper.copy(alpha = if (c.isDark) 0.03f else 0.22f),
+                    )
+                )
+            )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        warm.copy(alpha = if (c.isDark) 0.08f else 0.18f),
-                        warm.copy(alpha = if (c.isDark) 0.03f else 0.06f),
-                        Color.Transparent,
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFFD2975E).copy(alpha = if (c.isDark) 0.08f else 0.16f),
+                        0.64f to Color(0xFFD2975E).copy(alpha = if (c.isDark) 0.03f else 0.05f),
+                        1.00f to Color.Transparent,
                     ),
                     center = Offset(size.width, size.height),
                     radius = size.width * 0.54f,
@@ -1516,30 +1543,12 @@ private fun ClassicWorkspaceEntry(
                 radius = size.width * 0.54f,
                 center = Offset(size.width, size.height),
             )
-            drawRect(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        paper.copy(alpha = if (c.isDark) 0.04f else 0.50f),
-                        Color.Transparent,
-                        paper.copy(alpha = if (c.isDark) 0.03f else 0.20f),
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, size.height * 0.72f),
-                )
-            )
-            val lineColor = warm.copy(alpha = if (c.isDark) 0.06f else 0.09f)
-            repeat(4) { i ->
-                val y = size.height * (0.26f + i * 0.17f)
-                drawLine(
-                    color = lineColor,
-                    start = Offset(size.width * 0.58f, y),
-                    end = Offset(size.width * 0.96f, y + 18.dp.toPx()),
-                    strokeWidth = 0.8.dp.toPx(),
-                )
-            }
         }
         Row(
-            Modifier.fillMaxWidth().align(Alignment.Center),
+            Modifier
+                .fillMaxWidth()
+                .align(Alignment.Center)
+                .padding(horizontal = 15.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1589,25 +1598,21 @@ private fun ClassicWorkbenchGenerate(
                 elevation = 18.dp,
                 shape = RoundedCornerShape(30.dp),
                 clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.045f),
-                spotColor = Color.Black.copy(alpha = 0.085f),
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.14f else 0.045f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.20f else 0.085f),
             )
             .clip(RoundedCornerShape(30.dp))
             .background(if (c.isDark) Color(0xFF171716) else Color(0xFFF8F3EA))
             .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.14f else 0.62f), RoundedCornerShape(30.dp))
-            .padding(18.dp),
     ) {
         Canvas(Modifier.matchParentSize()) {
-            val warm = Color(0xFFE8C69A)
-            val cool = Color(0xFFCFE2EA)
-            val mint = Color(0xFFDDEADE)
             val paper = Color.White
             drawRect(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        paper.copy(alpha = if (c.isDark) 0.08f else 0.82f),
-                        Color(0xFFF4E6D1).copy(alpha = if (c.isDark) 0.06f else 0.72f),
-                        mint.copy(alpha = if (c.isDark) 0.05f else 0.58f),
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFFFCFAF5).copy(alpha = if (c.isDark) 0.08f else 0.92f),
+                        0.54f to Color(0xFFF2E4D1).copy(alpha = if (c.isDark) 0.06f else 0.78f),
+                        1.00f to Color(0xFFF2F8F3).copy(alpha = if (c.isDark) 0.05f else 0.78f),
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(size.width, size.height),
@@ -1615,64 +1620,65 @@ private fun ClassicWorkbenchGenerate(
             )
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(
-                        warm.copy(alpha = if (c.isDark) 0.12f else 0.40f),
-                        warm.copy(alpha = if (c.isDark) 0.04f else 0.13f),
-                        Color.Transparent,
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFFE8C69A).copy(alpha = if (c.isDark) 0.12f else 0.42f),
+                        0.58f to Color(0xFFE8C69A).copy(alpha = if (c.isDark) 0.04f else 0.13f),
+                        1.00f to Color.Transparent,
                     ),
-                    center = Offset(size.width * 0.96f, -size.height * 0.04f),
+                    center = Offset(size.width, 0f),
                     radius = size.width * 0.62f,
                 ),
                 radius = size.width * 0.62f,
-                center = Offset(size.width * 0.96f, -size.height * 0.04f),
+                center = Offset(size.width, 0f),
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color(0xFFCFE2EA).copy(alpha = if (c.isDark) 0.10f else 0.36f),
+                        0.64f to Color(0xFFCFE2EA).copy(alpha = if (c.isDark) 0.03f else 0.10f),
+                        1.00f to Color.Transparent,
+                    ),
+                    center = Offset(0f, size.height * 0.10f),
+                    radius = size.width * 0.54f,
+                ),
+                radius = size.width * 0.54f,
+                center = Offset(0f, size.height * 0.10f),
             )
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        cool.copy(alpha = if (c.isDark) 0.10f else 0.34f),
-                        cool.copy(alpha = if (c.isDark) 0.03f else 0.10f),
+                        Color(0xFFDDEADE).copy(alpha = if (c.isDark) 0.06f else 0.24f),
                         Color.Transparent,
                     ),
-                    center = Offset(-size.width * 0.04f, size.height * 0.08f),
-                    radius = size.width * 0.54f,
+                    center = Offset(size.width * 0.22f, size.height * 1.22f),
+                    radius = size.width * 0.78f,
                 ),
-                radius = size.width * 0.54f,
-                center = Offset(-size.width * 0.04f, size.height * 0.08f),
-            )
-            drawCircle(
-                color = paper.copy(alpha = if (c.isDark) 0.03f else 0.24f),
                 radius = size.width * 0.78f,
-                center = Offset(size.width * 0.20f, size.height * 1.24f),
+                center = Offset(size.width * 0.22f, size.height * 1.22f),
             )
             drawRect(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        paper.copy(alpha = if (c.isDark) 0.08f else 0.50f),
-                        Color.White.copy(alpha = 0f),
-                        paper.copy(alpha = if (c.isDark) 0.04f else 0.20f),
+                    colorStops = arrayOf(
+                        0.00f to paper.copy(alpha = if (c.isDark) 0.10f else 0.50f),
+                        0.38f to Color.White.copy(alpha = 0f),
+                        1.00f to paper.copy(alpha = if (c.isDark) 0.05f else 0.20f),
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(size.width, size.height * 0.86f),
                 )
             )
-            val arcColor = Color(0xFF9A7A55).copy(alpha = if (c.isDark) 0.04f else 0.055f)
-            repeat(5) { i ->
-                drawCircle(
-                    color = arcColor,
-                    radius = 72.dp.toPx() + i * 16.dp.toPx(),
-                    center = Offset(size.width * 0.88f, size.height * 0.18f),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.7.dp.toPx()),
-                )
-            }
         }
-        Column(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
             Text(
                 "生成",
                 color = c.text.copy(alpha = 0.44f),
                 fontSize = 10.sp,
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.4.sp,
             )
             Spacer(Modifier.height(8.dp))
             Text(

@@ -375,6 +375,8 @@ fun SettingsPage(
     onRefreshVideoTask: (String) -> Unit,
     onRefreshPendingVideoTasks: () -> Unit,
     onDeleteVideoTask: (String) -> Unit,
+    launchGatewaySetup: Boolean = false,
+    onLaunchGatewaySetupConsumed: () -> Unit = {},
 ) {
     val c = LocalClawColors.current
     val context = LocalContext.current
@@ -390,6 +392,13 @@ fun SettingsPage(
     var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
+
+    LaunchedEffect(launchGatewaySetup) {
+        if (launchGatewaySetup) {
+            subPage = SettingsSub.GATEWAY
+            onLaunchGatewaySetupConsumed()
+        }
+    }
 
     val currentSnapshot = {
         snapshot.copy(

@@ -20,6 +20,7 @@ import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.ui.AppPage
 import com.mobileclaw.ui.MainUiState
 import com.mobileclaw.ui.MainViewModel
+import com.mobileclaw.ui.SettingsLaunchTarget
 import com.mobileclaw.ui.MiniAppActivity
 import com.mobileclaw.ui.aipage.AiPagesPage
 import com.mobileclaw.ui.aipage.AiPageActivity
@@ -136,6 +137,8 @@ fun MainPageHost(
             onRefreshVideoTask = { vm.refreshVideoTask(it) },
             onRefreshPendingVideoTasks = { vm.refreshPendingVideoTasks() },
             onDeleteVideoTask = { vm.deleteVideoTask(it) },
+            launchGatewaySetup = uiState.settingsLaunchTarget == SettingsLaunchTarget.GATEWAY,
+            onLaunchGatewaySetupConsumed = { vm.consumeSettingsLaunchTarget() },
         )
     }
     AnimatedVisibility(
