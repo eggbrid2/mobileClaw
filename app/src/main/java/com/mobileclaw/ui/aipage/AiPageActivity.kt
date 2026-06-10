@@ -40,7 +40,11 @@ class AiPageActivity : ComponentActivity() {
             val configFlow by config.configFlow.collectAsState(initial = initialConfig)
             val def = pages.firstOrNull { it.id == pageId }
 
-            ClawTheme(darkTheme = configFlow.darkTheme, accentColor = configFlow.accentColor) {
+            ClawTheme(
+                darkTheme = configFlow.darkTheme,
+                accentColor = configFlow.accentColor,
+                language = configFlow.language,
+            ) {
                 val c = LocalClawColors.current
                 if (def != null) {
                     AiPageHost(

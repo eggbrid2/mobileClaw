@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             ClawTheme(
                 darkTheme = configSnapshot.darkTheme,
                 accentColor = configSnapshot.accentColor,
+                language = configSnapshot.language,
             ) {
                 val lightStatusBars = uiState.currentPage != AppPage.AI_TOWN && !configSnapshot.darkTheme
                 SideEffect {

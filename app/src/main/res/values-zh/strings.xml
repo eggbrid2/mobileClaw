@@ -820,6 +820,7 @@
     <string name="settings_night_mode">夜间模式</string>
     <string name="settings_night_mode_desc">适合长时间使用的低眩光蓝色界面</string>
     <string name="classic_center">应用中心</string>
+    <string name="classic_chats">会话</string>
     <string name="classic_me">我的</string>
     <string name="classic_workspace">工作台</string>
     <string name="classic_agents">团队</string>

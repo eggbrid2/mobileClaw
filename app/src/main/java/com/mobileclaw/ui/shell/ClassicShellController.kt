@@ -20,7 +20,7 @@ class ClassicShellController internal constructor() {
 
     val title: String
         get() = when (tab) {
-            ClassicTab.HOME -> "会话"
+            ClassicTab.HOME -> str(R.string.classic_chats)
             ClassicTab.WORKSPACE -> str(R.string.classic_workspace)
             ClassicTab.ME -> str(R.string.classic_me)
         }

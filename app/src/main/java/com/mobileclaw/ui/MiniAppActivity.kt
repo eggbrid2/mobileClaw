@@ -92,7 +92,11 @@ class MiniAppActivity : ComponentActivity() {
         val config = claw.agentConfig.snapshot()
 
         setContent {
-            ClawTheme(darkTheme = config.darkTheme, accentColor = config.accentColor) {
+            ClawTheme(
+                darkTheme = config.darkTheme,
+                accentColor = config.accentColor,
+                language = config.language,
+            ) {
                 MiniAppScreen(
                     appId = appId,
                     onClose = { finish() },

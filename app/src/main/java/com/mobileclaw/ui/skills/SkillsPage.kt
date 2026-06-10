@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,6 +54,7 @@ import com.mobileclaw.skill.SkillToolTaxonomy
 import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.ClawIconTile
 import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 
@@ -75,7 +75,7 @@ fun SkillsPage(
     showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
-    val locale = LocalConfiguration.current.locales[0].language
+    val locale = LocalAppLanguage.current
     var pendingPromotion by remember { mutableStateOf<SkillMeta?>(null) }
     var pendingDelete by remember { mutableStateOf<SkillMeta?>(null) }
     val installedIds = remember(allSkills) { allSkills.map { it.id }.toSet() }
@@ -418,7 +418,7 @@ private fun MarketSkillCard(
     onInstall: () -> Unit,
     c: ClawColors,
 ) {
-    val lang = LocalConfiguration.current.locales[0].language
+    val lang = LocalAppLanguage.current
     val name = if (lang == "zh") entry.def.meta.nameZh ?: entry.def.meta.name else entry.def.meta.name
     val desc = if (lang == "zh") entry.def.meta.descriptionZh ?: entry.def.meta.description else entry.def.meta.description
 
@@ -664,7 +664,7 @@ private fun SkillRow(
     var localNote by remember { mutableStateOf(note) }
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
-    val lang = LocalConfiguration.current.locales[0].language
+    val lang = LocalAppLanguage.current
     val displayName = if (lang == "zh") skill.nameZh ?: skill.name else skill.name
     val displayDesc = if (lang == "zh") skill.descriptionZh ?: skill.description else skill.description
 

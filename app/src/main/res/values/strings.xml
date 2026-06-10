@@ -820,6 +820,7 @@ Example: "Create an expense tracker app with a database"</string>
     <string name="settings_night_mode">Night mode</string>
     <string name="settings_night_mode_desc">Low-glare blue interface for long sessions</string>
     <string name="classic_center">Center</string>
+    <string name="classic_chats">Chats</string>
     <string name="classic_me">Me</string>
     <string name="classic_workspace">Workspace</string>
     <string name="classic_agents">Team</string>

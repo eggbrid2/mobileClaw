@@ -72,6 +72,7 @@ import com.mobileclaw.town.AgentRoom
 import com.mobileclaw.town.RoomFurniture
 import com.mobileclaw.town.AgentSpritePack
 import com.mobileclaw.town.AgentTownState
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 import java.io.File
@@ -168,6 +169,7 @@ fun RolesPage(
 @Composable
 private fun RoleManagementHeader(onBack: () -> Unit) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     Box(
         Modifier
             .fillMaxWidth()
@@ -181,9 +183,9 @@ private fun RoleManagementHeader(onBack: () -> Unit) {
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("角色管理", color = c.text, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
+            Text(if (isZh) "角色管理" else "Role Management", color = c.text, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(3.dp))
-            Text("默认角色与能力偏好", color = c.subtext, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isZh) "默认角色与能力偏好" else "Default role and capabilities", color = c.subtext, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -196,6 +198,7 @@ private fun CurrentRolePanel(
     onOpen: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     val accent = room?.accent?.toComposeColor() ?: accentForRole(role)
     Row(
         modifier = Modifier
@@ -224,10 +227,10 @@ private fun CurrentRolePanel(
             Text(roleInitial(role), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f)) {
-            Text("当前默认", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
+            Text(if (isZh) "当前默认" else "Current Default", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
             Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                text = if (isWorking) str(R.string.role_card_generating) else "写作、生活、工作空间均使用此角色。",
+                text = if (isWorking) str(R.string.role_card_generating) else if (isZh) "写作、生活、工作空间均使用此角色。" else "Writing, life, and workspace all use this role.",
                 color = Color.White.copy(alpha = 0.68f),
                 fontSize = 12.sp,
                 lineHeight = 15.sp,
@@ -249,6 +252,7 @@ private fun RoleListCard(
     onActivate: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     val accent = room?.accent?.toComposeColor() ?: accentForRole(role)
     Row(
         modifier = Modifier
@@ -274,7 +278,7 @@ private fun RoleListCard(
         Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                text = roleRoleSummary(role, room),
+                text = roleRoleSummary(role, room, isZh),
                 fontSize = 11.sp,
                 color = c.subtext,
                 maxLines = 1,
@@ -293,7 +297,11 @@ private fun RoleListCard(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                if (isActive) "默认" else "切换",
+                if (isActive) {
+                    if (isZh) "默认" else "Default"
+                } else {
+                    if (isZh) "切换" else "Switch"
+                },
                 color = c.subtext,
                 fontSize = 11.sp,
                 lineHeight = 12.sp,
@@ -309,10 +317,10 @@ private fun roleInitial(role: Role): String =
         ?: role.id.firstOrNull()?.uppercaseChar()?.toString()
         ?: "C"
 
-private fun roleRoleSummary(role: Role, room: AgentRoom?): String =
+private fun roleRoleSummary(role: Role, room: AgentRoom?, isZh: Boolean): String =
     room?.motto?.takeIf { it.isNotBlank() }
-        ?: role.preferredTaskTypes.take(3).joinToString("、") { it.roleTaskLabel() }.takeIf { it.isNotBlank() }
-        ?: role.description.ifBlank { "全局助手" }
+        ?: role.preferredTaskTypes.take(3).joinToString(if (isZh) "、" else ", ") { it.roleTaskLabel(isZh) }.takeIf { it.isNotBlank() }
+        ?: role.description.ifBlank { if (isZh) "全局助手" else "General assistant" }
 
 private fun roleDotBrush(role: Role, accent: Color): Brush {
     return when (role.avatar) {
@@ -329,17 +337,17 @@ private fun roleDotBrush(role: Role, accent: Color): Brush {
     }
 }
 
-private fun TaskType.roleTaskLabel(): String = when (this) {
-    TaskType.PHONE_CONTROL -> "控手机"
-    TaskType.WEB_RESEARCH -> "查资料"
-    TaskType.FILE_CREATE -> "写文档"
-    TaskType.APP_BUILD -> "建应用"
-    TaskType.IMAGE_GENERATION -> "做图片"
+private fun TaskType.roleTaskLabel(isZh: Boolean): String = when (this) {
+    TaskType.PHONE_CONTROL -> if (isZh) "控手机" else "Phone"
+    TaskType.WEB_RESEARCH -> if (isZh) "查资料" else "Research"
+    TaskType.FILE_CREATE -> if (isZh) "写文档" else "Docs"
+    TaskType.APP_BUILD -> if (isZh) "建应用" else "Apps"
+    TaskType.IMAGE_GENERATION -> if (isZh) "做图片" else "Images"
     TaskType.VPN_CONTROL -> "VPN"
-    TaskType.SKILL_MANAGEMENT -> "管技能"
-    TaskType.CODE_EXECUTION -> "写代码"
+    TaskType.SKILL_MANAGEMENT -> if (isZh) "管技能" else "Skills"
+    TaskType.CODE_EXECUTION -> if (isZh) "写代码" else "Code"
     TaskType.CHAT,
-    TaskType.GENERAL -> "聊天"
+    TaskType.GENERAL -> if (isZh) "聊天" else "Chat"
 }
 
 @Composable
@@ -356,6 +364,7 @@ fun RoleDetailPage(
     onBack: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     val room = town.rooms[role.id]
     val spritePack = room?.portraitSpritePack
         ?.takeIf { it.isNotBlank() }
@@ -469,7 +478,7 @@ fun RoleDetailPage(
                     lines = listOf(
                         role.description,
                         if (role.preferredTaskTypes.isNotEmpty()) {
-                            str(R.string.role_detail_tasks_label, role.preferredTaskTypes.joinToString(" / ") { it.roleTaskLabel() })
+                            str(R.string.role_detail_tasks_label, role.preferredTaskTypes.joinToString(" / ") { it.roleTaskLabel(isZh) })
                         } else "",
                         str(R.string.role_detail_model_label, role.modelOverride ?: str(R.string.role_edit_b11de2)),
                     ).filter { it.isNotBlank() },

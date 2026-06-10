@@ -69,6 +69,7 @@ import com.mobileclaw.app.MiniApp
 import com.mobileclaw.ui.AppJsBridge
 import com.mobileclaw.ui.ClawIconTile
 import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.clawIconForSymbol
 import java.io.File
@@ -85,6 +86,7 @@ fun AppLauncherPage(
     showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     var isEditMode by remember { mutableStateOf(false) }
 
     BackHandler(enabled = isEditMode) { isEditMode = false }
@@ -109,7 +111,7 @@ fun AppLauncherPage(
                 )
                 if (miniApps.isNotEmpty()) {
                     Text(
-                        if (isEditMode) str(R.string.app_launcher_done) else "${miniApps.size} 个",
+                        if (isEditMode) str(R.string.app_launcher_done) else if (isZh) "${miniApps.size} 个" else "${miniApps.size} apps",
                         color = if (isEditMode) c.text else c.subtext,
                         fontSize = 13.sp,
                         fontWeight = if (isEditMode) FontWeight.Medium else FontWeight.Normal,

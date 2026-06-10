@@ -47,6 +47,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.mobileclaw.ClawApplication
 
 // ── Color palette ─────────────────────────────────────────────────────────────
 
@@ -202,11 +203,11 @@ class AgentOverlayManager(private val context: Context) {
     fun showCompleted(summary: String) {
         runOnMain {
             if (hostFrame == null) {
-                showInternal("任务已完成", compact = false)
+                showInternal(if (overlayIsZh()) "任务已完成" else "Task completed", compact = false)
             }
             state.completed = true
             state.compact = false
-            state.task = "任务已完成"
+            state.task = if (overlayIsZh()) "任务已完成" else "Task completed"
             state.currentSkill = ""
             state.streamingThought = ""
             state.lastObservation = ""
@@ -348,6 +349,9 @@ class AgentOverlayManager(private val context: Context) {
         }
     }
 }
+
+private fun overlayIsZh(): Boolean =
+    ClawApplication.instance.agentConfig.language != "en"
 
 // ── Capsule Composable ────────────────────────────────────────────────────────
 
@@ -536,6 +540,7 @@ private fun CompletionOverlayCard(
     onMinimize: () -> Unit,
     onClose: () -> Unit,
 ) {
+    val isZh = overlayIsZh()
     Column(
         modifier = Modifier
             .pointerInput(Unit) {
@@ -550,10 +555,10 @@ private fun CompletionOverlayCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(9.dp).clip(CircleShape).background(DotGreen))
-            Text("执行完成", color = CapsuleText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (isZh) "执行完成" else "Completed", color = CapsuleText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         Text(
-            text = summary.ifBlank { "内容已经执行完毕，可以回到 MobileClaw 查看结果。" },
+            text = summary.ifBlank { if (isZh) "内容已经执行完毕，可以回到 MobileClaw 查看结果。" else "The task is complete. Return to MobileClaw to view the result." },
             color = CapsuleText.copy(alpha = 0.76f),
             fontSize = 12.sp,
             lineHeight = 17.sp,
@@ -561,9 +566,9 @@ private fun CompletionOverlayCard(
             overflow = TextOverflow.Ellipsis,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OverlayActionButton("回到APP", primary = true, modifier = Modifier.weight(1.18f), onClick = onReturnToApp)
-            OverlayActionButton("缩小", primary = false, modifier = Modifier.weight(0.82f), onClick = onMinimize)
-            OverlayActionButton("关闭", primary = false, modifier = Modifier.weight(0.82f), onClick = onClose)
+            OverlayActionButton(if (isZh) "回到APP" else "Return", primary = true, modifier = Modifier.weight(1.18f), onClick = onReturnToApp)
+            OverlayActionButton(if (isZh) "缩小" else "Minimize", primary = false, modifier = Modifier.weight(0.82f), onClick = onMinimize)
+            OverlayActionButton(if (isZh) "关闭" else "Close", primary = false, modifier = Modifier.weight(0.82f), onClick = onClose)
         }
     }
 }

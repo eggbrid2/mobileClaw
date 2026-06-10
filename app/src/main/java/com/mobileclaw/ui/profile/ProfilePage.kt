@@ -52,6 +52,7 @@ import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.ClawPageHeader
 import com.mobileclaw.ui.ClawIconTile
 import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 
@@ -827,6 +828,7 @@ private fun SectionTabRow(active: ProfileSection, onSelect: (ProfileSection) -> 
 @Composable
 private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
 
     if (episodes.isEmpty()) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
@@ -882,9 +884,9 @@ private fun TaskInsightsCard(episodes: List<EpisodeEntity>) {
             Text(stringResource(R.string.profile_777c5c), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
             Spacer(Modifier.height(2.dp))
-            InsightRow(stringResource(R.string.profile_3d8ec0), "${(successRate * 100).toInt()}% 任务成功率", successRate, c.green)
-            InsightRow(stringResource(R.string.profile_9460ee), "任务多样性 ${(variety * 100).toInt()}%", variety.coerceIn(0f, 1f), c.purple)
-            InsightRow(stringResource(R.string.profile_b22274), "${episodes.size} 个历史任务", (episodes.size / 50f).coerceIn(0.05f, 1f), c.accent)
+            InsightRow(stringResource(R.string.profile_3d8ec0), if (isZh) "${(successRate * 100).toInt()}% 任务成功率" else "${(successRate * 100).toInt()}% task success rate", successRate, c.green)
+            InsightRow(stringResource(R.string.profile_9460ee), if (isZh) "任务多样性 ${(variety * 100).toInt()}%" else "Task variety ${(variety * 100).toInt()}%", variety.coerceIn(0f, 1f), c.purple)
+            InsightRow(stringResource(R.string.profile_b22274), if (isZh) "${episodes.size} 个历史任务" else "${episodes.size} historical tasks", (episodes.size / 50f).coerceIn(0.05f, 1f), c.accent)
             InsightRow(stringResource(R.string.profile_e95b62), if (allSkills.any { it.startsWith("web_") || it == "shell" }) stringResource(R.string.profile_f2e2d4) else stringResource(R.string.profile_4711a2),
                 if (allSkills.any { it.startsWith("web_") || it == "shell" }) 0.8f else 0.2f, c.blue)
         }
@@ -1141,6 +1143,7 @@ private fun MemoryBrowserCard(
     onLoadMore: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     val displayFacts = remember(facts, semanticFacts) {
         semanticFacts.ifEmpty {
             facts.map { (key, value) -> MemoryFact(key = key, value = value) }
@@ -1176,13 +1179,13 @@ private fun MemoryBrowserCard(
 
     val groupLabels = mapOf(
         "profile" to stringResource(R.string.profile_d0a47e),
-        "preference" to "偏好",
-        "rule" to "规则",
-        "correction" to "纠错",
-        "failure" to "失败经验",
-        "lesson" to "经验",
-        "project" to "项目",
-        "tool" to "工具策略",
+        "preference" to if (isZh) "偏好" else "Preferences",
+        "rule" to if (isZh) "规则" else "Rules",
+        "correction" to if (isZh) "纠错" else "Corrections",
+        "failure" to if (isZh) "失败经验" else "Failure Lessons",
+        "lesson" to if (isZh) "经验" else "Lessons",
+        "project" to if (isZh) "项目" else "Projects",
+        "tool" to if (isZh) "工具策略" else "Tool Strategy",
         "user" to stringResource(R.string.profile_4fe012),
         "app" to stringResource(R.string.profile_f3c144),
         "device" to stringResource(R.string.profile_b967fd),
@@ -1226,10 +1229,10 @@ private fun MemoryBrowserCard(
                 if (isLoadingMore) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), color = c.text, strokeWidth = 1.5.dp)
-                        Text("加载中", color = c.text.copy(alpha = 0.68f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isZh) "加载中" else "Loading", color = c.text.copy(alpha = 0.68f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    Text("再加载 40 条", color = c.text.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(if (isZh) "再加载 40 条" else "Load 40 more", color = c.text.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1245,6 +1248,7 @@ private fun MemoryGroup(
     onDelete: (key: String) -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     var expanded by remember { mutableStateOf(true) }
 
     Column(
@@ -1292,6 +1296,7 @@ private fun MemoryFactRow(
     onDelete: () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     var expanded by remember { mutableStateOf(false) }
     val alpha = if (fact.enabled) 1f else 0.45f
     Column(
@@ -1334,13 +1339,13 @@ private fun MemoryFactRow(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onPin, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                        Text(if (fact.pinned) "取消置顶" else "置顶", fontSize = 11.sp)
+                        Text(if (fact.pinned) { if (isZh) "取消置顶" else "Unpin" } else { if (isZh) "置顶" else "Pin" }, fontSize = 11.sp)
                     }
                     TextButton(onClick = onEnable, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                        Text(if (fact.enabled) "禁用" else "启用", fontSize = 11.sp)
+                        Text(if (fact.enabled) { if (isZh) "禁用" else "Disable" } else { if (isZh) "启用" else "Enable" }, fontSize = 11.sp)
                     }
                     TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                        Text("删除", fontSize = 11.sp, color = c.red)
+                        Text(if (isZh) "删除" else "Delete", fontSize = 11.sp, color = c.red)
                     }
                 }
             }
