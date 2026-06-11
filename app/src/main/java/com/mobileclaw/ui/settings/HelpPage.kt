@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.mobileclaw.R
 import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 
@@ -183,10 +184,59 @@ private val HELP_CONTENT = listOf(
     )),
 )
 
+private fun localizedHelpContent(isZh: Boolean): List<HelpSection> {
+    if (isZh) return HELP_CONTENT
+    return HELP_CONTENT.map { section ->
+        when (section.iconKey) {
+            "code" -> HelpSection("code", "Codex Desktop Mode", listOf(
+                HelpItem(
+                    "What it does",
+                    "After enabling the Codex switch at the top of the chat page, the current conversation connects directly to Codex CLI on your computer. What you say on the phone is sent to Codex as-is, and Codex progress and results return to this chat.",
+                    "Example: Fix the compile errors in the current project",
+                ),
+                HelpItem(
+                    "Prepare the computer",
+                    "Install and sign in to Codex CLI on your computer, then start the MobileClaw Codex bridge. Use the same LAN or Tailscale, and set a long random token.",
+                    "CODEX_BRIDGE_TOKEN=long-random-token CODEX_BRIDGE_HOST=0.0.0.0 CODEX_BRIDGE_PORT=52734 python3 scripts/codex_desktop_bridge.py",
+                ),
+                HelpItem(
+                    "Configure the phone",
+                    "In User Config, enter the desktop bridge URL, token, and project directory. Then return to chat and turn on the Codex switch.",
+                    "codex_desktop_endpoint = http://DESKTOP_IP:52734\ncodex_desktop_token = long-random-token\ncodex_desktop_cwd = /path/to/project/on/desktop",
+                ),
+                HelpItem(
+                    "Context and output",
+                    "Each MobileClaw conversation binds to one Codex thread, so follow-up messages continue the same context. Work steps stream in real time, and the final answer appears progressively in blocks.",
+                ),
+            ))
+            "download" -> HelpSection("download", "Release and Updates", listOf(
+                HelpItem(
+                    "Update channel",
+                    "MobileClaw can check whether a newer version is available. First save the App Key and API Key required for updates in User Config.",
+                    "app_key = Update App Key\napi_key = Update API Key",
+                ),
+                HelpItem(
+                    "Check for updates",
+                    "Tap Check for Updates on the Me page. MobileClaw will compare the installed version with the latest available version.",
+                    "Check for Updates",
+                ),
+                HelpItem(
+                    "Version rules",
+                    "App versions follow Git: versionName comes from git describe, and versionCode comes from the Git commit count. If the workspace has uncommitted changes, the version name includes dirty.",
+                    "Example: v0.3.7-dirty / 46",
+                ),
+            ))
+            else -> section
+        }
+    }
+}
+
 @Composable
 fun HelpPage(onBack: () -> Unit) {
     val c = LocalClawColors.current
-    var expandedSection by remember { mutableStateOf<String?>(HELP_CONTENT.firstOrNull()?.title) }
+    val isZh = LocalAppLanguage.current == "zh"
+    val helpContent = remember(isZh) { localizedHelpContent(isZh) }
+    var expandedSection by remember { mutableStateOf<String?>(helpContent.firstOrNull()?.iconKey) }
 
     Column(
         modifier = Modifier.fillMaxSize().background(c.bg).statusBarsPadding(),
@@ -235,9 +285,9 @@ fun HelpPage(onBack: () -> Unit) {
                 }
             }
 
-            HELP_CONTENT.forEach { section ->
-                item(key = section.title) {
-                    val isExpanded = expandedSection == section.title
+            helpContent.forEach { section ->
+                item(key = section.iconKey) {
+                    val isExpanded = expandedSection == section.iconKey
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -249,7 +299,7 @@ fun HelpPage(onBack: () -> Unit) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { expandedSection = if (isExpanded) null else section.title }
+                                .clickable { expandedSection = if (isExpanded) null else section.iconKey }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),

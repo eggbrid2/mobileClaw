@@ -305,6 +305,17 @@ fun GroupChatScreen(
             }
         }
 
+        val keyedMessages = remember(messages) {
+            val occurrences = mutableMapOf<String, Int>()
+            messages.map { msg ->
+                val baseKey = "${msg.id}:${msg.createdAt}:${msg.senderId}"
+                val occurrence = occurrences.getOrDefault(baseKey, 0)
+                occurrences[baseKey] = occurrence + 1
+                val stableKey = if (occurrence == 0) baseKey else "$baseKey#$occurrence"
+                stableKey to msg
+            }
+        }
+
         // ── Message list ─────────────────────────────────────────────────────
         LazyColumn(
             state = listState,
@@ -327,7 +338,10 @@ fun GroupChatScreen(
                 }
             }
 
-            items(messages, key = { "${it.id}:${it.createdAt}:${it.senderId}" }) { msg ->
+            items(
+                keyedMessages,
+                key = { it.first },
+            ) { (_, msg) ->
                 val isUser = msg.senderId == "user"
                 val agentColor = if (isUser) c.green else colorMap[msg.senderId] ?: c.accent
                 val senderRole = memberRoles.firstOrNull { it.id == msg.senderId }

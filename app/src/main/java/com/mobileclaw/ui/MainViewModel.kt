@@ -291,8 +291,8 @@ class MainViewModel : ViewModel() {
                     type = LogType.INFO,
                     text = message,
                     details = listOf(
-                        "本步目的：恢复这次模型生成",
-                        "本步结果：上一次模型返回异常，正在按相同目标重新发起请求",
+                        uiDetailLine("本步目的", "Purpose", uiText("恢复这次模型生成", "Recover this model generation")),
+                        uiDetailLine("本步结果", "Result", uiText("上一次模型返回异常，正在按相同目标重新发起请求", "The previous model response failed; retrying the same goal")),
                     ),
                 ).withLifecycle(running = false),
             )
@@ -412,6 +412,40 @@ class MainViewModel : ViewModel() {
     private val runtimes = mutableMapOf<String, AgentRuntime>()
     private val pendingConfirmedRoutes = mutableMapOf<String, TaskRoute>()
     private var videoTaskAutoRefreshJob: Job? = null
+
+    // 每个会话一个运行代次：新一轮任务接管会话时递增。被取消的旧协程恢复后必须先校验代次，
+    // 过期回调不得再改写 isRunning/activeLogLines/任务句柄，否则会击穿 loadSession 的防覆盖守卫。
+    private val runGenerations = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun beginRunGeneration(sessionId: String): Long =
+        runGenerations.merge(sessionId, 1L) { old, _ -> old + 1 } ?: 1L
+
+    private fun adoptRunGeneration(sessionId: String, generation: Long) {
+        if (sessionId.isNotBlank()) runGenerations[sessionId] = generation
+    }
+
+    private fun isRunGenerationCurrent(sessionId: String, generation: Long): Boolean =
+        runGenerations[sessionId] == generation
+
+    // 任务执行中禁止 agent 新建/切走当前会话或删除正在运行的会话：
+    // 切换会触发 loadSessionMessages 重载，删除会物理清掉整段聊天记录，都表现为“聊天记录被覆盖/丢失”。
+    private fun guardSessionMutation(request: SessionRequest): String? {
+        fun isBusy(id: String) = id.isNotBlank() && _uiState.value.sessionStates[id]?.isRunning == true
+        val currentId = _uiState.value.currentSessionId
+        return when (request) {
+            is SessionRequest.Create, is SessionRequest.Switch -> {
+                if (isBusy(currentId)) {
+                    "Rejected: a task is still running in the current session. Do not create or switch sessions while a task is executing; finish the current task first."
+                } else null
+            }
+            is SessionRequest.Delete -> {
+                if (isBusy(request.id)) {
+                    "Rejected: session '${request.id}' is executing a task and cannot be deleted. Deleting it would destroy the chat history the user is watching."
+                } else null
+            }
+            is SessionRequest.Rename -> null
+        }
+    }
 
     private fun updateSession(sessionId: String, transform: (SessionRunState) -> SessionRunState) {
         _uiState.update { state ->
@@ -704,7 +738,7 @@ class MainViewModel : ViewModel() {
                 codexDesktopMode = sessionId in it.codexDesktopSessionIds,
             ) }
             // Only load DB messages if the session is NOT currently running (running state is live)
-            val isAlreadyRunning = _uiState.value.sessionStates[sessionId]?.isRunning == true
+            val isAlreadyRunning = _uiState.value.sessionStates[sessionId]?.isRunning == true || taskJobs[sessionId] != null
             if (!isAlreadyRunning) {
                 loadSessionMessages(sessionId)
             }
@@ -741,12 +775,30 @@ class MainViewModel : ViewModel() {
         }.getOrDefault(emptyList()).reversed()  // DESC→reversed gives ASC order
         val messages = entities.map { it.toChatMessage() }
         val hasMore = total > pageSize
-        updateSession(sessionId) { it.copy(messages = messages) }
+        // 合并而非整体替换：内存里可能还有未落库的消息（正在执行/刚被打断的轮次），整体替换会把它们冲掉。
+        updateSession(sessionId) { it.copy(messages = mergeLoadedMessages(messages, it.messages)) }
         _uiState.update { it.copy(
             historyOffset = pageSize,
             historyHasMore = hasMore,
             historyLoading = false,
         )}
+    }
+
+    // 会话消息是只追加的：DB 页是已持久化的最新一段，内存尾部可能有尚未落库的新消息。
+    // 以 DB 页为基底，把内存中比 DB 更新的尾部接回去，避免加载时冲掉未持久化的消息。
+    private fun mergeLoadedMessages(dbMessages: List<ChatMessage>, inMemory: List<ChatMessage>): List<ChatMessage> {
+        if (inMemory.isEmpty()) return dbMessages
+        if (dbMessages.isEmpty()) return inMemory
+        val anchor = inMemory.indexOfLast { it == dbMessages.last() }
+        val unsavedTail = if (anchor >= 0) {
+            inMemory.drop(anchor + 1)
+        } else {
+            // DB 最后一条不在内存中（内存窗口落后于 DB）：取内存中最后一条已入库消息之后的部分，
+            // 再排除 DB 页里已有的，剩下的就是未持久化的尾部。
+            val lastSharedIdx = inMemory.indexOfLast { mem -> dbMessages.any { it == mem } }
+            inMemory.drop(lastSharedIdx + 1).filter { mem -> dbMessages.none { it == mem } }
+        }
+        return dbMessages + unsavedTail
     }
 
     fun loadMoreHistory() {
@@ -1698,6 +1750,7 @@ class MainViewModel : ViewModel() {
         val imageBase64: String?,
         val imageLocalPath: String,
         val fileAttachment: FileAttachment?,
+        val runGeneration: Long,
     )
 
     private fun beginVisibleUserTurn(goal: String): PendingUserTurn? {
@@ -1721,6 +1774,7 @@ class MainViewModel : ViewModel() {
             imageLocalPath = imageLocalPath,
         )
         _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
+        val runGeneration = beginRunGeneration(sessionId)
         updateSession(sessionId) { s ->
             s.copy(
                 isRunning = true,
@@ -1738,7 +1792,7 @@ class MainViewModel : ViewModel() {
                 streamingThought = "",
             )
         }
-        return PendingUserTurn(sessionId, userMessage, attachedImage, imageLocalPath, attachedFile)
+        return PendingUserTurn(sessionId, userMessage, attachedImage, imageLocalPath, attachedFile, runGeneration)
     }
 
     private fun stopCurrentRunForNewUserTurn(sessionId: String) {
@@ -1747,16 +1801,36 @@ class MainViewModel : ViewModel() {
         runtimes.remove(sessionId)
         overlay.hide()
         auroraOverlay.hide()
+        val salvaged = salvageInterruptedRunMessages(sessionId)
         updateSession(sessionId) { state ->
             state.copy(
                 isRunning = false,
                 runStartedAt = 0L,
+                messages = state.messages + salvaged,
                 activeLogLines = emptyList(),
                 activeAttachments = emptyList(),
                 streamingToken = "",
                 streamingThought = "",
             )
         }
+        if (salvaged.isNotEmpty() && sessionId.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) { runCatching { persistMessages(sessionId, null, salvaged) } }
+        }
+    }
+
+    // 被打断的运行可能已有执行日志/流式输出；折叠成一条 agent 消息保留并落库，避免“打断即丢失”。
+    private fun salvageInterruptedRunMessages(sessionId: String): List<ChatMessage> {
+        val state = _uiState.value.sessionStates[sessionId] ?: return emptyList()
+        val hasContent = state.activeLogLines.any { it.text.isNotBlank() || it.details.isNotEmpty() } ||
+            state.streamingToken.isNotBlank() ||
+            state.activeAttachments.isNotEmpty()
+        if (!hasContent) return emptyList()
+        return buildAgentMessages(
+            summary = state.streamingToken.ifBlank { "Task stopped." },
+            logLines = state.activeLogLines.finishLatestRunningLine(),
+            attachments = state.activeAttachments,
+            senderRole = _uiState.value.currentRole,
+        )
     }
 
     private fun removePendingVisibleTurn(turn: PendingUserTurn) {
@@ -1873,6 +1947,22 @@ class MainViewModel : ViewModel() {
             } else emptyList(),
             imageLocalPath = attachedImageLocalPath,
         )
+        val runGeneration = pendingTurn?.runGeneration ?: beginRunGeneration(sessionIdAtStart)
+        val userMessageVisible = pendingTurn != null || showUserMessage
+        // 用户消息在执行启动时即落库，而不是等任务结束：任务被取消/打断后重新加载会话也不会丢这条消息。
+        // 仅当会话 id 暂时为空（将由 ensureRunnableSession 新建）时退回旧的“结束时持久化”路径。
+        val userMessagePersistedEarly = userMessageVisible && sessionIdAtStart.isNotBlank()
+        if (userMessagePersistedEarly) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    persistUserOnlyMessage(
+                        sessionId = sessionIdAtStart,
+                        userMsg = userMessage,
+                        fallbackTitle = if (userMessage.imageBase64 != null) str(R.string.sticker_button) else str(R.string.vm_new_),
+                    )
+                }
+            }
+        }
         if (codexDesktopMode && routeOverride == null) {
             runCodexDesktopDirect(
                 sessionId = sessionIdAtStart,
@@ -1883,7 +1973,8 @@ class MainViewModel : ViewModel() {
                 imageLocalPath = attachedImageLocalPath,
                 fileAttachment = attachedFile,
                 showUserMessage = showUserMessage,
-                persistUserMessage = pendingTurn != null || showUserMessage,
+                persistUserMessage = userMessageVisible && !userMessagePersistedEarly,
+                runGeneration = runGeneration,
             )
             return
         }
@@ -1895,7 +1986,11 @@ class MainViewModel : ViewModel() {
                     taskTypeOverride = TaskType.CODE_EXECUTION,
                     aiPrimaryChannel = ChannelType.CODE,
                     aiToolHints = listOf("codex_desktop"),
-                    userVisibleSteps = listOf("连接电脑 Codex", "发送任务", "返回结果"),
+                    userVisibleSteps = if (isEnglishUiText()) {
+                        listOf("Connect to desktop Codex", "Send the task", "Return the result")
+                    } else {
+                        listOf("连接电脑 Codex", "发送任务", "返回结果")
+                    },
                 ),
                 goalForExecution = effectiveGoal,
                 source = TaskRouteSource.CLASSIFIER,
@@ -2005,7 +2100,7 @@ class MainViewModel : ViewModel() {
         if (attachedImage == null &&
             attachedFile == null &&
             route.primaryChannelForExecution() == ChannelType.INFO) {
-            runInfoChannelAnswer(sessionIdAtStart, userMessage, goal, scheduledRole, persistUserMessage = pendingTurn != null || showUserMessage)
+            runInfoChannelAnswer(sessionIdAtStart, userMessage, goal, scheduledRole, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
             return
         }
         // Fast path: image understanding is a VLM chat, not an agentic web/search task.
@@ -2013,7 +2108,7 @@ class MainViewModel : ViewModel() {
             attachedFile == null &&
             executionTaskType == TaskType.GENERAL &&
             shouldAnswerImageDirectly(goal)) {
-            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, attachedImage, persistUserMessage = pendingTurn != null || showUserMessage)
+            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, attachedImage, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
             return
         }
 
@@ -2021,7 +2116,7 @@ class MainViewModel : ViewModel() {
         if (!stickerAwareChat &&
             attachedImage == null && attachedFile == null &&
             shouldRunDirectChat(route)) {
-            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, persistUserMessage = pendingTurn != null || showUserMessage)
+            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
             return
         }
 
@@ -2043,6 +2138,7 @@ class MainViewModel : ViewModel() {
 
         val newJob = viewModelScope.launch {
             val resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
+            if (resolvedSessionId != sessionIdAtStart) adoptRunGeneration(resolvedSessionId, runGeneration)
             val channelSummary = orchestration.userVisibleSummary
             rememberActiveWorkflow(resolvedSessionId, route.goalToRemember, executionTaskType, scheduledRole)
             workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
@@ -2088,10 +2184,16 @@ class MainViewModel : ViewModel() {
                     listOf(
                         LogLine(
                             type = LogType.INFO,
-                            text = "极光悬浮框没有显示，请检查悬浮窗权限",
+                            text = uiText("极光悬浮框没有显示，请检查悬浮窗权限", "Aurora overlay is not visible. Check overlay permission."),
                             details = listOf(
-                                "本步结果：系统没有允许 MobileClaw 显示悬浮窗，手机操作仍会继续，但你看不到极光边框提示。",
-                                "接下来：在系统设置里开启 MobileClaw 的悬浮窗 / Display over other apps 权限。",
+                                uiDetailLine("本步结果", "Result", uiText(
+                                    "系统没有允许 MobileClaw 显示悬浮窗，手机操作仍会继续，但你看不到极光边框提示。",
+                                    "The system has not allowed MobileClaw to show overlays. Phone control will continue, but the Aurora border will not be visible.",
+                                )),
+                                uiDetailLine("接下来", "Next", uiText(
+                                    "在系统设置里开启 MobileClaw 的悬浮窗 / Display over other apps 权限。",
+                                    "Enable MobileClaw overlay / Display over other apps permission in system settings.",
+                                )),
                             ),
                         ).withLifecycle(running = false)
                     )
@@ -2153,16 +2255,16 @@ class MainViewModel : ViewModel() {
                                 "  $k: ${Gson().toJson(v).take(300)}"
                             }
                             val lineDetails = buildList {
-                                add("本步目的：$purposeText")
+                                add(uiDetailLine("本步目的", "Purpose", purposeText))
                                 userFacingActionResult(event.skillId, stageText)
                                     .takeIf { it.isNotBlank() }
-                                    ?.let { add("本步结果：$it") }
+                                    ?.let { add(uiDetailLine("本步结果", "Result", it)) }
                                 // 这类信息用户能理解，但不该压过主要结论，所以放在二级说明位。
-                                if (stageText.isNotBlank() && stageText != debugPurposeText) add("这样安排：$stageText")
+                                if (stageText.isNotBlank() && stageText != debugPurposeText) add(uiDetailLine("这样安排", "Plan", stageText))
                                 // 原始参数保留在调试区，默认阅读不需要看到键值列表。
-                                add("调试：${str(R.string.vm_c96809)}")
-                                add("调试：意图=$debugPurposeText")
-                                addAll(paramDetails.map { "调试：$it" })
+                                add(uiDetailLine("调试", "Debug", str(R.string.vm_c96809)))
+                                add(uiDetailLine("调试", "Debug", "${uiText("意图", "intent")}=$debugPurposeText"))
+                                addAll(paramDetails.map { uiDetailLine("调试", "Debug", it) })
                             }
                             val line = event.toLogLine()?.copy(text = purposeText, details = lineDetails)
                             updateSession(resolvedSessionId) { s ->
@@ -2190,8 +2292,14 @@ class MainViewModel : ViewModel() {
                                 ?.activeLogLines
                                 ?.lastOrNull { it.type == LogType.ACTION }
                                 ?.details
-                                ?.firstOrNull { it.startsWith("这样安排：") }
-                                ?.removePrefix("这样安排：")
+                                ?.firstOrNull {
+                                    it.startsWith(uiDetailPrefix("这样安排", "Plan")) ||
+                                        it.startsWith(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
+                                }
+                                ?.let { detail ->
+                                    detail.removePrefix(uiDetailPrefix("这样安排", "Plan"))
+                                        .removePrefix(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
+                                }
                                 ?.trim()
                             overlay.onObservation(purposeText)
                             if (event.attachment is SkillAttachment.ActionCard && event.attachment.tone == "role") {
@@ -2211,14 +2319,14 @@ class MainViewModel : ViewModel() {
                                 else -> event.attachment
                             }
                             val lineDetails = buildList {
-                                actionStage?.takeIf { it.isNotBlank() }?.let { add("本步目的：$it") }
-                                add("本步结果：$purposeText")
+                                actionStage?.takeIf { it.isNotBlank() }?.let { add(uiDetailLine("本步目的", "Purpose", it)) }
+                                add(uiDetailLine("本步结果", "Result", purposeText))
                                 userFacingActionNext(actionStage.orEmpty(), previousSkill.orEmpty(), event.text)
-                                    ?.let { add("接下来：$it") }
+                                    ?.let { add(uiDetailLine("接下来", "Next", it)) }
                                 if (event.text.isNotBlank()) {
-                                    summarizeTechnicalResultForUser(previousSkill, event.text)?.let { add("补充判断：$it") }
-                                    add("调试：完整结果 (${event.text.length} 字符)")
-                                    add("调试：${event.text.take(2000)}")
+                                    summarizeTechnicalResultForUser(previousSkill, event.text)?.let { add(uiDetailLine("补充判断", "Note", it)) }
+                                    add(uiDetailLine("调试", "Debug", uiText("完整结果 (${event.text.length} 字符)", "Full result (${event.text.length} chars)")))
+                                    add(uiDetailLine("调试", "Debug", event.text.take(2000)))
                                 }
                             }
                             val line = LogLine(
@@ -2274,9 +2382,9 @@ class MainViewModel : ViewModel() {
                                         type = LogType.THINKING,
                                         text = userFacingThought,
                                         details = listOf(
-                                            "本步目的：$userFacingThought",
-                                            "本步结果：$friendlyThought",
-                                            "调试：${event.thought.take(1200)}",
+                                            uiDetailLine("本步目的", "Purpose", userFacingThought),
+                                            uiDetailLine("本步结果", "Result", friendlyThought),
+                                            uiDetailLine("调试", "Debug", event.thought.take(1200)),
                                         ),
                                     ).withLifecycle(running = false),
                                     streamingToken = "",
@@ -2294,12 +2402,12 @@ class MainViewModel : ViewModel() {
                                         type = LogType.THINKING,
                                         text = text,
                                         details = buildList {
-                                            add("本步目的：$text")
-                                            add("本步结果：${userFacingPlanResult(steps, event.plan.summary)}")
-                                            if (!secondStep.isNullOrBlank()) add("接下来：${secondStep.trim()}")
-                                            add("调试：角色=${scheduledRole.name} (${scheduledRole.id})")
-                                            add("调试：${scheduleDecision.reason}")
-                                            add("调试：${event.plan.toPrompt().take(1600)}")
+                                            add(uiDetailLine("本步目的", "Purpose", text))
+                                            add(uiDetailLine("本步结果", "Result", userFacingPlanResult(steps, event.plan.summary)))
+                                            if (!secondStep.isNullOrBlank()) add(uiDetailLine("接下来", "Next", secondStep.trim()))
+                                            add(uiDetailLine("调试", "Debug", "${uiText("角色", "role")}=${scheduledRole.name} (${scheduledRole.id})"))
+                                            add(uiDetailLine("调试", "Debug", scheduleDecision.reason))
+                                            add(uiDetailLine("调试", "Debug", event.plan.toPrompt().take(1600)))
                                         },
                                     ).withLifecycle(running = true)
                                 )
@@ -2373,6 +2481,9 @@ class MainViewModel : ViewModel() {
             networkTraceJob.cancel()
             runtimeEventJob.cancel()
             if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) {
+                // 新一轮任务已接管本会话：过期回调不得清 isRunning/日志/句柄，否则会击穿 loadSession 的防覆盖守卫，
+                // 并把新任务刚注册的 runtime 摘掉。
+                if (!isRunGenerationCurrent(resolvedSessionId, runGeneration)) return@launch
                 overlay.hide()
                 if (isPhoneControlTask) auroraOverlay.endTask()
                 updateSession(resolvedSessionId) { s ->
@@ -2386,6 +2497,10 @@ class MainViewModel : ViewModel() {
                     )
                 }
                 clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+                return@launch
+            }
+            if (!isRunGenerationCurrent(resolvedSessionId, runGeneration)) {
+                Log.w(TAG, "Run superseded before completion; dropping stale UI mutations. session=$resolvedSessionId generation=$runGeneration")
                 return@launch
             }
 
@@ -2490,9 +2605,9 @@ class MainViewModel : ViewModel() {
             )}
             clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
 
-            // Persist the exchange to the session DB
+            // Persist the exchange to the session DB（用户消息若已在启动时落库，这里只补 agent 消息）
             if (resolvedSessionId.isNotBlank()) {
-                launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { pendingTurn != null || showUserMessage }, finalAgentMessages) }
+                launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { userMessageVisible && !userMessagePersistedEarly }, finalAgentMessages) }
             }
 
             // Refresh recommendations after task completes
@@ -2525,11 +2640,13 @@ class MainViewModel : ViewModel() {
         executionContext: String = "",
         imageBase64: String? = null,
         persistUserMessage: Boolean = true,
+        runGeneration: Long,
     ) {
         val newJob = viewModelScope.launch {
             var resolvedSessionId = sessionIdAtStart
             try {
             resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
+            if (resolvedSessionId != sessionIdAtStart) adoptRunGeneration(resolvedSessionId, runGeneration)
             Log.d(
                 TAG,
                 "Direct chat started. session=$resolvedSessionId role=${currentRole.id} hasImage=${imageBase64 != null} goal=${goal.take(160)}"
@@ -2689,14 +2806,18 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 senderRoleName = currentRole.name,
                 senderRoleAvatar = currentRole.avatar,
             )
-            updateSession(resolvedSessionId) { s -> s.copy(
-                isRunning = false,
-                streamingToken = "",
-                streamingThought = "",
-                messages = s.messages + finalAgentMsg,
-                activeLogLines = emptyList(),
-                activeAttachments = emptyList(),
-            )}
+            val isCurrentRun = isRunGenerationCurrent(resolvedSessionId, runGeneration)
+            updateSession(resolvedSessionId) { s ->
+                // 已被新一轮任务接管时只追加回复，不碰新任务的运行态字段。
+                if (isCurrentRun) s.copy(
+                    isRunning = false,
+                    streamingToken = "",
+                    streamingThought = "",
+                    messages = s.messages + finalAgentMsg,
+                    activeLogLines = emptyList(),
+                    activeAttachments = emptyList(),
+                ) else s.copy(messages = s.messages + finalAgentMsg)
+            }
             Log.d(
                 TAG,
                 "Direct chat completed. session=$resolvedSessionId success=${result.isSuccess} summaryLength=${summary.length}"
@@ -2727,31 +2848,37 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             } catch (e: Throwable) {
                 val cleanupSessionId = resolvedSessionId.ifBlank { sessionIdAtStart }
                 if (e is kotlinx.coroutines.CancellationException) {
-                    updateSession(cleanupSessionId) { s ->
-                        s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
+                    if (isRunGenerationCurrent(cleanupSessionId, runGeneration)) {
+                        updateSession(cleanupSessionId) { s ->
+                            s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
+                        }
                     }
                     return@launch
                 }
-                updateSession(cleanupSessionId) { s ->
-                    s.copy(
-                        isRunning = false,
-                        runStartedAt = 0L,
-                        streamingToken = "",
-                        streamingThought = "",
-                        messages = s.messages + ChatMessage(
-                            role = MessageRole.AGENT,
-                            text = e.message ?: "Error.",
-                            senderRoleId = currentRole.id,
-                            senderRoleName = currentRole.name,
-                            senderRoleAvatar = currentRole.avatar,
-                        ),
-                        activeLogLines = emptyList(),
-                        activeAttachments = emptyList(),
-                    )
+                if (isRunGenerationCurrent(cleanupSessionId, runGeneration)) {
+                    updateSession(cleanupSessionId) { s ->
+                        s.copy(
+                            isRunning = false,
+                            runStartedAt = 0L,
+                            streamingToken = "",
+                            streamingThought = "",
+                            messages = s.messages + ChatMessage(
+                                role = MessageRole.AGENT,
+                                text = e.message ?: "Error.",
+                                senderRoleId = currentRole.id,
+                                senderRoleName = currentRole.name,
+                                senderRoleAvatar = currentRole.avatar,
+                            ),
+                            activeLogLines = emptyList(),
+                            activeAttachments = emptyList(),
+                        )
+                    }
                 }
                 Log.e(TAG, "Direct chat failed. session=$cleanupSessionId goal=${goal.take(160)}", e)
             } finally {
-                clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+                if (isRunGenerationCurrent(resolvedSessionId.ifBlank { sessionIdAtStart }, runGeneration)) {
+                    clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+                }
             }
         }
         taskJobs[sessionIdAtStart] = newJob
@@ -2763,11 +2890,13 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         goal: String,
         currentRole: Role,
         persistUserMessage: Boolean = true,
+        runGeneration: Long,
     ) {
         val newJob = viewModelScope.launch {
             var resolvedSessionId = sessionIdAtStart
             try {
                 resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
+                if (resolvedSessionId != sessionIdAtStart) adoptRunGeneration(resolvedSessionId, runGeneration)
                 Log.d(TAG, "Info channel answer started. session=$resolvedSessionId goal=${goal.take(160)}")
                 val summary = withContext(Dispatchers.IO) { buildMobileClawCapabilityDirectory(goal) }
                 val finalAgentMsg = ChatMessage(
@@ -2777,15 +2906,19 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     senderRoleName = currentRole.name,
                     senderRoleAvatar = currentRole.avatar,
                 )
-                updateSession(resolvedSessionId) { s -> s.copy(
-                    isRunning = false,
-                    runStartedAt = 0L,
-                    streamingToken = "",
-                    streamingThought = "",
-                    messages = s.messages + finalAgentMsg,
-                    activeLogLines = emptyList(),
-                    activeAttachments = emptyList(),
-                )}
+                val isCurrentRun = isRunGenerationCurrent(resolvedSessionId, runGeneration)
+                updateSession(resolvedSessionId) { s ->
+                    // 已被新一轮任务接管时只追加回复，不碰新任务的运行态字段。
+                    if (isCurrentRun) s.copy(
+                        isRunning = false,
+                        runStartedAt = 0L,
+                        streamingToken = "",
+                        streamingThought = "",
+                        messages = s.messages + finalAgentMsg,
+                        activeLogLines = emptyList(),
+                        activeAttachments = emptyList(),
+                    ) else s.copy(messages = s.messages + finalAgentMsg)
+                }
                 if (resolvedSessionId.isNotBlank()) {
                     launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { persistUserMessage }, listOf(finalAgentMsg)) }
                 }
@@ -2800,31 +2933,37 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             } catch (e: Throwable) {
                 val cleanupSessionId = resolvedSessionId.ifBlank { sessionIdAtStart }
                 if (e is kotlinx.coroutines.CancellationException) {
-                    updateSession(cleanupSessionId) { s ->
-                        s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
+                    if (isRunGenerationCurrent(cleanupSessionId, runGeneration)) {
+                        updateSession(cleanupSessionId) { s ->
+                            s.copy(isRunning = false, runStartedAt = 0L, streamingToken = "", streamingThought = "")
+                        }
                     }
                     return@launch
                 }
-                updateSession(cleanupSessionId) { s ->
-                    s.copy(
-                        isRunning = false,
-                        runStartedAt = 0L,
-                        streamingToken = "",
-                        streamingThought = "",
-                        messages = s.messages + ChatMessage(
-                            role = MessageRole.AGENT,
-                            text = e.message ?: "能力目录读取失败。",
-                            senderRoleId = currentRole.id,
-                            senderRoleName = currentRole.name,
-                            senderRoleAvatar = currentRole.avatar,
-                        ),
-                        activeLogLines = emptyList(),
-                        activeAttachments = emptyList(),
-                    )
+                if (isRunGenerationCurrent(cleanupSessionId, runGeneration)) {
+                    updateSession(cleanupSessionId) { s ->
+                        s.copy(
+                            isRunning = false,
+                            runStartedAt = 0L,
+                            streamingToken = "",
+                            streamingThought = "",
+                            messages = s.messages + ChatMessage(
+                                role = MessageRole.AGENT,
+                                text = e.message ?: "能力目录读取失败。",
+                                senderRoleId = currentRole.id,
+                                senderRoleName = currentRole.name,
+                                senderRoleAvatar = currentRole.avatar,
+                            ),
+                            activeLogLines = emptyList(),
+                            activeAttachments = emptyList(),
+                        )
+                    }
                 }
                 Log.e(TAG, "Info channel answer failed. session=$cleanupSessionId goal=${goal.take(160)}", e)
             } finally {
-                clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+                if (isRunGenerationCurrent(resolvedSessionId.ifBlank { sessionIdAtStart }, runGeneration)) {
+                    clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+                }
             }
         }
         taskJobs[sessionIdAtStart] = newJob
@@ -2935,6 +3074,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         fileAttachment: FileAttachment?,
         showUserMessage: Boolean,
         persistUserMessage: Boolean,
+        runGeneration: Long,
     ) {
         if (sessionId.isBlank()) return
         _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
@@ -2968,7 +3108,11 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             val finishedAt = System.currentTimeMillis()
             val statusLine = LogLine(
                 type = if (result.success) LogType.SUCCESS else LogType.ERROR,
-                text = if (result.success) "电脑 Codex 已返回结果" else "电脑 Codex 执行失败",
+                text = if (result.success) {
+                    uiText("电脑 Codex 已返回结果", "Desktop Codex returned a result")
+                } else {
+                    uiText("电脑 Codex 执行失败", "Desktop Codex failed")
+                },
                 skillId = "codex_desktop",
                 details = listOf(result.output.take(2000)),
                 finishedAt = finishedAt,
@@ -2986,8 +3130,10 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 senderRoleName = _uiState.value.currentRole.name,
                 senderRoleAvatar = _uiState.value.currentRole.avatar,
             )
+            val isCurrentRun = isRunGenerationCurrent(sessionId, runGeneration)
             updateSession(sessionId) { state ->
-                state.copy(
+                // 已被新一轮任务接管时只追加回复，不碰新任务的运行态字段与任务句柄。
+                if (isCurrentRun) state.copy(
                     isRunning = false,
                     runStartedAt = 0L,
                     messages = state.messages + agentMessage,
@@ -2995,10 +3141,12 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     activeAttachments = emptyList(),
                     streamingToken = "",
                     streamingThought = "",
-                )
+                ) else state.copy(messages = state.messages + agentMessage)
             }
-            taskJobs.remove(sessionId)
-            overlay.hide()
+            if (isCurrentRun) {
+                taskJobs.remove(sessionId)
+                overlay.hide()
+            }
             consoleServer.broadcast("task_completed", result.output.take(500))
             withContext(Dispatchers.IO) {
                 persistMessages(sessionId, userMessage.takeIf { persistUserMessage }, listOf(agentMessage))
@@ -3186,25 +3334,20 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         overlay.hide()
         auroraOverlay.hide()
         consoleServer.broadcast("task_stopped", "")
-        val runState = _uiState.value.sessionStates[sessionId] ?: SessionRunState()
+        val salvaged = salvageInterruptedRunMessages(sessionId)
         updateSession(sessionId) { state ->
-            val agentMsgs = if (state.activeLogLines.isNotEmpty() || state.streamingToken.isNotBlank() || state.activeAttachments.isNotEmpty()) {
-                buildAgentMessages(
-                    summary = state.streamingToken.ifBlank { "Task stopped." },
-                    logLines = state.activeLogLines,
-                    attachments = state.activeAttachments,
-                    senderRole = _uiState.value.currentRole,
-                )
-            } else emptyList()
             state.copy(
                 isRunning = false,
                 runStartedAt = 0L,
                 streamingToken = "",
                 streamingThought = "",
-                messages = state.messages + agentMsgs,
+                messages = state.messages + salvaged,
                 activeLogLines = emptyList(),
                 activeAttachments = emptyList(),
             )
+        }
+        if (salvaged.isNotEmpty() && sessionId.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) { runCatching { persistMessages(sessionId, null, salvaged) } }
         }
     }
 
@@ -3363,8 +3506,14 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 text = normalized.take(220),
                 skillId = "app_manager",
                 details = listOf(
-                    "本步结果：聊天里的验证预览已经看到运行问题",
-                    "补充判断：先收起这个验证窗口，继续查日志并做一轮针对性修复，不要直接重写整个 MiniAPP",
+                    uiDetailLine("本步结果", "Result", uiText(
+                        "聊天里的验证预览已经看到运行问题",
+                        "The validation preview in chat has detected a runtime issue",
+                    )),
+                    uiDetailLine("补充判断", "Note", uiText(
+                        "先收起这个验证窗口，继续查日志并做一轮针对性修复，不要直接重写整个 MiniAPP",
+                        "Close the validation preview, inspect logs, and make a targeted fix instead of rewriting the whole MiniAPP",
+                    )),
                 ),
             )
             if (state.activeLogLines.lastOrNull()?.text == line.text) state
@@ -3425,22 +3574,28 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 com.mobileclaw.agent.GroupManager(app)
             }
     private val groupAgentJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
-    private val groupHistoryStore by lazy {
-        GroupHistoryStore(
-            context = app,
-            gson = gson,
-            serializeAttachments = ::serializeAttachments,
-            deserializeAttachments = ::deserializeAttachments,
-        )
-    }
-    private val groupConversationStore by lazy {
-        GroupConversationStore(
-            groupMessageDao = database.groupMessageDao(),
-            groupHistoryStore = groupHistoryStore,
-            deserializeAttachments = ::deserializeAttachments,
-            serializeAttachments = ::serializeAttachments,
-        )
-    }
+    @Volatile private var groupHistoryStoreRef: GroupHistoryStore? = null
+    private val groupHistoryStore: GroupHistoryStore
+        get() = groupHistoryStoreRef ?: synchronized(this) {
+            groupHistoryStoreRef ?: GroupHistoryStore(
+                context = app,
+                gson = gson,
+                serializeAttachments = ::serializeAttachments,
+                deserializeAttachments = ::deserializeAttachments,
+            ).also { groupHistoryStoreRef = it }
+        }
+
+    @Volatile private var groupConversationStoreRef: GroupConversationStore? = null
+    private val groupConversationStore: GroupConversationStore
+        get() = groupConversationStoreRef ?: synchronized(this) {
+            groupConversationStoreRef ?: GroupConversationStore(
+                groupMessageDao = database.groupMessageDao(),
+                groupHistoryStore = groupHistoryStore,
+                deserializeAttachments = ::deserializeAttachments,
+                serializeAttachments = ::serializeAttachments,
+            ).also { groupConversationStoreRef = it }
+        }
+
     private val groupTurnExecutor by lazy {
         GroupTurnExecutor(
             app = app,
@@ -3448,13 +3603,15 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             registry = registry,
         )
     }
-    private val groupRuntimeDiagnostics by lazy {
-        GroupRuntimeDiagnostics(
-            groupMessageDao = database.groupMessageDao(),
-            groupHistoryStore = groupHistoryStore,
-            rolesProvider = { roleManager.all() },
-        )
-    }
+    @Volatile private var groupRuntimeDiagnosticsRef: GroupRuntimeDiagnostics? = null
+    private val groupRuntimeDiagnostics: GroupRuntimeDiagnostics
+        get() = groupRuntimeDiagnosticsRef ?: synchronized(this) {
+            groupRuntimeDiagnosticsRef ?: GroupRuntimeDiagnostics(
+                groupMessageDao = database.groupMessageDao(),
+                groupHistoryStore = groupHistoryStore,
+                rolesProvider = { roleManager.all() },
+            ).also { groupRuntimeDiagnosticsRef = it }
+        }
     @Volatile private var groupChatStopped = false
     private val GROUP_TASK_POOL_LIMIT = 4
     private val groupTurnScheduler by lazy {
@@ -5008,7 +5165,7 @@ $foundationalMemory
             AiHomeAssetSkill(townStore, roleManager),
             TownBuilderSkill(townStore, roleManager),
             // Session management
-            SessionManagerSkill(database.sessionDao(), sessionRequests),
+            SessionManagerSkill(database.sessionDao(), sessionRequests, mutationGuard = ::guardSessionMutation),
             // App navigation
             PageControlSkill(pageRequests),
             // Skill notes
@@ -5723,6 +5880,18 @@ private fun AgentEvent.toLogLine(): LogLine? = when (this) {
     is AgentEvent.PlanCreated -> LogLine(type = LogType.THINKING, text = plan.toPrompt())
 }
 
+private fun isEnglishUiText(): Boolean =
+    ClawApplication.instance.agentConfig.language == "en"
+
+private fun uiText(zh: String, en: String): String =
+    if (isEnglishUiText()) en else zh
+
+private fun uiDetailPrefix(zh: String, en: String, englishOverride: Boolean = isEnglishUiText()): String =
+    if (englishOverride) "$en: " else "$zh："
+
+private fun uiDetailLine(zh: String, en: String, value: String): String =
+    uiDetailPrefix(zh, en) + value
+
 private fun LogLine.withLifecycle(
     running: Boolean,
     now: Long = System.currentTimeMillis(),
@@ -5756,13 +5925,13 @@ private fun friendlyRuntimeNotice(message: String): String {
     val normalized = message.trim()
     return when {
         normalized.startsWith("Guard blocked ") ->
-            "这一步当前不适合直接执行，正在换一种更合适的处理方式"
+            uiText("这一步当前不适合直接执行，正在换一种更合适的处理方式", "This step is not suitable to run directly, so switching to a better approach")
         normalized.startsWith("LLM error:") ->
             friendlyLlmFailureMessage(normalized.removePrefix("LLM error:").trim())
         normalized.contains("skill '", ignoreCase = true) && normalized.contains("not found", ignoreCase = true) ->
-            "这一步工具调用没有成功，正在改走别的处理方式"
+            uiText("这一步工具调用没有成功，正在改走别的处理方式", "This tool call did not succeed, so switching to another approach")
         normalized.startsWith("Error executing ") ->
-            "这一步执行时出了问题，正在根据返回结果继续修正"
+            uiText("这一步执行时出了问题，正在根据返回结果继续修正", "This step hit an execution issue; continuing to fix it from the result")
         else -> normalized
     }
 }
@@ -5781,10 +5950,16 @@ private fun friendlyLlmFailureMessage(raw: String): String {
     return when {
         lowered.contains("not connected to the query engine") ||
             lowered.contains("must call connect() before attempting to query data") ->
-            "当前聊天网关没有接到可直接对话的查询引擎，chat 能力配置错了，不能继续拿它做回复总结"
+            uiText(
+                "当前聊天网关没有接到可直接对话的查询引擎，chat 能力配置错了，不能继续拿它做回复总结",
+                "The current chat gateway is not connected to a query engine, so it cannot summarize the reply.",
+            )
         lowered.contains("authentication error") || lowered.contains("api error 401") ->
-            "当前聊天网关鉴权失败，或者你填的接口并不是可直接对话的 chat 入口"
-        else -> "模型这一步返回异常，当前请求没有完成"
+            uiText(
+                "当前聊天网关鉴权失败，或者你填的接口并不是可直接对话的 chat 入口",
+                "The current chat gateway failed authentication, or the endpoint is not a usable chat endpoint.",
+            )
+        else -> uiText("模型这一步返回异常，当前请求没有完成", "The model response failed, so this request was not completed.")
     }
 }
 
@@ -5805,11 +5980,11 @@ private fun summarizeTechnicalResultForUser(skillId: String?, rawText: String): 
     if (normalized.isBlank()) return null
     return when (skillId) {
         "web_search", "fetch_url", "web_browse", "web_content", "web_js" ->
-            "已经拿到候选内容，下一步会筛掉无关信息，只保留结论"
+            uiText("已经拿到候选内容，下一步会筛掉无关信息，只保留结论", "Candidate content is available; next, irrelevant information will be filtered out.")
         "see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen" ->
-            "已经看清当前界面，下一步会直接判断该点哪里"
+            uiText("已经看清当前界面，下一步会直接判断该点哪里", "The current screen is visible; next, the agent will decide where to act.")
         "tap", "long_click", "scroll", "input_text", "navigate" ->
-            "已经拿到操作后的界面反馈，下一步会确认目标是否达成"
+            uiText("已经拿到操作后的界面反馈，下一步会确认目标是否达成", "Screen feedback is available; next, the agent will confirm whether the goal was reached.")
         "app_manager", "ui_builder" -> null
         else -> normalized.take(120)
     }

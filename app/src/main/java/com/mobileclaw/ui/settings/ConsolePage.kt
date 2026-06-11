@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.mobileclaw.server.ConsoleServer
 import com.mobileclaw.R
 import com.mobileclaw.str
+import com.mobileclaw.ui.LocalAppLanguage
 
 @Composable
 fun ConsolePage(
@@ -248,6 +249,7 @@ private fun CodexGuideCard(
     copied: Boolean,
     onCopy: () -> Unit,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -262,22 +264,30 @@ private fun CodexGuideCard(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Codex 下载与连接",
+            text = if (isZh) "Codex 下载与连接" else "Codex Download and Connection",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = "在电脑终端安装并登录 Codex，然后回到 MobileClaw 的「设置 > Codex 桥接」填写电脑地址和 Token。",
+            text = if (isZh) {
+                "在电脑终端安装并登录 Codex，然后回到 MobileClaw 的「设置 > Codex 桥接」填写电脑地址和 Token。"
+            } else {
+                "Install and sign in to Codex in your desktop terminal, then return to MobileClaw Settings > Codex Bridge and enter the desktop address and token."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 17.sp,
         )
-        ConsoleStep("1", "安装 Codex", CODEX_INSTALL_COMMAND, onCopy)
-        ConsoleStep("2", "登录 Codex", "codex --login", onCopy = null)
-        ConsoleStep("3", "连接 MobileClaw", "控制台地址: $serverUrl", onCopy = null)
+        ConsoleStep("1", if (isZh) "安装 Codex" else "Install Codex", CODEX_INSTALL_COMMAND, onCopy)
+        ConsoleStep("2", if (isZh) "登录 Codex" else "Sign in to Codex", "codex --login", onCopy = null)
+        ConsoleStep("3", if (isZh) "连接 MobileClaw" else "Connect MobileClaw", if (isZh) "控制台地址: $serverUrl" else "Console URL: $serverUrl", onCopy = null)
         Text(
-            text = if (copied) "安装命令已复制" else "点击安装命令右侧按钮可复制",
+            text = if (copied) {
+                if (isZh) "安装命令已复制" else "Install command copied"
+            } else {
+                if (isZh) "点击安装命令右侧按钮可复制" else "Tap the button next to the install command to copy it"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = if (copied) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )

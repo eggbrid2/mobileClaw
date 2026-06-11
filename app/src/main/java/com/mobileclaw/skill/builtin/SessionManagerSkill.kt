@@ -24,6 +24,8 @@ sealed class SessionRequest {
 class SessionManagerSkill(
     private val sessionDao: SessionDao,
     val sessionRequests: MutableSharedFlow<SessionRequest>,
+    // 返回非空字符串表示拒绝执行该请求（任务执行中切走/删掉正在运行的会话会让用户眼前的聊天记录消失）。
+    private val mutationGuard: (SessionRequest) -> String? = { null },
 ) : Skill {
 
     override val meta = SkillMeta(
@@ -64,14 +66,18 @@ class SessionManagerSkill(
 
             "create" -> {
                 val title = params["title"] as? String ?: "新对话"
-                sessionRequests.emit(SessionRequest.Create(title))
+                val request = SessionRequest.Create(title)
+                mutationGuard(request)?.let { return@withContext SkillResult(false, it) }
+                sessionRequests.emit(request)
                 SkillResult(true, "New session '$title' created and activated.")
             }
 
             "switch" -> {
                 val id = params["id"] as? String
                     ?: return@withContext SkillResult(false, "id is required for switch")
-                sessionRequests.emit(SessionRequest.Switch(id))
+                val request = SessionRequest.Switch(id)
+                mutationGuard(request)?.let { return@withContext SkillResult(false, it) }
+                sessionRequests.emit(request)
                 SkillResult(true, "Switched to session '$id'.")
             }
 
@@ -87,7 +93,9 @@ class SessionManagerSkill(
             "delete" -> {
                 val id = params["id"] as? String
                     ?: return@withContext SkillResult(false, "id is required for delete")
-                sessionRequests.emit(SessionRequest.Delete(id))
+                val request = SessionRequest.Delete(id)
+                mutationGuard(request)?.let { return@withContext SkillResult(false, it) }
+                sessionRequests.emit(request)
                 SkillResult(true, "Session '$id' deleted.")
             }
 

@@ -9,12 +9,14 @@ import android.os.SystemClock
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
@@ -85,16 +87,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            ClawTheme(
-                darkTheme = configSnapshot.darkTheme,
-                accentColor = configSnapshot.accentColor,
-                language = configSnapshot.language,
-            ) {
-                val lightStatusBars = uiState.currentPage != AppPage.AI_TOWN && !configSnapshot.darkTheme
-                SideEffect {
-                    WindowCompat.getInsetsController(window, window.decorView)
-                        .isAppearanceLightStatusBars = lightStatusBars
-                }
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides this@MainActivity) {
+                ClawTheme(
+                    darkTheme = configSnapshot.darkTheme,
+                    accentColor = configSnapshot.accentColor,
+                    language = configSnapshot.language,
+                ) {
+                    val lightStatusBars = uiState.currentPage != AppPage.AI_TOWN && !configSnapshot.darkTheme
+                    SideEffect {
+                        WindowCompat.getInsetsController(window, window.decorView)
+                            .isAppearanceLightStatusBars = lightStatusBars
+                    }
 
                     // Launch MiniAppActivity when AI opens an app (e.g. after creation)
                     val pendingAppId = uiState.openAppId
@@ -184,6 +187,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
             }
         }
     }

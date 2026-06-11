@@ -1,6 +1,7 @@
 package com.mobileclaw.ui
 
 import android.util.Log
+import com.mobileclaw.ClawApplication
 import com.mobileclaw.agent.AiTaskRouteDecision
 import com.mobileclaw.agent.ChannelType
 import com.mobileclaw.agent.Role
@@ -570,7 +571,10 @@ class TaskRouter(
                 aiPrimaryChannel = ChannelType.ARTIFACT,
                 aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
                 aiToolHints = listOf("app_manager", "read_file", "create_file", "list_files"),
-                userVisibleSteps = listOf("先理清这个 MiniAPP 具体要做什么", "把 MiniAPP 的页面和逻辑做出来或修好", "跑一轮检查后直接打开给你看"),
+                userVisibleSteps = localizedSteps(
+                    zh = listOf("先理清这个 MiniAPP 具体要做什么", "把 MiniAPP 的页面和逻辑做出来或修好", "跑一轮检查后直接打开给你看"),
+                    en = listOf("Clarify what this MiniAPP should do", "Build or fix the MiniAPP screens and logic", "Run a check, then open the result"),
+                ),
             )
             isExplicitNativePageIntent(text) -> ContextualTaskIntent(
                 classificationGoal = goal,
@@ -579,7 +583,10 @@ class TaskRouter(
                 aiPrimaryChannel = ChannelType.ARTIFACT,
                 aiSupportingChannels = listOf(ChannelType.SKILL, ChannelType.MEMORY),
                 aiToolHints = listOf("ui_builder", "read_file", "create_file", "list_files"),
-                userVisibleSteps = listOf("先理清这个原生页面需要展示什么", "把原生页面做出来或改到位", "检查效果后直接打开给你看"),
+                userVisibleSteps = localizedSteps(
+                    zh = listOf("先理清这个原生页面需要展示什么", "把原生页面做出来或改到位", "检查效果后直接打开给你看"),
+                    en = listOf("Clarify what this native page should show", "Create or update the native page", "Check the result, then open it"),
+                ),
             )
             else -> null
         }
@@ -617,17 +624,51 @@ class TaskRouter(
             normalized.contains("继续推进") || normalized.contains("完善流程") || normalized.contains("继续处理") ->
                 defaultVisibleSteps(taskType, normalizedGoal, targetApp).getOrElse(1) { step }
             taskType == TaskType.PHONE_CONTROL && app != null && (normalized.contains("打开应用") || normalized.contains("目标应用")) ->
-                "先打开$app，进入真正要操作的界面"
+                if (isEnglishUi()) "Open $app and get to the screen that needs action" else "先打开$app，进入真正要操作的界面"
             taskType == TaskType.WEB_RESEARCH && topic != null && normalized.contains("查找") ->
-                "先查“$topic”里最直接有用的信息"
+                if (isEnglishUi()) "Look up the most useful information about ${quoteTopic(topic)}" else "先查“$topic”里最直接有用的信息"
             taskType == TaskType.CODE_EXECUTION && topic != null && normalized.contains("修复") ->
-                "先把「$topic」里最关键的代码问题定位出来"
+                if (isEnglishUi()) "Find the key code issue in ${quoteTopic(topic)}" else "先把「$topic」里最关键的代码问题定位出来"
             else -> step
         }
     }
 
     private fun defaultVisibleSteps(taskType: TaskType?, normalizedGoal: String, targetApp: String): List<String> {
         val topic = extractQuotedTopic(normalizedGoal)
+        if (isEnglishUi()) {
+            return when (taskType) {
+                TaskType.PHONE_CONTROL -> listOf(
+                    if (targetApp.isNotBlank()) "Open $targetApp and find the place to act" else "Read the current screen and find the entry point",
+                    if (topic != null) "Handle the operation related to ${quoteTopic(topic)}" else "Continue the phone operation directly",
+                    "Check whether the screen changed as expected",
+                )
+                TaskType.WEB_RESEARCH -> listOf(
+                    if (topic != null) "Find the most useful information about ${quoteTopic(topic)}" else "Find the most relevant web information",
+                    "Filter out noise and keep the useful parts",
+                    "Summarize the result into something directly usable",
+                )
+                TaskType.APP_BUILD -> listOf(
+                    if (topic != null) "Clarify what ${quoteTopic(topic)} should become" else "Clarify what this page or app should look like",
+                    "Build the core screen, logic, or interaction",
+                    "Run a check, then open the working result",
+                )
+                TaskType.FILE_CREATE -> listOf(
+                    if (topic != null) "Organize the content needed for ${quoteTopic(topic)}" else "Organize what this file should contain",
+                    "Generate the file content",
+                    "Confirm it can be opened or edited further",
+                )
+                TaskType.CODE_EXECUTION -> listOf(
+                    if (topic != null) "Locate the key issue in ${quoteTopic(topic)}" else "Locate the most important code issue",
+                    "Patch the code and fill in the missing logic",
+                    "Run a check to confirm the change works",
+                )
+                else -> listOf(
+                    if (topic != null) "Handle the core part of ${quoteTopic(topic)}" else "Handle the core part of this request",
+                    if (topic != null) "Fill in anything still missing for ${quoteTopic(topic)}" else "Fill in anything still missing",
+                    "Return a result that is easy to understand and use",
+                )
+            }
+        }
         return when (taskType) {
             TaskType.PHONE_CONTROL -> listOf(
                 if (targetApp.isNotBlank()) "先打开$targetApp，找到这次要操作的位置" else "先看清当前界面和要操作的入口",
@@ -671,6 +712,15 @@ class TaskRouter(
             .firstOrNull { it.length in 4..28 && !it.contains("请") && !it.contains("帮我") && !it.contains("我想") }
         return compact?.takeIf { it.isNotBlank() }
     }
+
+    private fun isEnglishUi(): Boolean =
+        ClawApplication.instance.agentConfig.language == "en"
+
+    private fun localizedSteps(zh: List<String>, en: List<String>): List<String> =
+        if (isEnglishUi()) en else zh
+
+    private fun quoteTopic(topic: String): String =
+        if (isEnglishUi()) "\"$topic\"" else "「$topic」"
 
     private fun explicitArtifactTaskType(goal: String): TaskType? {
         val text = goal.lowercase()
@@ -723,6 +773,40 @@ class TaskRouter(
     ): List<String> {
         val base = if (isGenericContinueOnly(latestGoal) || isContextualFollowUp(latestGoal)) anchorGoal else latestGoal
         val topic = extractQuotedTopic(base).orEmpty()
+        if (isEnglishUi()) {
+            return when (taskType) {
+                TaskType.PHONE_CONTROL -> listOf(
+                    if (targetApp.isNotBlank()) "Return to the current $targetApp operation" else "Continue the current phone operation",
+                    if (topic.isNotBlank()) "Handle this step for ${quoteTopic(topic)}" else "Finish the step currently on screen",
+                    "Check the screen change, then decide the next action",
+                )
+                TaskType.APP_BUILD -> listOf(
+                    if (topic.isNotBlank()) "Continue fixing the key part of ${quoteTopic(topic)}" else "Continue with the key part of this page or app",
+                    "Fix what is still wrong in this pass",
+                    "Run another check and show the result",
+                )
+                TaskType.FILE_CREATE -> listOf(
+                    if (topic.isNotBlank()) "Continue filling in the content for ${quoteTopic(topic)}" else "Continue filling in the missing file content",
+                    "Apply this change to the file",
+                    "Confirm the result can be opened or edited further",
+                )
+                TaskType.WEB_RESEARCH -> listOf(
+                    if (topic.isNotBlank()) "Find the remaining information for ${quoteTopic(topic)}" else "Find the missing key information",
+                    "Filter out noisy information",
+                    "Keep only the conclusion you can use directly",
+                )
+                TaskType.CODE_EXECUTION -> listOf(
+                    if (topic.isNotBlank()) "Continue fixing the key issue in ${quoteTopic(topic)}" else "Continue fixing the most important code issue",
+                    "Fill in missing logic or resolve the error",
+                    "Run a check to confirm the fix works",
+                )
+                else -> listOf(
+                    if (topic.isNotBlank()) "Continue handling ${quoteTopic(topic)}" else "Continue the previous task",
+                    "Fill in what is wrong or unfinished",
+                    "Return a more complete result",
+                )
+            }
+        }
         return when (taskType) {
             TaskType.PHONE_CONTROL -> listOf(
                 if (targetApp.isNotBlank()) "先回到${targetApp}当前这条操作线上" else "先接着当前手机操作往下走",
