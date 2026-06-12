@@ -44,7 +44,7 @@ Join the WeChat group to discuss MobileClaw usage, Android agent development, lo
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="260" />
 </p>
 
-This WeChat group QR code is valid until **June 12, 2026**. If it expires, open the latest README or ask for an updated invite.
+This WeChat group QR code is valid until **June 19, 2026**. If it expires, open the latest README or ask for an updated invite.
 
 ## Why This Exists
 
