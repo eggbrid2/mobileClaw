@@ -48,7 +48,14 @@ class LocalGemmaGateway(
         if (request.imageBase64Present() && visionPath == null) {
             val resource = manager.visionResourceFor(modelId)
             val target = resource?.name ?: "${model.family} Web Task"
-            throw IllegalStateException("本地图片理解需要先安装视觉资源包：$target。请在设置 > 本地模型中下载或导入对应的 .task 文件。")
+            val language = request.preferredLocalLanguage()
+            throw IllegalStateException(
+                if (language == "en") {
+                    "Local image understanding requires the vision resource pack first: $target. Download or import the matching .task file in Settings > Local Models."
+                } else {
+                    "本地图片理解需要先安装视觉资源包：$target。请在设置 > 本地模型中下载或导入对应的 .task 文件。"
+                }
+            )
         }
         val rawContent = if (request.imageBase64Present()) {
             val prompt = if (request.tools.isEmpty()) request.toLocalVisionPrompt()
@@ -77,8 +84,8 @@ class LocalGemmaGateway(
                 conversation.sendMessageAsync(prompt).collect { piece ->
                     val text = runCatching { conversation.renderMessageIntoString(piece) }
                         .getOrElse { piece.toString() }
-                    output.append(text)
-                    streamCleaner?.append(text)
+                    val delta = output.appendRenderedSnapshotOrDelta(text)
+                    streamCleaner?.append(delta)
                         ?.takeIf { it.isNotBlank() }
                         ?.let { request.onToken?.invoke(it) }
                 }
@@ -93,6 +100,34 @@ class LocalGemmaGateway(
     override suspend fun embed(text: String): FloatArray {
         throw UnsupportedOperationException("Local model embeddings are not available.")
     }
+
+    private fun StringBuilder.appendRenderedSnapshotOrDelta(text: String): String {
+        if (text.isEmpty()) return ""
+        val current = toString()
+        if (text == current) return ""
+        if (text.startsWith(current)) {
+            val delta = text.substring(current.length)
+            clear()
+            append(text)
+            return delta
+        }
+        val overlap = longestSuffixPrefixOverlap(current, text)
+        if (overlap > 0) {
+            val delta = text.substring(overlap)
+            append(delta)
+            return delta
+        }
+        append(text)
+        return text
+    }
+
+    private fun longestSuffixPrefixOverlap(left: String, right: String): Int {
+        val max = minOf(left.length, right.length)
+        for (size in max downTo 1) {
+            if (left.regionMatches(left.length - size, right, 0, size)) return size
+        }
+        return 0
+    }
 }
 
 private fun ChatRequest.toLocalVisionPrompt(): String {
@@ -100,7 +135,17 @@ private fun ChatRequest.toLocalVisionPrompt(): String {
     val lastTextUser = messages.lastOrNull { it.role == "user" && !it.content.isNullOrBlank() }
     val question = lastTextUser?.content?.takeIf { it.isNotBlank() }?.middleEllipsize(600)
         ?: if (language == "en") "Understand this image and answer concisely based on what the user may want to know." else "请理解这张图片，并用简体中文简洁回答用户可能想知道的内容。"
-    return """
+    return if (language == "en") """
+You are MobileClaw's local vision model. Answer only from the provided image and question.
+Do not output template markers such as <turn>, <|turn|>, model, or user.
+If the image is unclear, say that you cannot confirm it; do not invent details.
+${responseLanguageShortInstruction(language)}
+
+User question:
+$question
+
+Answer:
+    """.trimIndent() else """
 你是 MobileClaw 的本地视觉模型。请只根据用户提供的图片和问题回答。
 不要输出 <turn>、<|turn|>、model、user 等模板标记。
 如果图片内容不清楚，请说明无法确认，不要编造。

@@ -96,6 +96,20 @@ data class Role(
     }
 }
 
+fun Role.localizedName(language: String): String {
+    if (language != "en" || !isBuiltin) return name
+    return when (id) {
+        "general" -> "General Assistant"
+        "coder" -> "Code Expert"
+        "web_agent" -> "Web Assistant"
+        "phone_operator" -> "Phone Operator"
+        "creator" -> "Creative Assistant"
+        "skill_admin" -> "Skill Manager"
+        "vpn_operator" -> "VPN Manager"
+        else -> name
+    }
+}
+
 object RoleAvatarDefaults {
     const val GENERAL = "role:general"
     const val CODER = "role:coder"

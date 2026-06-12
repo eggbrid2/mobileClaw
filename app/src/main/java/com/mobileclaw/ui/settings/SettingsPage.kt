@@ -65,6 +65,7 @@ import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.ClawIconTile
 import com.mobileclaw.ui.ClawPageHeader
 import com.mobileclaw.ui.ClawSymbolIcon
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.ThemePresets
 import com.mobileclaw.ui.common.openFileAttachment
@@ -339,15 +340,17 @@ private fun hydrateCapabilityConnections(
     }
 }
 
-private fun videoTaskStatusLabel(task: VideoGenerationTaskEntity): String =
+private fun zhEn(isZh: Boolean, zh: String, en: String): String = if (isZh) zh else en
+
+private fun videoTaskStatusLabel(task: VideoGenerationTaskEntity, isZh: Boolean): String =
     when {
-        task.status == VideoTaskStatuses.RUNNING && isVideoDownloadUrlPending(task.errorMessage) -> "等待下载地址"
-        task.status == VideoTaskStatuses.SUBMITTED -> "生成中"
-        task.status == VideoTaskStatuses.RUNNING -> "生成中"
-        task.status == VideoTaskStatuses.TIMED_OUT -> "生成中"
-        task.status == VideoTaskStatuses.COMPLETED -> "已生成"
-        task.status == VideoTaskStatuses.DOWNLOADED -> "已生成"
-        task.status == VideoTaskStatuses.FAILED -> "失败"
+        task.status == VideoTaskStatuses.RUNNING && isVideoDownloadUrlPending(task.errorMessage) -> zhEn(isZh, "等待下载地址", "Waiting for download URL")
+        task.status == VideoTaskStatuses.SUBMITTED -> zhEn(isZh, "生成中", "Generating")
+        task.status == VideoTaskStatuses.RUNNING -> zhEn(isZh, "生成中", "Generating")
+        task.status == VideoTaskStatuses.TIMED_OUT -> zhEn(isZh, "生成中", "Generating")
+        task.status == VideoTaskStatuses.COMPLETED -> zhEn(isZh, "已生成", "Generated")
+        task.status == VideoTaskStatuses.DOWNLOADED -> zhEn(isZh, "已生成", "Generated")
+        task.status == VideoTaskStatuses.FAILED -> zhEn(isZh, "失败", "Failed")
         else -> task.status
     }
 
@@ -391,6 +394,7 @@ fun SettingsPage(
     var accent    by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
     var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
     var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
+    val isZh = language == "zh"
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
 
@@ -496,8 +500,9 @@ fun SettingsPage(
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
                         iconKey = "role:coder",
-                        title = "Codex 桥接",
-                        subtitle = if (codexConfigured) "已配置电脑端桥接" else "连接电脑上的 Codex CLI",
+                        title = zhEn(isZh, "Codex 桥接", "Codex Bridge"),
+                        subtitle = if (codexConfigured) zhEn(isZh, "已配置电脑端桥接", "Desktop bridge configured")
+                        else zhEn(isZh, "连接电脑上的 Codex CLI", "Connect to Codex CLI on your computer"),
                         statusOk = codexConfigured,
                         c = c,
                     ) { subPage = SettingsSub.CODEX_DESKTOP }
@@ -512,8 +517,9 @@ fun SettingsPage(
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
                         iconKey = "video",
-                        title = "长任务",
-                        subtitle = if (videoTasks.isEmpty()) "暂无视频长任务" else "共有 ${videoTasks.size} 条视频生成任务",
+                        title = zhEn(isZh, "长任务", "Long Tasks"),
+                        subtitle = if (videoTasks.isEmpty()) zhEn(isZh, "暂无视频长任务", "No long video tasks")
+                        else zhEn(isZh, "共有 ${videoTasks.size} 条视频生成任务", "${videoTasks.size} video generation tasks"),
                         statusOk = videoTasks.any { it.status == VideoTaskStatuses.DOWNLOADED || it.status == VideoTaskStatuses.COMPLETED },
                         c = c,
                     ) { subPage = SettingsSub.TASKS }
@@ -656,6 +662,7 @@ private fun SettingsCategoryRow(
     c: ClawColors,
     onClick: () -> Unit,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -704,6 +711,7 @@ private fun GatewayListSubPage(
     var editingGateway by remember { mutableStateOf<GatewayConfig?>(null) }
     var deleteTarget by remember { mutableStateOf<GatewayConfig?>(null) }
     var showMoreProviders by remember { mutableStateOf(false) }
+    val isZh = LocalAppLanguage.current == "zh"
 
     if (editingGateway != null) {
         GatewayEditorSubPage(
@@ -725,7 +733,7 @@ private fun GatewayListSubPage(
     }
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = "网关配置", onBack = onBack)
+        ClawPageHeader(title = zhEn(isZh, "网关配置", "Gateway Configuration"), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -736,8 +744,8 @@ private fun GatewayListSubPage(
                 c = c,
             )
 
-            Text("选择服务商", color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("先选你正在使用的 AI 服务，只需要再粘贴 API Key 就能开始。", color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+            Text(zhEn(isZh, "选择服务商", "Choose Provider"), color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+            Text(zhEn(isZh, "先选你正在使用的 AI 服务，只需要再粘贴 API Key 就能开始。", "Select your AI service, then paste an API key to get started."), color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 GATEWAY_PRESETS.filter { it.group == GatewayPresetGroup.DIRECT }.take(5).forEach { preset ->
@@ -769,8 +777,8 @@ private fun GatewayListSubPage(
                             Text("...", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         Column(Modifier.weight(1f)) {
-                            Text("更多服务商 / 自定义", color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
-                            Text("Claude 中转、GPT 兼容网关、本地 Ollama", color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(zhEn(isZh, "更多服务商 / 自定义", "More Providers / Custom"), color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+                            Text(zhEn(isZh, "Claude 中转、GPT 兼容网关、本地 Ollama", "Claude proxies, GPT-compatible gateways, local Ollama"), color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = c.subtext, modifier = Modifier.size(18.dp))
                     }
@@ -809,7 +817,7 @@ private fun GatewayListSubPage(
             }
 
             if (list.isNotEmpty()) {
-                Text("已保存", color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(zhEn(isZh, "已保存", "Saved"), color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
                 list.forEach { gw ->
                     val isActive = gw.id == activeId || (activeId == null && gw == list.first())
                     GatewayListItem(
@@ -852,7 +860,7 @@ private fun GatewayListSubPage(
                     .padding(horizontal = 24.dp, vertical = 14.dp)
                     .height(48.dp),
             ) {
-                Text("用 OpenAI 开始配置", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(zhEn(isZh, "用 OpenAI 开始配置", "Start with OpenAI"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
     }
@@ -884,6 +892,7 @@ private fun GatewayConnectionHero(
     activeGateway: GatewayConfig?,
     c: ClawColors,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -915,10 +924,10 @@ private fun GatewayConnectionHero(
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (connected) "网关已连接" else "先连接 AI 网关", color = Color.White, fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
+            Text(if (connected) zhEn(isZh, "网关已连接", "Gateway Connected") else zhEn(isZh, "先连接 AI 网关", "Connect an AI Gateway"), color = Color.White, fontSize = 19.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
             Text(
-                if (connected) "${activeGateway?.name.orEmpty().ifBlank { "默认网关" }} · 会话、工作台和角色可用"
-                else "选择服务商，粘贴 API Key，保存后即可开始会话。",
+                if (connected) "${activeGateway?.name.orEmpty().ifBlank { zhEn(isZh, "默认网关", "Default gateway") }} · ${zhEn(isZh, "会话、工作台和角色可用", "Chats, workspace, and roles are available")}"
+                else zhEn(isZh, "选择服务商，粘贴 API Key，保存后即可开始会话。", "Choose a provider, paste an API key, and save to start chatting."),
                 color = Color.White.copy(alpha = 0.68f),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
@@ -936,6 +945,7 @@ private fun GatewaySetupHero(
     ready: Boolean,
     c: ClawColors,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -975,6 +985,7 @@ private fun GatewaySelectedProviderSummary(
     model: String,
     c: ClawColors,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -991,9 +1002,9 @@ private fun GatewaySelectedProviderSummary(
             Text(providerName.firstOrNull()?.uppercaseChar()?.toString() ?: "A", color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(providerName.ifBlank { "当前服务商" }, color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(providerName.ifBlank { zhEn(isZh, "当前服务商", "Current provider") }, color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                listOf(gatewayHostLabel(endpoint), model.ifBlank { "默认模型" }).joinToString(" · "),
+                listOf(gatewayHostLabel(endpoint), model.ifBlank { zhEn(isZh, "默认模型", "Default model") }).joinToString(" · "),
                 color = c.subtext,
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
@@ -1010,6 +1021,7 @@ private fun GatewayProviderRow(
     c: ClawColors,
     onClick: () -> Unit,
 ) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1033,12 +1045,13 @@ private fun GatewayProviderRow(
             Text(preset.name, color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(gatewayHostLabel(preset.endpoint), color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(if (preset.group == GatewayPresetGroup.TEMPLATE) "高级" else "推荐", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(if (preset.group == GatewayPresetGroup.TEMPLATE) zhEn(isZh, "高级", "Advanced") else zhEn(isZh, "推荐", "Recommended"), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun GatewayCustomProviderRow(c: ClawColors, onClick: () -> Unit) {
+    val isZh = LocalAppLanguage.current == "zh"
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1053,10 +1066,10 @@ private fun GatewayCustomProviderRow(c: ClawColors, onClick: () -> Unit) {
             Text("+", color = c.bg, fontSize = 16.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("自定义兼容网关", color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text("已有中转地址时使用", color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp)
+            Text(zhEn(isZh, "自定义兼容网关", "Custom Compatible Gateway"), color = c.text, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(zhEn(isZh, "已有中转地址时使用", "Use this when you already have a proxy URL"), color = c.subtext, fontSize = 11.sp, lineHeight = 14.sp)
         }
-        Text("高级", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(zhEn(isZh, "高级", "Advanced"), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1169,6 +1182,7 @@ private fun GatewayEditorSubPage(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val isZh = LocalAppLanguage.current == "zh"
     var name by remember { mutableStateOf(gateway.name) }
     var endpoint by remember { mutableStateOf(gateway.endpoint) }
     var apiKey by remember { mutableStateOf(gateway.apiKey) }
@@ -1278,7 +1292,7 @@ private fun GatewayEditorSubPage(
     }
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = "连接网关", onBack = onBack) {
+        ClawPageHeader(title = zhEn(isZh, "连接网关", "Connect Gateway"), onBack = onBack) {
             Button(
                 onClick = {
                     val normalizedCapabilities = capabilities
@@ -1307,7 +1321,7 @@ private fun GatewayEditorSubPage(
                 colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg, disabledContainerColor = c.border),
                 shape = RoundedCornerShape(18.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text("保存并使用", fontSize = 13.sp, maxLines = 1) }
+            ) { Text(zhEn(isZh, "保存并使用", "Save and Use"), fontSize = 13.sp, maxLines = 1) }
             Spacer(Modifier.width(4.dp))
         }
         Column(
@@ -1315,14 +1329,14 @@ private fun GatewayEditorSubPage(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             GatewaySetupHero(
-                title = if (isValid) "可以保存了" else "只差 API Key",
-                subtitle = if (isValid) "${name.ifBlank { "当前服务商" }} 已填写完成，保存后立即用于会话。"
-                else "选服务商、粘贴 Key、保存。其它模型设置可以之后再调。",
+                title = if (isValid) zhEn(isZh, "可以保存了", "Ready to Save") else zhEn(isZh, "只差 API Key", "API Key Needed"),
+                subtitle = if (isValid) "${name.ifBlank { zhEn(isZh, "当前服务商", "Current provider") }} ${zhEn(isZh, "已填写完成，保存后立即用于会话。", "is complete. Save it to use in chats.")}"
+                else zhEn(isZh, "选服务商、粘贴 Key、保存。其它模型设置可以之后再调。", "Choose a provider, paste a key, and save. Model settings can be adjusted later."),
                 ready = isValid,
                 c = c,
             )
 
-            SettingsSection("1 选择服务商", c) {
+            SettingsSection(zhEn(isZh, "1 选择服务商", "1 Choose Provider"), c) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     directPresets.forEach { preset ->
                         val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
@@ -1354,7 +1368,7 @@ private fun GatewayEditorSubPage(
                 }
             }
 
-            SettingsSection("2 粘贴 API Key", c) {
+            SettingsSection(zhEn(isZh, "2 粘贴 API Key", "2 Paste API Key"), c) {
                 GatewaySelectedProviderSummary(
                     providerName = name,
                     endpoint = endpoint,
@@ -1365,10 +1379,10 @@ private fun GatewayEditorSubPage(
                 ClawPageTextField(apiKey, { apiKey = it }, "API Key", "sk-...", c, isSecret = true)
                 if (endpoint.isBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    ClawPageTextField(endpoint, { endpoint = it }, "网关地址", "https://api.example.com/v1", c)
+                    ClawPageTextField(endpoint, { endpoint = it }, zhEn(isZh, "网关地址", "Gateway URL"), "https://api.example.com/v1", c)
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("Key 只保存在本机配置里。保存前不会发起会话请求。", color = c.subtext.copy(alpha = 0.72f), fontSize = 11.sp, lineHeight = 15.sp)
+                Text(zhEn(isZh, "Key 只保存在本机配置里。保存前不会发起会话请求。", "Keys are stored only on this device. No chat request is sent before saving."), color = c.subtext.copy(alpha = 0.72f), fontSize = 11.sp, lineHeight = 15.sp)
             }
 
             Button(
@@ -1410,7 +1424,7 @@ private fun GatewayEditorSubPage(
                 colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg, disabledContainerColor = c.border),
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
-                Text("3 保存并开始使用", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(zhEn(isZh, "3 保存并开始使用", "3 Save and Start"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
 
             Row(
@@ -1423,15 +1437,15 @@ private fun GatewayEditorSubPage(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("高级设置", color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Text("模型、图片/视频能力、自定义中转地址", color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(zhEn(isZh, "高级设置", "Advanced Settings"), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(zhEn(isZh, "模型、图片/视频能力、自定义中转地址", "Models, image/video capabilities, custom proxy URLs"), color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(if (advancedGatewaySettingsExpanded) "收起" else "展开", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(if (advancedGatewaySettingsExpanded) zhEn(isZh, "收起", "Collapse") else zhEn(isZh, "展开", "Expand"), color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
 
             AnimatedVisibility(advancedGatewaySettingsExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    SettingsSection("服务商模板", c) {
+                    SettingsSection(zhEn(isZh, "服务商模板", "Provider Templates"), c) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             templatePresets.forEach { preset ->
                                 val active = endpoint == preset.endpoint && model == preset.model && name == preset.name
@@ -1453,7 +1467,7 @@ private fun GatewayEditorSubPage(
                             }
                         }
                     }
-                    SettingsSection("网关地址", c) {
+                    SettingsSection(zhEn(isZh, "网关地址", "Gateway URL"), c) {
                         ClawPageTextField(name, { name = it }, str(R.string.role_field_name), "OpenAI", c)
                         ClawPageTextField(endpoint, { endpoint = it }, str(R.string.field_endpoint), "https://api.openai.com", c)
                     }
@@ -2712,6 +2726,7 @@ private fun CodexDesktopSubPage(
 ) {
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val isZh = LocalAppLanguage.current == "zh"
     val http = remember {
         OkHttpClient.Builder()
             .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
@@ -2768,7 +2783,7 @@ private fun CodexDesktopSubPage(
             val url = endpoint.trim().trimEnd('/')
             val bearer = token.trim()
             syncResult = when {
-                url.isBlank() || bearer.isBlank() -> "请先填写 URL 和 Token"
+                url.isBlank() || bearer.isBlank() -> zhEn(isZh, "请先填写 URL 和 Token", "Enter the URL and token first")
                 else -> withContext(Dispatchers.IO) {
                     runCatching {
                         val payload = JsonObject().apply {
@@ -2787,7 +2802,7 @@ private fun CodexDesktopSubPage(
                             .build()
                         http.newCall(req).execute().use { resp ->
                             val body = resp.body?.string().orEmpty()
-                            if (resp.isSuccessful) "ok: 已同步到电脑 Codex" else "error ${resp.code}: ${body.take(240)}"
+                            if (resp.isSuccessful) zhEn(isZh, "ok: 已同步到电脑 Codex", "ok: Synced to desktop Codex") else "error ${resp.code}: ${body.take(240)}"
                         }
                     }.getOrElse { "error: ${it.message}" }
                 }
@@ -2803,7 +2818,7 @@ private fun CodexDesktopSubPage(
             val url = endpoint.trim().trimEnd('/')
             val bearer = token.trim()
             testResult = when {
-                url.isBlank() || bearer.isBlank() -> "请先填写 URL 和 Token"
+                url.isBlank() || bearer.isBlank() -> zhEn(isZh, "请先填写 URL 和 Token", "Enter the URL and token first")
                 else -> withContext(Dispatchers.IO) {
                     runCatching {
                         val req = Request.Builder()
@@ -2828,12 +2843,12 @@ private fun CodexDesktopSubPage(
     }
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = "Codex 桥接", onBack = onBack)
+        ClawPageHeader(title = zhEn(isZh, "Codex 桥接", "Codex Bridge"), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            SettingsSection("电脑连接", c) {
+            SettingsSection(zhEn(isZh, "电脑连接", "Computer Connection"), c) {
                 Column(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
@@ -2861,7 +2876,7 @@ private fun CodexDesktopSubPage(
                     OutlinedTextField(
                         value = cwd,
                         onValueChange = { cwd = it },
-                        label = { Text("默认工作目录") },
+                        label = { Text(zhEn(isZh, "默认工作目录", "Default working directory")) },
                         placeholder = { Text("/Users/you/project") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -2873,7 +2888,7 @@ private fun CodexDesktopSubPage(
                             colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
                             modifier = Modifier.height(44.dp),
                         ) {
-                            Text(if (saved) "已保存" else "保存", fontSize = 13.sp, maxLines = 1)
+                            Text(if (saved) zhEn(isZh, "已保存", "Saved") else zhEn(isZh, "保存", "Save"), fontSize = 13.sp, maxLines = 1)
                         }
                         OutlinedButton(
                             onClick = { testBridge() },
@@ -2884,7 +2899,7 @@ private fun CodexDesktopSubPage(
                             if (testing) {
                                 CircularProgressIndicator(color = c.text, modifier = Modifier.size(14.dp), strokeWidth = 1.6.dp)
                             } else {
-                                Text("测试连接", fontSize = 13.sp, maxLines = 1)
+                                Text(zhEn(isZh, "测试连接", "Test Connection"), fontSize = 13.sp, maxLines = 1)
                             }
                         }
                     }
@@ -2899,7 +2914,7 @@ private fun CodexDesktopSubPage(
                 }
             }
 
-            SettingsSection("Codex 运行配置", c) {
+            SettingsSection(zhEn(isZh, "Codex 运行配置", "Codex Run Configuration"), c) {
                 Column(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
@@ -2920,7 +2935,7 @@ private fun CodexDesktopSubPage(
                         value = provider,
                         onValueChange = { provider = it },
                         label = { Text("Provider") },
-                        placeholder = { Text("留空使用电脑 Codex 默认 provider") },
+                        placeholder = { Text(zhEn(isZh, "留空使用电脑 Codex 默认 provider", "Leave empty to use the desktop Codex default provider")) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -2953,7 +2968,7 @@ private fun CodexDesktopSubPage(
                             if (syncing) {
                                 CircularProgressIndicator(color = c.bg, modifier = Modifier.size(14.dp), strokeWidth = 1.6.dp)
                             } else {
-                                Text("同步到电脑", fontSize = 13.sp, maxLines = 1)
+                                Text(zhEn(isZh, "同步到电脑", "Sync to Computer"), fontSize = 13.sp, maxLines = 1)
                             }
                         }
                         OutlinedButton(
@@ -2961,7 +2976,7 @@ private fun CodexDesktopSubPage(
                             shape = RoundedCornerShape(999.dp),
                             modifier = Modifier.height(44.dp),
                         ) {
-                            Text(if (saved) "已保存" else "仅保存手机", fontSize = 13.sp, maxLines = 1)
+                            Text(if (saved) zhEn(isZh, "已保存", "Saved") else zhEn(isZh, "仅保存手机", "Save on Phone Only"), fontSize = 13.sp, maxLines = 1)
                         }
                     }
                     syncResult?.let {
@@ -2973,7 +2988,7 @@ private fun CodexDesktopSubPage(
                         )
                     }
                     Text(
-                        "同步后电脑端 bridge 会记住这些默认值；之后从 MobileClaw 发给 Codex 的任务会按这组配置运行。",
+                        zhEn(isZh, "同步后电脑端 bridge 会记住这些默认值；之后从 MobileClaw 发给 Codex 的任务会按这组配置运行。", "After syncing, the desktop bridge remembers these defaults. Future MobileClaw tasks sent to Codex will use this configuration."),
                         color = c.subtext.copy(alpha = 0.72f),
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
@@ -2981,7 +2996,7 @@ private fun CodexDesktopSubPage(
                 }
             }
 
-            SettingsSection("电脑端启动", c) {
+            SettingsSection(zhEn(isZh, "电脑端启动", "Start on Computer"), c) {
                 Column(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
@@ -2991,7 +3006,7 @@ private fun CodexDesktopSubPage(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        "在装有 Codex CLI 的电脑上，从 mobileClaw 仓库根目录运行 bridge 脚本。手机和电脑需要在同一局域网，防火墙需允许端口 52734。",
+                        zhEn(isZh, "在装有 Codex CLI 的电脑上，从 mobileClaw 仓库根目录运行 bridge 脚本。手机和电脑需要在同一局域网，防火墙需允许端口 52734。", "On the computer with Codex CLI installed, run the bridge script from the mobileClaw repository root. The phone and computer must be on the same LAN, and the firewall must allow port 52734."),
                         color = c.subtext,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
@@ -3009,7 +3024,7 @@ private fun CodexDesktopSubPage(
                         }
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "复制",
+                            zhEn(isZh, "复制", "Copy"),
                             color = c.text,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -3021,7 +3036,7 @@ private fun CodexDesktopSubPage(
                         )
                     }
                     Text(
-                        "保存后可在聊天里说：用电脑 Codex 修改某个项目、查看当前状态、停止电脑 Codex 任务。",
+                        zhEn(isZh, "保存后可在聊天里说：用电脑 Codex 修改某个项目、查看当前状态、停止电脑 Codex 任务。", "After saving, you can ask in chat to use desktop Codex to edit a project, check status, or stop a desktop Codex task."),
                         color = c.subtext.copy(alpha = 0.72f),
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
@@ -3353,10 +3368,11 @@ private fun VideoTasksSubPage(
     onDeleteTask: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val isZh = LocalAppLanguage.current == "zh"
     Column(
         Modifier.fillMaxSize().background(c.bg).navigationBarsPadding(),
     ) {
-        ClawPageHeader(title = "长任务", onBack = onBack)
+        ClawPageHeader(title = zhEn(isZh, "长任务", "Long Tasks"), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -3370,13 +3386,13 @@ private fun VideoTasksSubPage(
                     enabled = !refreshingAll,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(if (refreshingAll) "刷新中..." else "刷新未完成任务")
+                    Text(if (refreshingAll) zhEn(isZh, "刷新中...", "Refreshing...") else zhEn(isZh, "刷新未完成任务", "Refresh Pending Tasks"))
                 }
                 OutlinedButton(
                     onClick = onBack,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("返回")
+                    Text(zhEn(isZh, "返回", "Back"))
                 }
             }
             if (tasks.isEmpty()) {
@@ -3387,11 +3403,11 @@ private fun VideoTasksSubPage(
                         .border(0.5.dp, c.border, RoundedCornerShape(14.dp))
                         .padding(16.dp),
                 ) {
-                    Text("还没有视频长任务。生成视频超时后，会自动在这里保留任务 ID 并继续追踪。", color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
+                    Text(zhEn(isZh, "还没有视频长任务。生成视频超时后，会自动在这里保留任务 ID 并继续追踪。", "No long video tasks yet. If video generation times out, the task ID is kept here so it can continue to be tracked."), color = c.subtext, fontSize = 12.sp, lineHeight = 18.sp)
                 }
             } else {
                 tasks.forEach { task ->
-                    val statusLabel = videoTaskStatusLabel(task)
+                    val statusLabel = videoTaskStatusLabel(task, isZh)
                     val localVideoFile = task.filePath.takeIf { it.isNotBlank() }?.let(::File)
                     val hasPlayableFile = localVideoFile?.exists() == true
                     val hasRemoteVideo = task.videoUrl.isNotBlank()
@@ -3411,7 +3427,7 @@ private fun VideoTasksSubPage(
                         ) {
                             GatewayPill(text = statusLabel, c = c, active = isDone)
                             TextButton(onClick = { onDeleteTask(task.taskId) }) {
-                                Text("删除", color = c.subtext, fontSize = 12.sp)
+                                Text(zhEn(isZh, "删除", "Delete"), color = c.subtext, fontSize = 12.sp)
                             }
                         }
                         Text(
@@ -3456,8 +3472,8 @@ private fun VideoTasksSubPage(
                                         .padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Text("视频已生成", color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                    Text("下载完成后会在这里直接展示播放器。", color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
+                                    Text(zhEn(isZh, "视频已生成", "Video Generated"), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(zhEn(isZh, "下载完成后会在这里直接展示播放器。", "After download completes, the player will appear here."), color = c.subtext, fontSize = 12.sp, lineHeight = 17.sp)
                                     OutlinedButton(
                                         onClick = {
                                             runCatching {
@@ -3471,13 +3487,13 @@ private fun VideoTasksSubPage(
                                         },
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
-                                        Text("打开视频")
+                                        Text(zhEn(isZh, "打开视频", "Open Video"))
                                     }
                                 }
                             }
                             task.status == VideoTaskStatuses.FAILED -> {
                                 Text(
-                                    text = task.errorMessage.ifBlank { "生成失败，请重新发起视频生成。" },
+                                    text = task.errorMessage.ifBlank { zhEn(isZh, "生成失败，请重新发起视频生成。", "Generation failed. Please start video generation again.") },
                                     color = c.red,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp,
@@ -3485,7 +3501,7 @@ private fun VideoTasksSubPage(
                             }
                             else -> {
                                 Text(
-                                    text = "视频生成中，稍后刷新即可查看结果。",
+                                    text = zhEn(isZh, "视频生成中，稍后刷新即可查看结果。", "Video is generating. Refresh later to check the result."),
                                     color = c.subtext,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp,
@@ -3501,7 +3517,7 @@ private fun VideoTasksSubPage(
                                 enabled = task.taskId !in refreshingIds && task.status != VideoTaskStatuses.DOWNLOADED,
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text(if (task.taskId in refreshingIds) "检查中..." else "刷新结果")
+                                Text(if (task.taskId in refreshingIds) zhEn(isZh, "检查中...", "Checking...") else zhEn(isZh, "刷新结果", "Refresh Result"))
                             }
                         }
                     }

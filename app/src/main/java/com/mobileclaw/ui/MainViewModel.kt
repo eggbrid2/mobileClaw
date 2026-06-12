@@ -2076,6 +2076,7 @@ class MainViewModel : ViewModel() {
             hasImage = attachedImage != null,
             hasFile = attachedFile != null,
             role = scheduledRole,
+            language = config.language,
         )
         val allowedToolIds = resolveAllowedToolIds(route, orchestration.channelDecision.toolHints, contextualGoal)
         val executionContext = orchestration.toPromptBlock()
@@ -3913,6 +3914,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 hasImage = false,
                 hasFile = false,
                 role = role,
+                language = config.language,
             )
             val groupAllowedToolIds = resolveAllowedToolIds(groupRoute, groupOrchestration.channelDecision.toolHints, triggerText)
             val phoneTask = taskType == TaskType.PHONE_CONTROL

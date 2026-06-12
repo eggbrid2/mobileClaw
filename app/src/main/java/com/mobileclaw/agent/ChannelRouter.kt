@@ -32,6 +32,7 @@ class ChannelRouter {
         hasImage: Boolean = false,
         hasFile: Boolean = false,
         roleId: String = "general",
+        language: String = "zh",
         aiPrimary: ChannelType? = null,
         aiSupporting: List<ChannelType> = emptyList(),
         aiToolHints: List<String> = emptyList(),
@@ -85,7 +86,7 @@ class ChannelRouter {
             supporting = supporting.filterNot { it == primary },
             toolHints = toolHints,
             userVisibleSummary = aiUserVisibleSteps.takeIf { it.isNotEmpty() }?.joinToString(" / ")
-                ?: buildUserSummary(primary, supporting.filterNot { it == primary }),
+                ?: buildUserSummary(primary, supporting.filterNot { it == primary }, language),
         )
     }
 
@@ -130,38 +131,31 @@ class ChannelRouter {
             text.contains("技能") ||
             text.contains("工具")
 
-    private fun buildUserSummary(primary: ChannelType, supporting: List<ChannelType>): String {
-        val primaryLabel = when (primary) {
-            ChannelType.CHAT -> "聊天"
-            ChannelType.INFO -> "能力目录"
-            ChannelType.MEMORY -> "记忆"
-            ChannelType.SKILL -> "技能"
-            ChannelType.SELF_EVOLUTION -> "自我升级"
-            ChannelType.PLAN -> "计划"
-            ChannelType.ARTIFACT -> "产物"
-            ChannelType.PHONE -> "手机操作"
-            ChannelType.WEB -> "网页查找"
-            ChannelType.MEDIA -> "媒体生成"
-            ChannelType.VPN -> "VPN"
-            ChannelType.CODE -> "代码执行"
+    private fun buildUserSummary(primary: ChannelType, supporting: List<ChannelType>, language: String): String {
+        val english = language == "en"
+        val primaryLabel = channelLabel(primary, english)
+        val supportLabel = supporting.joinToString(if (english) ", " else "、") { channelLabel(it, english) }
+        return when {
+            english && supportLabel.isBlank() -> "Primary channel: $primaryLabel"
+            english -> "Primary channel: $primaryLabel; supporting channels: $supportLabel"
+            supportLabel.isBlank() -> "主通道：$primaryLabel"
+            else -> "主通道：$primaryLabel；辅助通道：$supportLabel"
         }
-        val supportLabel = supporting.joinToString("、") {
-            when (it) {
-                ChannelType.CHAT -> "聊天"
-                ChannelType.INFO -> "能力目录"
-                ChannelType.MEMORY -> "记忆"
-                ChannelType.SKILL -> "技能"
-                ChannelType.SELF_EVOLUTION -> "自我升级"
-                ChannelType.PLAN -> "计划"
-                ChannelType.ARTIFACT -> "产物"
-                ChannelType.PHONE -> "手机操作"
-                ChannelType.WEB -> "网页查找"
-                ChannelType.MEDIA -> "媒体生成"
-                ChannelType.VPN -> "VPN"
-                ChannelType.CODE -> "代码执行"
-            }
-        }
-        return if (supportLabel.isBlank()) "主通道：$primaryLabel" else "主通道：$primaryLabel；辅助通道：$supportLabel"
+    }
+
+    private fun channelLabel(channel: ChannelType, english: Boolean): String = when (channel) {
+        ChannelType.CHAT -> if (english) "Chat" else "聊天"
+        ChannelType.INFO -> if (english) "Capability directory" else "能力目录"
+        ChannelType.MEMORY -> if (english) "Memory" else "记忆"
+        ChannelType.SKILL -> if (english) "Skills" else "技能"
+        ChannelType.SELF_EVOLUTION -> if (english) "Self-improvement" else "自我升级"
+        ChannelType.PLAN -> if (english) "Planning" else "计划"
+        ChannelType.ARTIFACT -> if (english) "Artifacts" else "产物"
+        ChannelType.PHONE -> if (english) "Phone control" else "手机操作"
+        ChannelType.WEB -> if (english) "Web research" else "网页查找"
+        ChannelType.MEDIA -> if (english) "Media generation" else "媒体生成"
+        ChannelType.VPN -> "VPN"
+        ChannelType.CODE -> if (english) "Code execution" else "代码执行"
     }
 
     private fun String.anyContains(vararg needles: String): Boolean =

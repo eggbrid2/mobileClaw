@@ -85,6 +85,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import com.mobileclaw.R
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.localizedName
 import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.llm.LocalModelInfo
 import com.mobileclaw.skill.SkillAttachment
@@ -1844,6 +1845,7 @@ private fun AgentMessageHeader(
     showModel: Boolean = true,
 ) {
     val c = LocalClawColors.current
+    val appLanguage = LocalAppLanguage.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.padding(bottom = 6.dp),
@@ -1857,7 +1859,7 @@ private fun AgentMessageHeader(
         Spacer(Modifier.width(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = role.name,
+                text = role.localizedName(appLanguage),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = c.text,
