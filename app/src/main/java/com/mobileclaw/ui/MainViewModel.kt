@@ -2449,7 +2449,7 @@ class MainViewModel : ViewModel() {
                         preferFastLocalVision = attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
                         preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
                         onToken       = { token ->
-                            val clean = token.cleanLocalTurnTokens()
+                            val clean = token.cleanLocalStreamDelta()
                             if (clean.isNotEmpty()) {
                                 overlay.onToken(clean)
                                 updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
@@ -2763,7 +2763,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                         tools = emptyList(),
                         stream = true,
                         onToken = { token ->
-                            val clean = token.cleanLocalTurnTokens()
+                            val clean = token.cleanLocalStreamDelta()
                             if (clean.isNotEmpty()) {
                                 updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
                             }
@@ -6002,6 +6002,17 @@ private fun supportsCurrentMultimodal(snapshot: ConfigSnapshot): Boolean {
 }
 
 private fun String.cleanLocalTurnTokens(): String = cleanLocalGeneratedText()
+
+private fun String.cleanLocalStreamDelta(): String {
+    if (isEmpty()) return ""
+    var text = replace("\r\n", "\n").replace('\r', '\n')
+    listOf(
+        Regex("""(?i)<\|?/?(?:start_of_turn|end_of_turn|turn|im_start|im_end|eot_id|eos|bos|endoftext|begin_of_text|start_header_id|end_header_id)\|?>"""),
+        Regex("""(?i)<\|?/?(?:eot|eom|eod|end)\|?>"""),
+    ).forEach { regex -> text = regex.replace(text, "") }
+    text = text.replace(Regex("""(?i)^\s*(?:assistant|model|ai|bot)\s*[:：]\s*"""), "")
+    return text
+}
 
 private fun String.cleanCodexDesktopOutput(prompt: String): String {
     val promptLines = prompt
