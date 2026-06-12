@@ -23,6 +23,12 @@ The idea is simple: a mobile agent should not just chat about your device. It sh
 
 ---
 
+## Project Status
+
+MobileClaw is currently going through a UI refresh, so some screens may feel visually inconsistent or rough while the new interface is being rebuilt.
+
+The roadmap also includes MCP support, including MCP connection and MCP creation flows, so agents can connect to standard MCP servers and expose compatible tools through the same runtime.
+
 ## Real Device Demo
 
 Captured from a Xiaomi device running the debug build. These are real agent runs, not mockups: MobileClaw created and opened a WebView MiniAPP, created a native AI Page, kept a multi-agent group chat with stickers, manages on-device models with vision packs, and exposes its skill/VPN/runtime surfaces.
