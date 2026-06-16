@@ -52,6 +52,7 @@ import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
 import com.mobileclaw.llm.ToolProperty
 import com.mobileclaw.llm.cleanLocalGeneratedText
+import com.mobileclaw.llm.decodeLocalTokenizerSpacing
 import com.mobileclaw.memory.EpisodicMemory
 import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.MemoryWriter
@@ -2452,7 +2453,7 @@ class MainViewModel : ViewModel() {
                             val clean = token.cleanLocalStreamDelta()
                             if (clean.isNotEmpty()) {
                                 overlay.onToken(clean)
-                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalStreamingText()) }
                                 consoleServer.broadcast("token", clean)
                             }
                         },
@@ -2765,7 +2766,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                         onToken = { token ->
                             val clean = token.cleanLocalStreamDelta()
                             if (clean.isNotEmpty()) {
-                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalTurnTokens()) }
+                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalStreamingText()) }
                             }
                         },
                     ))
@@ -6003,9 +6004,19 @@ private fun supportsCurrentMultimodal(snapshot: ConfigSnapshot): Boolean {
 
 private fun String.cleanLocalTurnTokens(): String = cleanLocalGeneratedText()
 
+private fun String.cleanLocalStreamingText(): String {
+    if (isEmpty()) return ""
+    var text = decodeLocalTokenizerSpacing().replace("\r\n", "\n").replace('\r', '\n')
+    listOf(
+        Regex("""(?i)<\|?/?(?:start_of_turn|end_of_turn|turn|im_start|im_end|eot_id|eos|bos|endoftext|begin_of_text|start_header_id|end_header_id)\|?>"""),
+        Regex("""(?i)<\|?/?(?:eot|eom|eod|end)\|?>"""),
+    ).forEach { regex -> text = regex.replace(text, "") }
+    return text.replace(Regex("""(?i)^\s*(?:assistant|model|ai|bot)\s*[:：]\s*"""), "")
+}
+
 private fun String.cleanLocalStreamDelta(): String {
     if (isEmpty()) return ""
-    var text = replace("\r\n", "\n").replace('\r', '\n')
+    var text = decodeLocalTokenizerSpacing().replace("\r\n", "\n").replace('\r', '\n')
     listOf(
         Regex("""(?i)<\|?/?(?:start_of_turn|end_of_turn|turn|im_start|im_end|eot_id|eos|bos|endoftext|begin_of_text|start_header_id|end_header_id)\|?>"""),
         Regex("""(?i)<\|?/?(?:eot|eom|eod|end)\|?>"""),

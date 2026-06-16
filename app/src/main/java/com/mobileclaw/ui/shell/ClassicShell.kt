@@ -104,7 +104,11 @@ fun ClassicScaffold(
                     leadingAction = leadingAction,
                     trailingAction = trailingAction,
                 )
-                Box(Modifier.weight(1f)) { content() }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .padding(bottom = ClassicBottomDockSafePadding)
+                ) { content() }
             }
         }
         ClassicBottomBar(
@@ -116,6 +120,8 @@ fun ClassicScaffold(
 }
 
 private data class ClassicTabItem(val tab: ClassicTab, val icon: ImageVector, val label: String)
+
+private val ClassicBottomDockSafePadding = 108.dp
 
 private fun classicAmbientBrush(isDark: Boolean): Brush =
     if (isDark) {

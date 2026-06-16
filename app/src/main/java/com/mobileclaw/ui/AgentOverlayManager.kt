@@ -82,8 +82,8 @@ class OverlayState {
  * Thin capsule-shaped floating overlay (TYPE_APPLICATION_OVERLAY) that shows
  * the agent's live status on top of any app.
  *
- * The window is WRAP_CONTENT and FLAG_NOT_FOCUSABLE, so it is exactly as large
- * as the capsule pill — all touch events outside the pill pass through to the
+ * The window is WRAP_CONTENT and non-modal, so it is exactly as large as the
+ * capsule pill — all touch events outside the pill pass through to the
  * underlying app unchanged.
  */
 class AgentOverlayManager(private val context: Context) {
@@ -316,7 +316,9 @@ class AgentOverlayManager(private val context: Context) {
         // FLAG_LAYOUT_IN_SCREEN + FLAG_LAYOUT_NO_LIMITS: allows the capsule to appear
         // in the status bar area (y=0 from physical screen top).
         // FLAG_NOT_FOCUSABLE: other apps keep focus.
+        // FLAG_NOT_TOUCH_MODAL: taps outside the overlay go to the app below.
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT,

@@ -73,7 +73,7 @@ class LocalGemmaGateway(
             val path = manager.modelPath(modelId)
                 ?: throw IllegalStateException("Local model is not installed: $modelId")
             val engine = LocalGemmaRuntime.engine(context, path)
-            val output = StringBuilder()
+            val output = LocalRenderedTextAccumulator()
             val streamCleaner = if (request.tools.isEmpty() && request.stream && request.onToken != null) {
                 LocalStreamingTextCleaner()
             } else {
@@ -82,15 +82,18 @@ class LocalGemmaGateway(
             Log.i("LocalGemma", "text request model=$modelId promptChars=${prompt.length} messages=${request.messages.size} tools=${request.tools.size} stream=${streamCleaner != null}")
             engine.createConversation().use { conversation ->
                 conversation.sendMessageAsync(prompt).collect { piece ->
-                    val text = runCatching { conversation.renderMessageIntoString(piece) }
-                        .getOrElse { piece.toString() }
+                    val text = piece.rawTextContent().takeIf { it.isNotEmpty() } ?: run {
+                        runCatching { conversation.renderMessageIntoString(piece) }
+                            .getOrElse { piece.toString() }
+                            .decodeLocalTokenizerSpacing()
+                    }
                     val delta = output.appendRenderedSnapshotOrDelta(text)
                     streamCleaner?.append(delta)
                         ?.takeIf { it.isNotBlank() }
                         ?.let { request.onToken?.invoke(it) }
                 }
             }
-            streamCleaner?.finalText() ?: output.toString()
+            streamCleaner?.finalText() ?: output.text()
         }
         val content = rawContent.cleanLocalGeneratedText()
         Log.i("LocalGemma", "request done model=$modelId rawChars=${rawContent.length} cleanChars=${content.length} cost=${System.currentTimeMillis() - startedAt}ms")
@@ -100,6 +103,31 @@ class LocalGemmaGateway(
     override suspend fun embed(text: String): FloatArray {
         throw UnsupportedOperationException("Local model embeddings are not available.")
     }
+
+}
+
+private fun com.google.ai.edge.litertlm.Message.rawTextContent(): String =
+    buildString {
+        contents.contents
+            .filterIsInstance<Content.Text>()
+            .forEach { appendLocalStreamPiece(it.text) }
+    }
+
+private class LocalRenderedTextAccumulator {
+    private val rendered = StringBuilder()
+    private val visible = StringBuilder()
+
+    fun appendRenderedSnapshotOrDelta(text: String): String {
+        if (text.isEmpty()) return ""
+        val normalized = text.decodeLocalTokenizerSpacing()
+        val delta = rendered.appendRenderedSnapshotOrDelta(normalized)
+        if (delta.isEmpty()) return ""
+        val before = visible.length
+        visible.appendLocalStreamPiece(delta)
+        return visible.substring(before)
+    }
+
+    fun text(): String = visible.toString()
 
     private fun StringBuilder.appendRenderedSnapshotOrDelta(text: String): String {
         if (text.isEmpty()) return ""

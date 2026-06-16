@@ -5,8 +5,8 @@ class LocalStreamingTextCleaner {
     private var emitted = ""
 
     fun append(piece: String): String {
-        if (piece.isBlank()) return ""
-        raw.append(piece)
+        if (piece.isEmpty()) return ""
+        raw.appendLocalStreamPiece(piece)
         if (raw.mightEndInsideLocalControlToken()) return ""
 
         val cleaned = raw.toString().cleanLocalGeneratedText()
@@ -28,7 +28,7 @@ class LocalStreamingTextCleaner {
 }
 
 fun String.cleanLocalGeneratedText(): String {
-    val normalized = normalizeLocalModelTranscript()
+    val normalized = decodeLocalTokenizerSpacing().normalizeLocalModelTranscript()
     val assistantText = normalized.extractLatestAssistantText()
         .stripLocalControlTokens()
         .stripBracketRolePrefixes()
@@ -37,7 +37,7 @@ fun String.cleanLocalGeneratedText(): String {
 
     val lines = assistantText.lines().map { it.trim() }.filter { it.isNotEmpty() }
     if (shouldMergeLocalLines(assistantText, lines)) {
-        return lines.joinToString("")
+        return mergeLocalLines(lines)
             .replace(Regex("""([。！？!?])"""), "$1\n")
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
@@ -48,6 +48,66 @@ fun String.cleanLocalGeneratedText(): String {
         .replace(Regex("""\n{3,}"""), "\n\n")
         .trim()
 }
+
+fun String.decodeLocalTokenizerSpacing(): String =
+    replace('\u2581', ' ')
+        .replace('\u0120', ' ')
+        .replace('\u010A', '\n')
+
+fun StringBuilder.appendLocalStreamPiece(piece: String) {
+    if (piece.isEmpty()) return
+    append(piece.decodeLocalTokenizerSpacing().withLocalStreamBoundary(this))
+}
+
+private fun mergeLocalLines(lines: List<String>): String {
+    if (lines.isEmpty()) return ""
+    val chineseCharCount = lines.sumOf { line -> line.count { it.isCjk() } }
+    val latinCharCount = lines.sumOf { line -> line.count { it.isLetterOrDigit() && !it.isCjk() } }
+    if (chineseCharCount > 0 && chineseCharCount >= latinCharCount) {
+        return lines.joinToString("")
+    }
+
+    val out = StringBuilder()
+    lines.forEach { line ->
+        if (out.isNotEmpty() && shouldInsertSpaceBetween(out.last(), line.first())) {
+            out.append(' ')
+        }
+        out.append(line)
+    }
+    return out.toString()
+}
+
+private fun shouldInsertSpaceBetween(left: Char, right: Char): Boolean {
+    if (left.isWhitespace() || right.isWhitespace()) return false
+    if (left.isCjk() || right.isCjk()) return false
+    if (right in noSpaceBeforeChars) return false
+    if (left in noSpaceAfterChars) return false
+    if (!left.isLetterOrDigit() && right.isLetterOrDigit()) {
+        return left in sentenceBoundaryChars && right.isUpperCase()
+    }
+    return left.isLetterOrDigit() || right.isLetterOrDigit()
+}
+
+private const val noSpaceBeforeChars = """.,;:!?)]}”’'"，。！？、；：）】》"""
+private const val noSpaceAfterChars = """([{“‘"""
+private const val sentenceBoundaryChars = """.!?"""
+
+private fun Char.isCjk(): Boolean =
+    this in '\u4e00'..'\u9fff' ||
+        this in '\u3400'..'\u4dbf' ||
+        this in '\uf900'..'\ufaff'
+
+private fun String.withLocalStreamBoundary(existing: CharSequence): String {
+    if (isEmpty() || first().isWhitespace()) return this
+    if (existing.lastOrNull()?.isWhitespace() == true) return this
+    val left = existing.lastVisibleLocalChar() ?: return this
+    val right = first()
+    if (!shouldInsertSpaceBetween(left, right)) return this
+    return " $this"
+}
+
+private fun CharSequence.lastVisibleLocalChar(): Char? =
+    lastOrNull { !it.isWhitespace() }
 
 private fun String.stripBracketRolePrefixes(): String =
     replace(Regex("""(?m)^\s*\[role=[^\]\n]{1,40}]\s*[:：,，-]?\s*"""), "")
@@ -213,7 +273,7 @@ private val localControlTokenRegexes = listOf(
 )
 
 private fun shouldMergeLocalLines(text: String, lines: List<String>): Boolean {
-    if (lines.size < 3) return false
+    if (lines.size < 2) return false
     if (text.contains("```")) return false
     if (lines.any { line ->
             line.startsWith("- ") ||
