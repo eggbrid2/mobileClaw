@@ -50,7 +50,7 @@ MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw 微信群二维码" width="260" />
 </p>
 
-该微信群二维码有效期至 **2026 年 6 月 19 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
+该微信群二维码有效期至 **2026 年 7 月 3 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
 
 ## 为什么做这个
 
