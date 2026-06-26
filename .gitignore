@@ -11,3 +11,6 @@ __pycache__/
 *.py[cod]
 debug_artifacts/
 dist/
+.claude/
+.stitch/
+tmp/

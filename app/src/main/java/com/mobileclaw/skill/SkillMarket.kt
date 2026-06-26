@@ -2,7 +2,8 @@ package com.mobileclaw.skill
 
 /**
  * Bundled catalog of one-tap installable skills for Chinese users.
- * All entries use free public APIs accessible without a VPN.
+ * HTTP entries use free public APIs accessible without a VPN. ModelScope MCP
+ * entries install as editable MCP skill templates backed by hosted SSE MCP.
  */
 object SkillMarket {
 
@@ -292,5 +293,77 @@ object SkillMarket {
                 textResponsePath = "data.content",
             ),
         )),
+
+        // ── ModelScope MCP ─────────────────────────────────────────────────
+
+        MarketEntry("🔌", "ModelScope MCP", modelscopeMcpTemplate(
+            id = "modelscope_mcp_search",
+            name = "ModelScope MCP Search",
+            nameZh = "ModelScope MCP 搜索",
+            description = "Template for a hosted ModelScope MCP search or retrieval tool. Replace endpoint, tool, and token after installing.",
+            descriptionZh = "ModelScope 托管 MCP 搜索/检索工具模板。安装后替换 endpoint、tool 和 token。",
+            tool = "search",
+            parameters = listOf(
+                SkillParam("query", "string", "Search query"),
+            ),
+            tags = listOf("ModelScope", "MCP", "搜索"),
+        )),
+
+        MarketEntry("🧠", "ModelScope MCP", modelscopeMcpTemplate(
+            id = "modelscope_mcp_knowledge",
+            name = "ModelScope MCP Knowledge",
+            nameZh = "ModelScope MCP 知识库",
+            description = "Template for a hosted ModelScope MCP knowledge-base tool. Replace endpoint, tool, and token after installing.",
+            descriptionZh = "ModelScope 托管 MCP 知识库工具模板。安装后替换 endpoint、tool 和 token。",
+            tool = "query",
+            parameters = listOf(
+                SkillParam("query", "string", "Question or retrieval query"),
+            ),
+            tags = listOf("ModelScope", "MCP", "知识库"),
+        )),
+
+        MarketEntry("🛠", "ModelScope MCP", modelscopeMcpTemplate(
+            id = "modelscope_mcp_custom",
+            name = "ModelScope MCP Custom Tool",
+            nameZh = "ModelScope MCP 自定义工具",
+            description = "Generic hosted ModelScope MCP tool template. Install it, then edit endpoint, tool name, token, and parameters.",
+            descriptionZh = "通用 ModelScope 托管 MCP 工具模板。安装后编辑 endpoint、工具名、token 和参数。",
+            tool = "tool_name",
+            parameters = listOf(
+                SkillParam("input", "string", "Tool input"),
+            ),
+            tags = listOf("ModelScope", "MCP", "自定义"),
+        )),
+    )
+
+    private fun modelscopeMcpTemplate(
+        id: String,
+        name: String,
+        nameZh: String,
+        description: String,
+        descriptionZh: String,
+        tool: String,
+        parameters: List<SkillParam>,
+        tags: List<String>,
+    ): SkillDefinition = SkillDefinition(
+        meta = SkillMeta(
+            id = id,
+            name = name,
+            nameZh = nameZh,
+            description = description,
+            descriptionZh = descriptionZh,
+            parameters = parameters,
+            injectionLevel = 2,
+            type = SkillType.MCP,
+            isBuiltin = false,
+            minApiLevel = 21,
+            tags = tags,
+            categories = listOf(SkillToolCategory.SKILL, SkillToolCategory.WEB),
+        ),
+        mcpConfig = McpSkillConfig(
+            endpoint = "https://mcp.api-inference.modelscope.net/<server-id>/sse",
+            tool = tool,
+            modelscopeToken = "<modelscope-token>",
+        ),
     )
 }

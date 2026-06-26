@@ -90,6 +90,7 @@ import com.mobileclaw.skill.builtin.ListAppsSkill
 import com.mobileclaw.skill.builtin.LongClickSkill
 import com.mobileclaw.skill.builtin.MemorySkill
 import com.mobileclaw.skill.builtin.MetaSkill
+import com.mobileclaw.skill.builtin.McpClientSkill
 import com.mobileclaw.skill.builtin.NavigateSkill
 import com.mobileclaw.skill.builtin.PageControlSkill
 import com.mobileclaw.skill.builtin.PermissionSkill
@@ -4535,7 +4536,11 @@ $foundationalMemory
     fun setLocalModelEnabled(enabled: Boolean) {
         viewModelScope.launch {
             val snap = config.snapshot()
-            config.update(snap.copy(localModelEnabled = enabled, localNativeOnly = if (enabled) snap.localNativeOnly else false))
+            config.update(snap.copy(
+                localModelEnabled = enabled,
+                localNativeOnly = if (enabled) snap.localNativeOnly else false,
+                localToolCallingEnabled = if (enabled) snap.localToolCallingEnabled else false,
+            ))
         }
     }
 
@@ -4543,6 +4548,16 @@ $foundationalMemory
         viewModelScope.launch {
             val snap = config.snapshot()
             config.update(snap.copy(localNativeOnly = enabled, localModelEnabled = if (enabled) true else snap.localModelEnabled))
+        }
+    }
+
+    fun setLocalToolCallingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val snap = config.snapshot()
+            config.update(snap.copy(
+                localToolCallingEnabled = enabled,
+                localModelEnabled = if (enabled) true else snap.localModelEnabled,
+            ))
         }
     }
 
@@ -5159,6 +5174,7 @@ $foundationalMemory
             SkillCheckSkill(registry),
             QuickSkillSkill(llm, loader),
             SkillMarketSkill(loader),
+            McpClientSkill(),
             // Dynamic config, model & role
             SwitchModelSkill(config),
             UserConfigSkill(userConfig, app.semanticMemory),

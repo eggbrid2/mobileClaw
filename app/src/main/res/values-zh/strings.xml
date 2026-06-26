@@ -788,6 +788,8 @@
     <string name="local_model_enable_desc">纯文本聊天优先走端侧模型；工具、图片、联网和未安装时会自动回退云端。</string>
     <string name="local_model_native_only">Only native 本地模式</string>
     <string name="local_model_native_only_desc">只使用已安装的本地模型，不回退云端。纯文本和本地工具任务可离线执行；不支持的多模态请求会给出本地提示。</string>
+    <string name="local_model_tool_calling">实验性本地 Agent 工具</string>
+    <string name="local_model_tool_calling_desc">允许本地文本模型先尝试 JSON 工具调用，再按需回退云端。适合简单本地任务，复杂 Agent 仍建议使用云端。</string>
     <string name="local_model_hf_token">Hugging Face Token（可选）</string>
     <string name="local_model_custom_url">自定义下载直链（可选）</string>
     <string name="local_model_source_custom">自定义直链</string>

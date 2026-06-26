@@ -43,6 +43,58 @@ val gitVersionCode = gitOutput("rev-list", "--count", "HEAD").toIntOrNull()?.coe
 val gitCommit = gitOutput("rev-parse", "--short", "HEAD").ifBlank { "unknown" }
 val gitBranch = gitOutput("branch", "--show-current").ifBlank { "unknown" }
 
+fun installChaquopyPipProxyGuard(variantName: String) {
+    val envDir = layout.buildDirectory.dir("python/env/$variantName").get().asFile
+    val sitePackagesDirs = buildList {
+        add(File(envDir, "Lib/site-packages"))
+        File(envDir, "lib").listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith("python") }
+            ?.forEach { add(File(it, "site-packages")) }
+    }.filter { it.isDirectory }
+
+    if (sitePackagesDirs.isEmpty()) {
+        logger.warn("Chaquopy Python site-packages not found under ${envDir.path}; pip proxy guard was not installed.")
+        return
+    }
+
+    sitePackagesDirs.forEach { dir ->
+        val pipInstall = File(dir, "chaquopy/pip_install.py")
+        if (!pipInstall.isFile) {
+            logger.warn("Chaquopy pip_install.py not found at ${pipInstall.path}; pip proxy guard was not installed.")
+            return@forEach
+        }
+
+        val original = pipInstall.readText()
+        if ("MobileClaw pip proxy guard" in original) return@forEach
+
+        val marker = "            os.environ[\"PIP_CONFIG_FILE\"] = os.devnull\n"
+        val guarded = original.replace(
+            marker,
+            marker +
+                "            # MobileClaw pip proxy guard: Android Studio can pass a stale\n" +
+                "            # local proxy into Gradle. pip is launched below in isolated\n" +
+                "            # mode, but requests still honors NO_PROXY for proxy bypasses.\n" +
+                "            os.environ.setdefault(\"NO_PROXY\", \"*\")\n" +
+                "            os.environ.setdefault(\"no_proxy\", \"*\")\n"
+        )
+        if (guarded == original) {
+            logger.warn("Could not patch ${pipInstall.path}; pip proxy guard marker was not found.")
+        } else {
+            pipInstall.writeText(guarded)
+        }
+    }
+}
+
+tasks.configureEach {
+    val match = Regex("""generate(.+)PythonRequirements""").matchEntire(name)
+    if (match != null) {
+        val variantName = match.groupValues[1].replaceFirstChar { it.lowercaseChar() }
+        doFirst {
+            installChaquopyPipProxyGuard(variantName)
+        }
+    }
+}
+
 kapt {
     arguments {
         arg("room.schemaLocation", "$projectDir/schemas")

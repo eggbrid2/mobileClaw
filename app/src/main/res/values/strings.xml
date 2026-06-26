@@ -788,6 +788,8 @@ Example: "Create an expense tracker app with a database"</string>
     <string name="local_model_enable_desc">Text-only chat uses the on-device model first. Tools, images, web access, and missing models fall back to cloud when available.</string>
     <string name="local_model_native_only">Only native mode</string>
     <string name="local_model_native_only_desc">Use installed local models without cloud fallback. Works offline for text and local tool tasks; unsupported multimodal requests will show a local notice.</string>
+    <string name="local_model_tool_calling">Experimental local agent tools</string>
+    <string name="local_model_tool_calling_desc">Let the local text model try JSON tool calls before cloud fallback. Best for simple local tasks; complex agents may still need cloud.</string>
     <string name="local_model_hf_token">Hugging Face token (optional)</string>
     <string name="local_model_custom_url">Custom download URL (optional)</string>
     <string name="local_model_source_custom">Custom URL</string>

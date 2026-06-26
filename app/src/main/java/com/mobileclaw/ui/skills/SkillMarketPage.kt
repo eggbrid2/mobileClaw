@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,7 +28,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -53,7 +54,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobileclaw.mcp.McpEndpointConfig
+import com.mobileclaw.mcp.McpHttpClient
+import com.mobileclaw.mcp.ModelScopeMcpClient
+import com.mobileclaw.mcp.ModelScopeMcpServer
 import com.mobileclaw.skill.HttpSkillConfig
+import com.mobileclaw.skill.McpSkillConfig
 import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillMarket
 import com.mobileclaw.skill.SkillMeta
@@ -68,9 +74,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import com.mobileclaw.R
-import com.mobileclaw.ui.ClawIconTile
-import com.mobileclaw.ui.ClawSymbolIcon
-import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.str
 
 private data class RemoteSkillEntry(
@@ -92,16 +95,15 @@ fun SkillMarketPage(
     onBack: () -> Unit,
     showHeader: Boolean = true,
 ) {
-    val c = LocalClawColors.current
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf(str(R.string.skill_market_228a7d), "ClawHub", "SkillsMP")
+    val tabs = listOf(str(R.string.skill_market_228a7d), "ModelScope MCP", "ClawHub", "SkillsMP")
 
     BackHandler { onBack() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(skillMarketWorkbenchBrush(c)),
+            .background(skillMarketWorkbenchBrush()),
     ) {
         // Top bar
         if (showHeader) Column(
@@ -113,23 +115,31 @@ fun SkillMarketPage(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 16.dp, top = 10.dp, bottom = 8.dp),
+                    .padding(start = 16.dp, end = 18.dp, top = 8.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.58f))
+                        .border(0.7.dp, Color.White.copy(alpha = 0.82f), RoundedCornerShape(20.dp)),
+                ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
-                        tint = c.text,
+                        tint = SkillMarketInk,
                         modifier = Modifier.size(18.dp),
                     )
                 }
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = str(R.string.skill_market_5917e2),
-                    fontSize = 24.sp,
-                    lineHeight = 25.sp,
+                    fontSize = 18.sp,
+                    lineHeight = 22.sp,
                     fontWeight = FontWeight.Black,
-                    color = c.text,
+                    color = SkillMarketInk,
                 )
             }
             CompactScrollableTabs(
@@ -149,13 +159,14 @@ fun SkillMarketPage(
 
         when (selectedTab) {
             0 -> RecommendedTab(installedIds = installedIds, onInstall = onInstall)
-            1 -> RemoteSearchTab(
+            1 -> ModelScopeMcpTab(installedIds = installedIds, onInstall = onInstall)
+            2 -> RemoteSearchTab(
                 platform = "ClawHub",
                 apiBase = "https://clawhub.ai/api/v1",
                 installedIds = installedIds,
                 onInstall = onInstall,
             )
-            2 -> RemoteSearchTab(
+            3 -> RemoteSearchTab(
                 platform = "SkillsMP",
                 apiBase = "https://skillsmp.com/api",
                 installedIds = installedIds,
@@ -170,27 +181,34 @@ private fun RecommendedTab(
     installedIds: Set<String>,
     onInstall: (SkillDefinition) -> Unit,
 ) {
-    val c = LocalClawColors.current
     val grouped = remember { SkillMarket.catalog.groupBy { it.category } }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            SearchChromePlaceholder()
+            Spacer(Modifier.height(4.dp))
+        }
+        item {
+            SectionLabel(text = "热榜")
+        }
         grouped.forEach { (category, entries) ->
             item {
                 Text(
                     text = category,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = c.subtext,
+                    color = SkillMarketMuted,
                     letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
                 )
             }
             items(entries, key = { it.def.meta.id }) { entry ->
                 MarketSkillRow(
-                    emoji = entry.emoji,
+                    source = category,
                     name = entry.def.meta.nameZh ?: entry.def.meta.name,
                     description = entry.def.meta.descriptionZh ?: entry.def.meta.description,
                     tags = entry.def.meta.tags,
@@ -199,9 +217,236 @@ private fun RecommendedTab(
                     onInstall = { onInstall(entry.def) },
                 )
             }
-            item { HorizontalDivider(color = c.border.copy(alpha = 0.4f), thickness = 0.5.dp) }
         }
         item { Spacer(Modifier.height(80.dp)) }
+    }
+}
+
+@Composable
+private fun ModelScopeMcpTab(
+    installedIds: Set<String>,
+    onInstall: (SkillDefinition) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
+    var endpointInput by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    var token by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loadingServerId by remember { mutableStateOf<String?>(null) }
+    val results = remember { mutableStateListOf<RemoteSkillEntry>() }
+    val servers = remember { mutableStateListOf<ModelScopeMcpServer>() }
+
+    LaunchedEffect(Unit) {
+        token = userConfig.get("modelscope_token").orEmpty()
+    }
+
+    fun searchServers() {
+        loading = true
+        error = null
+        loadingServerId = null
+        results.clear()
+        focusManager.clearFocus()
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                runCatching { ModelScopeMcpClient().searchServers(query.trim()) }.getOrNull()
+            }
+            loading = false
+            when {
+                found == null -> error = "无法加载 ModelScope MCP 广场，请检查网络"
+                found.isEmpty() -> error = "没有找到匹配的 MCP Server"
+                else -> {
+                    servers.clear()
+                    servers.addAll(found)
+                }
+            }
+        }
+    }
+
+    fun discoverInput() {
+        val input = endpointInput.trim()
+        if (input.isBlank()) return
+        val modelscopeToken = token.trim()
+        loading = true
+        error = null
+        loadingServerId = null
+        results.clear()
+        focusManager.clearFocus()
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                discoverModelScopeMcpTools(input, modelscopeToken)
+            }
+            loading = false
+            when {
+                found == null -> error = "无法连接 ModelScope MCP，请检查 SSE 地址、Token 或网络"
+                found.isEmpty() -> error = "这个 MCP Server 没有返回可安装工具"
+                else -> results.addAll(found)
+            }
+        }
+    }
+
+    fun discoverServer(server: ModelScopeMcpServer) {
+        val modelscopeToken = token.trim()
+        if (modelscopeToken.isBlank()) {
+            error = "从 ModelScope MCP 广场发现工具需要先填写 ModelScope Token"
+            return
+        }
+        loadingServerId = server.id
+        error = null
+        results.clear()
+        focusManager.clearFocus()
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                val endpoint = runCatching {
+                    ModelScopeMcpClient().deployAndGetEndpoint(server.id, modelscopeToken).endpoint
+                }.getOrNull() ?: return@withContext null
+                discoverModelScopeMcpTools(
+                    input = endpoint,
+                    token = modelscopeToken,
+                    sourceName = server.name,
+                    modelscopeServerId = server.id,
+                )
+            }
+            loadingServerId = null
+            when {
+                found == null -> error = "无法发现 ${server.name} 的工具：请确认 Token 有效，并且该 MCP Server 支持托管 SSE 部署"
+                found.isEmpty() -> error = "${server.name} 没有返回可安装工具"
+                else -> results.addAll(found)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        searchServers()
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .clip(RoundedCornerShape(27.dp))
+                    .background(Color.White.copy(alpha = 0.56f))
+                    .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(27.dp))
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Search, contentDescription = null, tint = SkillMarketMuted, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f),
+                    textStyle = TextStyle(fontSize = 14.sp, color = SkillMarketInk),
+                    cursorBrush = SolidColor(SkillMarketInk),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { searchServers() }),
+                    decorationBox = { inner ->
+                        if (query.isEmpty()) {
+                            Text("搜索 ModelScope MCP Server", fontSize = 14.sp, color = SkillMarketMuted)
+                        }
+                        inner()
+                    },
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SkillMarketInk)
+                        .clickable { searchServers() }
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                ) {
+                    Text("搜索", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            MarketInput(
+                value = endpointInput,
+                onValueChange = { endpointInput = it },
+                placeholder = "粘贴 ModelScope MCP SSE 地址或官方配置 JSON",
+                singleLine = false,
+                minHeight = 86.dp,
+            )
+            MarketInput(
+                value = token,
+                onValueChange = { token = it },
+                placeholder = "ModelScope Token（设置页可保存，广场发现必填）",
+                singleLine = true,
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(SkillMarketAction)
+                    .clickable { discoverInput() }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            ) {
+                Text("从地址发现工具", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = SkillMarketInk, modifier = Modifier.size(36.dp))
+            }
+            error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(error!!, fontSize = 14.sp, color = SkillMarketMuted, modifier = Modifier.padding(horizontal = 32.dp))
+            }
+            results.isNotEmpty() -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item { SectionLabel(text = "ModelScope MCP") }
+                items(results, key = { it.id }) { entry ->
+                    MarketSkillRow(
+                        source = entry.platform,
+                        name = entry.nameZh ?: entry.name,
+                        description = entry.descriptionZh ?: entry.description,
+                        tags = entry.tags,
+                        stars = entry.stars,
+                        installed = entry.id in installedIds,
+                        onInstall = { onInstall(entry.def) },
+                    )
+                }
+                item { Spacer(Modifier.height(80.dp)) }
+            }
+            servers.isNotEmpty() -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item { SectionLabel(text = "ModelScope MCP 广场") }
+                items(servers, key = { it.id }) { server ->
+                    MarketSkillRow(
+                        source = "ModelScope MCP",
+                        name = server.name,
+                        description = server.description,
+                        tags = server.tags,
+                        stars = server.views.takeIf { it > 0 },
+                        installed = false,
+                        busy = loadingServerId == server.id,
+                        actionText = "发现",
+                        onInstall = { discoverServer(server) },
+                    )
+                }
+                item { Spacer(Modifier.height(80.dp)) }
+            }
+            else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("正在等待 ModelScope MCP 广场列表", fontSize = 14.sp, color = SkillMarketMuted)
+                    Spacer(Modifier.height(4.dp))
+                    Text("也可以粘贴 SSE 地址或配置 JSON 手动发现", fontSize = 12.sp, color = SkillMarketMuted.copy(alpha = 0.6f))
+                }
+            }
+        }
     }
 }
 
@@ -212,7 +457,6 @@ private fun RemoteSearchTab(
     installedIds: Set<String>,
     onInstall: (SkillDefinition) -> Unit,
 ) {
-    val c = LocalClawColors.current
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
@@ -247,17 +491,18 @@ private fun RemoteSearchTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(c.card)
-                .border(0.5.dp, c.border, RoundedCornerShape(10.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .height(54.dp)
+                .clip(RoundedCornerShape(27.dp))
+                .background(Color.White.copy(alpha = 0.56f))
+                .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(27.dp))
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Default.Search,
                 contentDescription = null,
-                tint = c.subtext,
+                tint = SkillMarketMuted,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
@@ -265,14 +510,14 @@ private fun RemoteSearchTab(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.weight(1f),
-                textStyle = TextStyle(fontSize = 14.sp, color = c.text),
-                cursorBrush = SolidColor(c.accent),
+                textStyle = TextStyle(fontSize = 14.sp, color = SkillMarketInk),
+                cursorBrush = SolidColor(SkillMarketInk),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { doSearch() }),
                 decorationBox = { inner ->
                     if (query.isEmpty()) {
-                        Text(str(R.string.search_skills_hint, platform), fontSize = 14.sp, color = c.subtext)
+                        Text(str(R.string.search_skills_hint, platform), fontSize = 14.sp, color = SkillMarketMuted)
                     }
                     inner()
                 },
@@ -280,10 +525,10 @@ private fun RemoteSearchTab(
             if (query.isNotEmpty()) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(c.accent)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SkillMarketInk)
                         .clickable { doSearch() }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
                 ) {
                     Text(str(R.string.profile_search), fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                 }
@@ -295,36 +540,38 @@ private fun RemoteSearchTab(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(color = c.accent, modifier = Modifier.size(36.dp))
+                CircularProgressIndicator(color = SkillMarketInk, modifier = Modifier.size(36.dp))
             }
             error != null -> Box(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ClawIconTile("help", size = 58.dp, iconSize = 30.dp, tint = c.text, background = c.cardAlt, border = c.border)
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         error!!,
                         fontSize = 14.sp,
-                        color = c.subtext,
+                        color = SkillMarketMuted,
                         modifier = Modifier.padding(horizontal = 32.dp),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         str(R.string.skill_market_94507e),
                         fontSize = 12.sp,
-                        color = c.subtext.copy(alpha = 0.6f),
+                        color = SkillMarketMuted.copy(alpha = 0.6f),
                     )
                 }
             }
             results.isNotEmpty() -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                item {
+                    SectionLabel(text = "热榜")
+                }
                 items(results, key = { it.id }) { entry ->
                     MarketSkillRow(
-                        emoji = "gateway",
+                        source = entry.platform,
                         name = entry.nameZh ?: entry.name,
                         description = entry.descriptionZh ?: entry.description,
                         tags = entry.tags,
@@ -340,18 +587,16 @@ private fun RemoteSearchTab(
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ClawIconTile("search", size = 62.dp, iconSize = 32.dp, tint = c.text, background = c.cardAlt, border = c.border)
-                    Spacer(Modifier.height(8.dp))
                     Text(
                         str(R.string.search_skills_placeholder, platform),
                         fontSize = 14.sp,
-                        color = c.subtext,
+                        color = SkillMarketMuted,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         str(R.string.skill_market_6a2070),
                         fontSize = 12.sp,
-                        color = c.subtext.copy(alpha = 0.6f),
+                        color = SkillMarketMuted.copy(alpha = 0.6f),
                     )
                 }
             }
@@ -361,55 +606,40 @@ private fun RemoteSearchTab(
 
 @Composable
 private fun MarketSkillRow(
-    emoji: String,
+    source: String,
     name: String,
     description: String,
     tags: List<String>,
     stars: Int?,
     installed: Boolean,
+    busy: Boolean = false,
+    actionText: String = str(R.string.skill_market_e655a4),
     onInstall: () -> Unit,
 ) {
-    val c = LocalClawColors.current
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .shadow(10.dp, RoundedCornerShape(24.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.03f), spotColor = Color.Black.copy(alpha = 0.055f))
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.62f))
-            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.68f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .shadow(12.dp, RoundedCornerShape(20.dp), clip = false, ambientColor = Color.Black.copy(alpha = 0.03f), spotColor = Color.Black.copy(alpha = 0.06f))
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.62f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
-        // Icon
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.58f))
-                .border(0.6.dp, Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f), RoundedCornerShape(17.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            ClawSymbolIcon(emoji, tint = c.text, modifier = Modifier.size(20.dp))
-        }
-
-        Spacer(Modifier.width(10.dp))
-
         // Info
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = name,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = c.text,
+                fontWeight = FontWeight.Black,
+                color = SkillMarketInk,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = description,
                 fontSize = 12.sp,
-                color = c.subtext,
+                color = SkillMarketMuted,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 16.sp,
@@ -420,20 +650,21 @@ private fun MarketSkillRow(
                     modifier = Modifier.padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    tags.take(3).forEach { tag ->
+                    val visibleTags = if (tags.isEmpty()) listOf(source) else tags.take(2)
+                    visibleTags.forEach { tag ->
                         Box(
                             modifier = Modifier
                                 .padding(end = 4.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(c.accent.copy(alpha = 0.12f))
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(SkillMarketTagBg)
                                 .padding(horizontal = 5.dp, vertical = 1.dp),
                         ) {
-                            Text(tag, fontSize = 10.sp, color = c.accent)
+                            Text(tag, fontSize = 10.sp, color = SkillMarketTagInk, fontWeight = FontWeight.Bold)
                         }
                     }
                     if (stars != null) {
                         Spacer(Modifier.width(4.dp))
-                        Text("⭐ $stars", fontSize = 10.sp, color = c.subtext)
+                        Text(stars.toString(), fontSize = 10.sp, color = SkillMarketMuted)
                     }
                 }
             }
@@ -442,50 +673,132 @@ private fun MarketSkillRow(
         Spacer(Modifier.width(8.dp))
 
         // Action button
-        if (installed) {
+        if (installed || busy) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(c.accent.copy(alpha = 0.12f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(SkillMarketInstalledBg)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = c.accent,
-                        modifier = Modifier.size(12.dp),
-                    )
+                    if (busy) {
+                        CircularProgressIndicator(color = SkillMarketTagInk, strokeWidth = 1.5.dp, modifier = Modifier.size(12.dp))
+                    } else {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = SkillMarketTagInk,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
                     Spacer(Modifier.width(3.dp))
-                    Text(str(R.string.skill_market_done), fontSize = 11.sp, color = c.accent, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (busy) "发现中" else str(R.string.skill_market_done),
+                        fontSize = 11.sp,
+                        color = SkillMarketTagInk,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         } else {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(c.accent)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(SkillMarketAction)
                     .clickable { onInstall() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 5.dp),
             ) {
-                Text(str(R.string.skill_market_e655a4), fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(actionText, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
     }
+}
 
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 72.dp),
-        color = Color.Transparent,
-        thickness = 0.5.dp,
+@Composable
+private fun SearchChromePlaceholder() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(RoundedCornerShape(27.dp))
+            .background(Color.White.copy(alpha = 0.56f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(27.dp))
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Search, contentDescription = null, tint = SkillMarketMuted, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("搜索技能...", fontSize = 14.sp, color = SkillMarketMuted.copy(alpha = 0.72f))
+    }
+}
+
+@Composable
+private fun MarketInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    singleLine: Boolean,
+    minHeight: androidx.compose.ui.unit.Dp = 54.dp,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(minHeight)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.56f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        textStyle = TextStyle(fontSize = 13.sp, color = SkillMarketInk, lineHeight = 17.sp),
+        cursorBrush = SolidColor(SkillMarketInk),
+        singleLine = singleLine,
+        decorationBox = { inner ->
+            Box(contentAlignment = Alignment.TopStart) {
+                if (value.isEmpty()) {
+                    Text(placeholder, fontSize = 13.sp, color = SkillMarketMuted.copy(alpha = 0.72f), lineHeight = 17.sp)
+                }
+                inner()
+            }
+        },
     )
 }
 
-private fun skillMarketWorkbenchBrush(c: com.mobileclaw.ui.ClawColors): Brush =
-    if (c.isDark) {
-        Brush.verticalGradient(listOf(Color(0xFF080807), Color(0xFF10100E), Color(0xFF080807)))
-    } else {
-        Brush.verticalGradient(listOf(Color(0xFFFFFCF8), Color(0xFFF8F9F6), Color(0xFFF7F8F5)))
+@Composable
+private fun SectionLabel(text: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            color = SkillMarketMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.sp,
+        )
+        Spacer(Modifier.weight(1f))
+        Text("↗", color = SkillMarketMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
+}
+
+private val SkillMarketInk = Color(0xFF191B1B)
+private val SkillMarketMuted = Color(0xFF76777B)
+private val SkillMarketAction = Color(0xFF02006D)
+private val SkillMarketTagInk = Color(0xFF3035AF)
+private val SkillMarketTagBg = Color(0xFFE0E0FF).copy(alpha = 0.34f)
+private val SkillMarketInstalledBg = Color(0xFFE0E0FF).copy(alpha = 0.62f)
+
+private fun skillMarketWorkbenchBrush(): Brush =
+    Brush.verticalGradient(
+        listOf(
+            Color(0xFFFFF7EC),
+            Color(0xFFFAF9F9),
+            Color(0xFFEFF7F5),
+        ),
+    )
 
 private fun searchRemotePlatform(
     platform: String,
@@ -557,6 +870,76 @@ private fun parseRemoteResults(platform: String, json: String): List<RemoteSkill
         )
     }
     return entries
+}
+
+private suspend fun discoverModelScopeMcpTools(
+    input: String,
+    token: String,
+    sourceName: String = "ModelScope MCP",
+    modelscopeServerId: String = "",
+): List<RemoteSkillEntry>? {
+    val config = McpEndpointConfig.parse(input) ?: return null
+    val headers = if (token.isNotBlank() && config.headers.keys.none { it.equals("Authorization", ignoreCase = true) }) {
+        config.headers + ("Authorization" to "Bearer $token")
+    } else {
+        config.headers
+    }
+    return runCatching {
+        val tools = McpHttpClient().listTools(config.endpoint, headers).tools
+        tools.map { tool ->
+            val idSeed = if (modelscopeServerId.isBlank()) tool.name else "${modelscopeServerId}_${tool.name}"
+            val safeId = ("modelscope_mcp_" + idSeed)
+                .replace(Regex("[^a-zA-Z0-9_]"), "_")
+                .lowercase()
+                .take(56)
+            val params = tool.inputSchema?.getAsJsonObject("properties")
+                ?.entrySet()
+                ?.map { (key, value) ->
+                    val obj = value.takeIf { it.isJsonObject }?.asJsonObject
+                    val type = obj?.get("type")?.asString?.takeIf { it in setOf("string", "number", "boolean", "object", "array") } ?: "string"
+                    val desc = obj?.get("description")?.asString ?: "MCP parameter"
+                    val required = tool.inputSchema
+                        ?.takeIf { it.has("required") && it["required"].isJsonArray }
+                        ?.getAsJsonArray("required")
+                        ?.any { it.asString == key } == true
+                    SkillParam(key, type, desc, required = required)
+                }
+                .orEmpty()
+            val meta = SkillMeta(
+                id = safeId,
+                name = tool.title ?: tool.name,
+                nameZh = tool.title ?: tool.name,
+                description = tool.description ?: "ModelScope MCP tool: ${tool.name}",
+                descriptionZh = tool.description ?: "ModelScope MCP 工具：${tool.name}",
+                parameters = params,
+                type = SkillType.MCP,
+                injectionLevel = 2,
+                isBuiltin = false,
+                tags = listOf("ModelScope", "MCP"),
+            )
+            val categorizedMeta = meta.copy(categories = SkillToolTaxonomy.categoriesFor(meta).toList())
+            RemoteSkillEntry(
+                id = safeId,
+                name = meta.name,
+                nameZh = meta.nameZh,
+                description = meta.description,
+                descriptionZh = meta.descriptionZh,
+                tags = categorizedMeta.tags,
+                stars = 0,
+                platform = sourceName,
+                def = SkillDefinition(
+                    meta = categorizedMeta,
+                    mcpConfig = McpSkillConfig(
+                        endpoint = config.endpoint,
+                        tool = tool.name,
+                        headers = config.headers,
+                        modelscopeToken = token,
+                        modelscopeServerId = modelscopeServerId,
+                    ),
+                ),
+            )
+        }
+    }.getOrNull()
 }
 
 private fun buildRemoteDef(

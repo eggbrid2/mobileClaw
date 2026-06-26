@@ -127,6 +127,7 @@ fun MainPageHost(
             localModels = uiState.localModels,
             onLocalModelEnabled = { vm.setLocalModelEnabled(it) },
             onLocalNativeOnly = { vm.setLocalNativeOnly(it) },
+            onLocalToolCallingEnabled = { vm.setLocalToolCallingEnabled(it) },
             onSelectLocalModel = { vm.selectLocalModel(it) },
             onDownloadLocalModel = { id, token, sourceUrl -> vm.downloadLocalModel(id, token, sourceUrl) },
             onImportLocalModel = { id, uri -> vm.importLocalModel(id, uri) },

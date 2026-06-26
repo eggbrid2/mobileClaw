@@ -1,5 +1,7 @@
 package com.mobileclaw.ui.settings
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import com.google.gson.Gson
@@ -202,7 +204,7 @@ private val LANGUAGES = listOf(
     "en"   to R.string.lang_en,
 )
 
-private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CODEX_DESKTOP, CACHE, TASKS }
+private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CODEX_DESKTOP, MODELSCOPE, CACHE, TASKS }
 
 private const val CODEX_DESKTOP_ENDPOINT_KEY = "codex_desktop_endpoint"
 private const val CODEX_DESKTOP_TOKEN_KEY = "codex_desktop_token"
@@ -211,6 +213,7 @@ private const val CODEX_DESKTOP_MODEL_KEY = "codex_desktop_model"
 private const val CODEX_DESKTOP_PROVIDER_KEY = "codex_desktop_provider"
 private const val CODEX_DESKTOP_APPROVAL_KEY = "codex_desktop_approval"
 private const val CODEX_DESKTOP_SANDBOX_KEY = "codex_desktop_sandbox"
+private const val MODELSCOPE_TOKEN_KEY = "modelscope_token"
 
 @Composable
 private fun gatewayPresetTypeLabel(preset: GatewayPreset): String = when {
@@ -369,6 +372,7 @@ fun SettingsPage(
     localModels: List<LocalModelInfo>,
     onLocalModelEnabled: (Boolean) -> Unit,
     onLocalNativeOnly: (Boolean) -> Unit,
+    onLocalToolCallingEnabled: (Boolean) -> Unit,
     onSelectLocalModel: (String) -> Unit,
     onDownloadLocalModel: (String, String, String) -> Unit,
     onImportLocalModel: (String, android.net.Uri) -> Unit,
@@ -394,6 +398,7 @@ fun SettingsPage(
     var accent    by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
     var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
     var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
+    var localToolCallingEnabled by remember(snapshot.localToolCallingEnabled) { mutableStateOf(snapshot.localToolCallingEnabled) }
     val isZh = language == "zh"
 
     var subPage by remember { mutableStateOf<SettingsSub?>(null) }
@@ -415,6 +420,7 @@ fun SettingsPage(
             uiStyle = "classic",
             localModelEnabled = localEnabled,
             localNativeOnly = localNativeOnly,
+            localToolCallingEnabled = localToolCallingEnabled,
         )
     }
 
@@ -438,6 +444,7 @@ fun SettingsPage(
                 val vdRunning = virtualDisplayManager.isRunning
                 val codexConfigured = userConfigEntries[CODEX_DESKTOP_ENDPOINT_KEY]?.value.orEmpty().isNotBlank() &&
                     userConfigEntries[CODEX_DESKTOP_TOKEN_KEY]?.value.orEmpty().isNotBlank()
+                val modelscopeConnected = userConfigEntries[MODELSCOPE_TOKEN_KEY]?.value.orEmpty().isNotBlank()
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
@@ -508,6 +515,15 @@ fun SettingsPage(
                     ) { subPage = SettingsSub.CODEX_DESKTOP }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
+                        iconKey = "gateway",
+                        title = "ModelScope MCP",
+                        subtitle = if (modelscopeConnected) zhEn(isZh, "已保存 Token，可用于 MCP 广场", "Token saved for MCP marketplace")
+                        else zhEn(isZh, "连接 ModelScope Token", "Connect ModelScope token"),
+                        statusOk = modelscopeConnected,
+                        c = c,
+                    ) { subPage = SettingsSub.MODELSCOPE }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
                         iconKey = "cache",
                         title = str(R.string.cache_title),
                         subtitle = str(R.string.cache_subtitle),
@@ -568,12 +584,14 @@ fun SettingsPage(
                 models = localModels,
                 enabled = localEnabled,
                 nativeOnly = localNativeOnly,
+                toolCallingEnabled = localToolCallingEnabled,
                 selectedModelId = snapshot.localModelId,
                 c = c,
                 onBack = { subPage = null },
                 onEnabled = {
                     localEnabled = it
                     if (!it) localNativeOnly = false
+                    if (!it) localToolCallingEnabled = false
                     onLocalModelEnabled(it)
                     onSave(currentSnapshot())
                 },
@@ -581,6 +599,12 @@ fun SettingsPage(
                     localNativeOnly = it
                     if (it) localEnabled = true
                     onLocalNativeOnly(it)
+                    onSave(currentSnapshot())
+                },
+                onToolCallingEnabled = {
+                    localToolCallingEnabled = it
+                    if (it) localEnabled = true
+                    onLocalToolCallingEnabled(it)
                     onSave(currentSnapshot())
                 },
                 onSelect = onSelectLocalModel,
@@ -599,6 +623,11 @@ fun SettingsPage(
                 onCheckPrivServer = onCheckPrivServer,
             )
             SettingsSub.CODEX_DESKTOP -> CodexDesktopSubPage(
+                userConfig = userConfig,
+                c = c,
+                onBack = { subPage = null },
+            )
+            SettingsSub.MODELSCOPE -> ModelScopeConnectSubPage(
                 userConfig = userConfig,
                 c = c,
                 onBack = { subPage = null },
@@ -1920,11 +1949,13 @@ private fun LocalModelSubPage(
     models: List<LocalModelInfo>,
     enabled: Boolean,
     nativeOnly: Boolean,
+    toolCallingEnabled: Boolean,
     selectedModelId: String,
     c: ClawColors,
     onBack: () -> Unit,
     onEnabled: (Boolean) -> Unit,
     onNativeOnly: (Boolean) -> Unit,
+    onToolCallingEnabled: (Boolean) -> Unit,
     onSelect: (String) -> Unit,
     onDownload: (String, String, String) -> Unit,
     onImport: (String, android.net.Uri) -> Unit,
@@ -1987,6 +2018,30 @@ private fun LocalModelSubPage(
                     Switch(
                         checked = nativeOnly,
                         onCheckedChange = onNativeOnly,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = c.text,
+                            uncheckedThumbColor = c.subtext,
+                            uncheckedTrackColor = c.border,
+                        ),
+                    )
+                }
+
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(str(R.string.local_model_tool_calling), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(str(R.string.local_model_tool_calling_desc), color = c.subtext, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                    Switch(
+                        checked = toolCallingEnabled,
+                        onCheckedChange = onToolCallingEnabled,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = c.text,
@@ -2716,6 +2771,122 @@ private fun formatCacheSize(bytes: Long): String = when {
     bytes < 1024L * 1024 -> "${bytes / 1024L} KB"
     bytes < 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
     else -> String.format(java.util.Locale.US, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
+}
+
+@Composable
+private fun ModelScopeConnectSubPage(
+    userConfig: com.mobileclaw.config.UserConfig,
+    c: ClawColors,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val isZh = LocalAppLanguage.current == "zh"
+    var token by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        token = userConfig.get(MODELSCOPE_TOKEN_KEY).orEmpty()
+    }
+    LaunchedEffect(saved) {
+        if (saved) {
+            delay(1300)
+            saved = false
+        }
+    }
+
+    fun saveToken() {
+        scope.launch {
+            userConfig.set(
+                MODELSCOPE_TOKEN_KEY,
+                token.trim(),
+                "ModelScope access token for MCP marketplace deployment and tool calls",
+            )
+            saved = true
+        }
+    }
+
+    fun clearToken() {
+        scope.launch {
+            userConfig.delete(MODELSCOPE_TOKEN_KEY)
+            token = ""
+            saved = true
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
+        ClawPageHeader(title = "ModelScope MCP", onBack = onBack)
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingsSection(zhEn(isZh, "连接 Token", "Connect Token"), c) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.surface)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        zhEn(
+                            isZh,
+                            "MobileClaw 不接管账号密码登录。请在 ModelScope 官网登录后复制 Access Token，保存后 MCP 广场会自动使用它部署和调用工具。",
+                            "MobileClaw does not handle account/password login. Sign in on ModelScope, copy an Access Token, and save it here so MCP marketplace deployment and tool calls can use it.",
+                        ),
+                        color = c.subtext,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                    OutlinedTextField(
+                        value = token,
+                        onValueChange = { token = it },
+                        label = { Text("ModelScope Token") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = { saveToken() },
+                            enabled = token.trim().isNotBlank(),
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                        ) {
+                            Text(if (saved) zhEn(isZh, "已保存", "Saved") else zhEn(isZh, "保存连接", "Save Connection"))
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://modelscope.cn/my/myaccesstoken")))
+                            },
+                            shape = RoundedCornerShape(999.dp),
+                        ) {
+                            Text(zhEn(isZh, "打开 Token 页面", "Open Token Page"))
+                        }
+                        TextButton(onClick = { clearToken() }, enabled = token.isNotBlank()) {
+                            Text(zhEn(isZh, "清除", "Clear"), color = c.red)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(zhEn(isZh, "使用方式", "Usage"), c) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.cardAlt)
+                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(zhEn(isZh, "1. 点击“打开 Token 页面”，在官网登录并复制 Access Token。", "1. Open the token page, sign in on ModelScope, and copy an Access Token."), color = c.text, fontSize = 12.sp)
+                    Text(zhEn(isZh, "2. 保存 Token 后，技能市场的 ModelScope MCP 页会自动带入。", "2. After saving, the ModelScope MCP marketplace uses it automatically."), color = c.text, fontSize = 12.sp)
+                    Text(zhEn(isZh, "3. 安装后的 MCP 工具在聊天中执行失败时，也会用这个 Token 自动刷新 SSE 地址。", "3. Installed MCP tools also use this token to refresh SSE endpoints during chat execution."), color = c.text, fontSize = 12.sp)
+                }
+            }
+        }
+    }
 }
 
 @Composable

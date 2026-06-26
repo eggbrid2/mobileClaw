@@ -112,11 +112,12 @@ internal class WorkspaceRuntimeRecorder(
         workspaceStore.recordEvent(
             workspaceId,
             WorkspaceEvent(
-                category = update.stage,
+                category = workspaceEventCategoryForStage(update.stage, update.success),
                 source = update.skillId ?: "agent_runtime",
                 title = update.label,
                 summary = update.summary.take(300),
                 payload = buildString {
+                    appendLine("stage=${update.stage}")
                     appendLine("taskType=${update.taskType}")
                     update.skillId?.let { appendLine("skillId=$it") }
                     update.success?.let { appendLine("success=$it") }
@@ -130,11 +131,23 @@ internal class WorkspaceRuntimeRecorder(
         )
     }
 
+    private fun workspaceEventCategoryForStage(stage: String, success: Boolean?): String = when (stage) {
+        "phone_control_guard",
+        "repeated_perception_guard" -> "reminder"
+        "task_error" -> "blocked"
+        "task_completed",
+        "direct_chat_completed" -> if (success == false) "blocked" else "completed"
+        "draft_repair",
+        "validation_repair",
+        "runtime_log_repair" -> "repair"
+        else -> "progress"
+    }
+
     private fun workspaceStateForStage(stage: String, success: Boolean?): String = when (stage) {
         "task_started", "direct_chat_started" -> "collecting"
         "plan_created" -> "planned"
-        "skill_observation", "reflection", "review_completed", "continuation_checkpoint" -> "executing"
-        "validation_repair" -> "repairing"
+        "skill_observation", "reflection", "review_completed", "continuation_checkpoint", "deterministic_phone_launch", "deterministic_artifact_patch", "tool_call" -> "executing"
+        "draft_repair", "validation_repair", "runtime_log_repair" -> "repairing"
         "task_error" -> "blocked"
         "task_completed", "direct_chat_completed" -> if (success == false) "blocked" else "completed"
         else -> "executing"

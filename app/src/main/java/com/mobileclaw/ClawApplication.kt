@@ -202,6 +202,7 @@ class ClawApplication : Application() {
         useLocal = { agentConfig.snapshot().localModelEnabled },
         canUseCloud = { agentConfig.snapshot().let { it.endpoint.isNotBlank() && it.apiKey.isNotBlank() } },
         nativeOnly = { agentConfig.snapshot().localNativeOnly },
+        localToolCallingEnabled = { agentConfig.snapshot().localToolCallingEnabled },
         language = { agentConfig.snapshot().language },
     )
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import com.google.gson.Gson
 import com.mobileclaw.skill.executor.HttpSkillExecutor
+import com.mobileclaw.skill.executor.McpSkillExecutor
 import com.mobileclaw.skill.executor.PythonSkillExecutor
 import java.io.File
 
@@ -110,6 +111,11 @@ class SkillLoader(
         if (def.meta.type == SkillType.HTTP) {
             requireNotNull(def.httpConfig) { "HTTP skill must have executor_config" }
         }
+        if (def.meta.type == SkillType.MCP) {
+            requireNotNull(def.mcpConfig) { "MCP skill must have mcp_config" }
+            require(def.mcpConfig.endpoint.isNotBlank()) { "MCP endpoint is required" }
+            require(def.mcpConfig.tool.isNotBlank()) { "MCP tool name is required" }
+        }
     }
 
     private fun validatePythonScript(script: String) {
@@ -123,6 +129,7 @@ class SkillLoader(
     private fun toSkill(def: SkillDefinition, file: File): Skill = when (def.meta.type) {
         SkillType.PYTHON -> PythonSkillExecutor(def.meta, def.script!!)
         SkillType.HTTP -> HttpSkillExecutor(def.meta, def.httpConfig!!)
+        SkillType.MCP -> McpSkillExecutor(def.meta, def.mcpConfig!!)
         else -> throw IllegalArgumentException("Unsupported dynamic skill type: ${def.meta.type}")
     }
 }
@@ -132,6 +139,7 @@ data class SkillDefinition(
     val meta: SkillMeta,
     val script: String? = null,         // for PYTHON type
     val httpConfig: HttpSkillConfig? = null, // for HTTP type
+    val mcpConfig: McpSkillConfig? = null, // for MCP type
 )
 
 data class HttpSkillConfig(
@@ -143,4 +151,13 @@ data class HttpSkillConfig(
     val imageResponsePath: String? = null,
     // Optional: JSON path to extract text output from response (e.g. "choices[0].text")
     val textResponsePath: String? = null,
+)
+
+data class McpSkillConfig(
+    val endpoint: String,
+    val tool: String,
+    val headers: Map<String, String> = emptyMap(),
+    val modelscopeToken: String = "",
+    val modelscopeServerId: String = "",
+    val defaultArguments: Map<String, String> = emptyMap(),
 )

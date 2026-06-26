@@ -49,6 +49,7 @@ class AgentConfig(private val context: Context) {
         val LOCAL_MODEL_ENABLED = stringPreferencesKey("local_model_enabled")
         val LOCAL_MODEL_ID = stringPreferencesKey("local_model_id")
         val LOCAL_NATIVE_ONLY = stringPreferencesKey("local_native_only")
+        val LOCAL_TOOL_CALLING_ENABLED = stringPreferencesKey("local_tool_calling_enabled")
         // Legacy single-gateway keys (read-only for migration)
         val ENDPOINT = stringPreferencesKey("llm_endpoint")
         val API_KEY = stringPreferencesKey("llm_api_key")
@@ -70,6 +71,7 @@ class AgentConfig(private val context: Context) {
             localModelEnabled = (prefs[Keys.LOCAL_MODEL_ENABLED] ?: "false") == "true",
             localModelId = prefs[Keys.LOCAL_MODEL_ID]?.takeIf { it.isNotBlank() } ?: "gemma4-e2b-litert",
             localNativeOnly = (prefs[Keys.LOCAL_NATIVE_ONLY] ?: "false") == "true",
+            localToolCallingEnabled = (prefs[Keys.LOCAL_TOOL_CALLING_ENABLED] ?: "false") == "true",
         )
     }
 
@@ -94,6 +96,7 @@ class AgentConfig(private val context: Context) {
             prefs[Keys.LOCAL_MODEL_ENABLED] = snapshot.localModelEnabled.toString()
             prefs[Keys.LOCAL_MODEL_ID] = snapshot.localModelId
             prefs[Keys.LOCAL_NATIVE_ONLY] = snapshot.localNativeOnly.toString()
+            prefs[Keys.LOCAL_TOOL_CALLING_ENABLED] = snapshot.localToolCallingEnabled.toString()
         }
     }
 
@@ -148,6 +151,7 @@ data class ConfigSnapshot(
     val localModelEnabled: Boolean = false,
     val localModelId: String = "gemma4-e2b-litert",
     val localNativeOnly: Boolean = false,
+    val localToolCallingEnabled: Boolean = false,
 ) {
     val activeGateway: GatewayConfig?
         get() = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()

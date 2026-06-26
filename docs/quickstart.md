@@ -19,7 +19,7 @@ Use a real device when testing phone control. Emulators are useful for basic UI 
 ```bash
 git clone https://github.com/eggbrid2/mobileClaw.git
 cd mobileClaw
-./gradlew :app:assembleDebug
+./scripts/assemble_debug.sh
 ```
 
 The debug APK is generated at:
@@ -27,6 +27,11 @@ The debug APK is generated at:
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+The build helper selects Android Studio's bundled JBR 21 when it exists and sets
+`NO_PROXY=*` for Chaquopy/pip. If Android Studio still fails while installing
+Python requirements, set the Gradle JDK to JBR 21 and add `NO_PROXY=*` to the
+Gradle environment.
 
 ## 3. Install
 
@@ -117,7 +122,7 @@ Use [docs/recipes/rom-compatibility-report.md](recipes/rom-compatibility-report.
 ```bash
 git clone https://github.com/eggbrid2/mobileClaw.git
 cd mobileClaw
-./gradlew :app:assembleDebug
+./scripts/assemble_debug.sh
 ```
 
 debug APK 生成位置：
@@ -125,6 +130,10 @@ debug APK 生成位置：
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+构建脚本会优先使用 Android Studio 自带的 JBR 21，并为 Chaquopy/pip 设置
+`NO_PROXY=*`。如果 Android Studio 在安装 Python requirements 时仍然失败，请把
+Gradle JDK 设置为 JBR 21，并给 Gradle 环境补上 `NO_PROXY=*`。
 
 ## 3. 安装
 
@@ -191,4 +200,3 @@ Open Calculator and calculate 23 + 19. Tell me the result after you verify the s
 - 实际行为
 
 可以使用 [docs/recipes/rom-compatibility-report.md](recipes/rom-compatibility-report.md) 作为清单。
-

@@ -31,6 +31,7 @@ enum class SkillType {
     @SerializedName("native") NATIVE,
     @SerializedName("python") PYTHON,
     @SerializedName("http") HTTP,
+    @SerializedName("mcp") MCP,
     @SerializedName("shell") SHELL,
 }
 

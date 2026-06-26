@@ -27,7 +27,7 @@ The idea is simple: a mobile agent should not just chat about your device. It sh
 
 MobileClaw is currently going through a UI refresh, so some screens may feel visually inconsistent or rough while the new interface is being rebuilt.
 
-The roadmap also includes MCP support, including MCP connection and MCP creation flows, so agents can connect to standard MCP servers and expose compatible tools through the same runtime.
+MobileClaw includes an MCP client skill. The built-in `mcp_client` tool can connect to standard Streamable HTTP or SSE MCP servers and run `initialize`, `tools/list`, and `tools/call`. The skill market also has a `ModelScope MCP` tab: paste a ModelScope MCP SSE endpoint or copied config JSON, add a token, discover server tools, and install them as normal MobileClaw skills.
 
 ## Real Device Demo
 
@@ -263,7 +263,7 @@ Requirements:
 ```bash
 git clone https://github.com/eggbrid2/mobileClaw.git
 cd mobileClaw
-./gradlew :app:assembleDebug
+./scripts/assemble_debug.sh
 ```
 
 Debug APK:
@@ -271,6 +271,12 @@ Debug APK:
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+The helper script uses Android Studio's bundled JBR 21 when available and sets
+`NO_PROXY=*` for Chaquopy/pip so stale local proxy variables do not break Python
+dependency downloads. If you build directly from Android Studio, set the Gradle
+JDK to JBR 21 and add `NO_PROXY=*` to the Gradle environment when your shell or
+IDE exports proxy variables.
 
 The app uses Kotlin 2.2, Jetpack Compose, Room, DataStore, WebView, OkHttp, Gson, Jsoup, SnakeYAML, Chaquopy Python 3.11, LiteRT-LM, mihomo, and hev-socks5-tunnel.
 

@@ -172,7 +172,7 @@ fun WorkspacePage(
                                 fontSize = 14.sp,
                             )
                             WorkspaceMetaLine(
-                                listOf(event.category, event.source, formatTime(event.timestamp)).joinToString("  ")
+                                listOf(eventCategoryLabel(event.category), event.source, formatTime(event.timestamp)).joinToString("  ")
                             )
                             Text(
                                 text = event.summary,
@@ -346,3 +346,35 @@ private fun IconTextAction(
 
 private fun formatTime(timestamp: Long): String =
     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+private fun eventCategoryLabel(category: String): String = when (category) {
+    "progress",
+    "task_plan",
+    "task_started",
+    "direct_chat_started",
+    "plan_created",
+    "tool_call",
+    "skill_observation",
+    "reflection",
+    "review_completed",
+    "continuation_checkpoint",
+    "deterministic_phone_launch",
+    "deterministic_artifact_patch",
+    "artifact_observation",
+    "file_observation",
+    "code_observation" -> "推进"
+    "reminder",
+    "phone_control_guard",
+    "repeated_perception_guard" -> "提醒"
+    "repair",
+    "draft_repair",
+    "validation_repair",
+    "runtime_log_repair" -> "修复"
+    "completed",
+    "task_complete",
+    "task_completed",
+    "direct_chat_completed" -> "完成"
+    "blocked",
+    "task_error" -> "阻塞"
+    else -> category
+}

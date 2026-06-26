@@ -240,6 +240,7 @@ class HybridLlmGateway(
     private val useLocal: () -> Boolean,
     private val canUseCloud: () -> Boolean,
     private val nativeOnly: () -> Boolean,
+    private val localToolCallingEnabled: () -> Boolean,
     private val language: () -> String,
 ) : LlmGateway {
     override suspend fun chat(request: ChatRequest): ChatResponse {
@@ -253,7 +254,10 @@ class HybridLlmGateway(
                 })
             }
         }
-        if (useLocal() && (localizedRequest.tools.isEmpty() || localizedRequest.imageBase64Present())) {
+        val canAttemptLocal = localizedRequest.tools.isEmpty() ||
+            localizedRequest.imageBase64Present() ||
+            localToolCallingEnabled()
+        if (useLocal() && canAttemptLocal) {
             var localTokenEmitted = false
             val localRequest = localizedRequest.copy(
                 onToken = localizedRequest.onToken?.let { downstream ->
@@ -263,7 +267,20 @@ class HybridLlmGateway(
                     }
                 }
             )
-            return runCatching { local.chat(localRequest) }.getOrElse { e ->
+            return runCatching {
+                val localResponse = local.chat(localRequest)
+                if (
+                    localizedRequest.tools.isNotEmpty() &&
+                    !localizedRequest.imageBase64Present() &&
+                    localToolCallingEnabled() &&
+                    localResponse.toolCall == null &&
+                    canUseCloud()
+                ) {
+                    cloud.chat(localizedRequest)
+                } else {
+                    localResponse
+                }
+            }.getOrElse { e ->
                 if (canUseCloud() && !localTokenEmitted) {
                     cloud.chat(localizedRequest)
                 } else {
