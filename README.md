@@ -33,8 +33,6 @@ MobileClaw includes an MCP client skill. The built-in `mcp_client` tool can conn
 
 - Unified the app around the minimal black-white AI visual style from the chat home: warm off-white backgrounds, white grouped lists, black primary pills, and restrained mint status accents.
 - Rebuilt role list, role detail, and role edit flows around one role identity image field, role workspace entry, and role package import/export.
-- Added role-driven Chat Runtime wiring: roles now carry workspace files, chat protocols, model hints, skill habits, and memory hooks so a role can shape how chat understands context, selects tools, runs steps, and persists outcomes.
-- Fixed the local-model tool path so experimental local Agent tools are parsed and executed instead of being rendered as plain text or ignored, with cloud fallback still available when tool use exceeds local capability.
 - Added MiniAPP import/export entry points, detail export, long-press delete, and batch delete support.
 - Reworked the Me/settings area into AI base config, general settings, tools, memory/history, and profile-aware AI context.
 - Added a MiniAPP v2 technical plan for a Javet-backed Node runtime, Vue/TS project builds, native bridge boundaries, and portable project packages.
@@ -129,8 +127,6 @@ Roles are not just personas. They can declare preferred task types, keywords, sc
 
 The role UI is designed around quick task assignment rather than decorative persona editing. The Roles page highlights the current role first, then lists built-in and custom roles with readable capability labels such as code, research, phone control, apps, images, VPN, and skills. Built-in roles are protected as presets: editing them creates a custom copy, while custom roles can be edited directly. Advanced fields such as system prompt addenda, model override, and pinned skills are kept behind an advanced section so normal role creation stays approachable.
 
-Roles now participate in the chat runtime as working protocols, not just speaking styles. Each role can own workspace files such as `core.md`, `skills.md`, `memory.md`, `model.md`, `chat_protocol.md`, and `journal.md`. These files are loaded into direct chat and agent runs so the active role can influence context reading, tool selection, memory writes, model choice, and result persistence.
-
 ### Skills
 
 MobileClaw has a native skill registry with injection levels:
@@ -207,7 +203,7 @@ MobileClaw can run selected on-device models through LiteRT-LM:
 - Multimodal `.task` resource packages can be downloaded or imported separately while the current Android LiteRT-LM chat path uses `.litertlm` text runtime files.
 - Model downloads support multiple sources: Hugging Face, ModelScope, and a user-provided custom direct URL.
 - Hugging Face tokens are supported for official Hugging Face downloads, but are not sent to domestic mirrors or custom URLs.
-- Local chat is used for text-only requests when enabled. Experimental local Agent tools can ask the local text model for structured JSON tool decisions; the runtime now cleans and parses those decisions before executing tools, and falls back to the configured cloud endpoint when local capability is not enough.
+- Local chat is used for text-only requests when enabled. Tool calls, image input, web access, or unavailable local models automatically fall back to the configured cloud endpoint when possible.
 
 ### Local And LAN APIs
 
