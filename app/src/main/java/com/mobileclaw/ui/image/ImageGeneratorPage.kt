@@ -203,7 +203,7 @@ private fun Header(isRunning: Boolean, onBack: () -> Unit) {
         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (isZh) "图片生成" else "Image Generation", color = c.text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(if (isRunning) Color(0xFFC7F43A) else c.subtext.copy(alpha = 0.45f)))
+                Box(Modifier.size(6.dp).clip(CircleShape).background(if (isRunning) c.accent else c.subtext.copy(alpha = 0.45f)))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     if (isRunning) {

@@ -137,7 +137,7 @@ private val AGENT_COLORS = listOf(
     Color(0xFF505050),
     Color(0xFF56D6BA),
     Color(0xFF8A8A8A),
-    Color(0xFFC7F43A),
+    Color(0xFFB7B7B7),
     Color(0xFF202020),
 )
 
@@ -1470,7 +1470,7 @@ private fun resolveGroupBubbleVisual(
 
     val emotion = style?.emotion?.lowercase().orEmpty().ifBlank { "neutral" }
     val emotionAccent = when (emotion) {
-        "happy", "excited" -> Color(0xFFC7F43A)
+        "happy", "excited" -> Color(0xFF56D6BA)
         "sad" -> Color(0xFF8A8A8A)
         "angry" -> Color(0xFF111111)
         "shy", "love" -> Color(0xFF8A8A8A)

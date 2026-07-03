@@ -13,6 +13,7 @@ import com.mobileclaw.skill.SkillResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
@@ -82,6 +83,32 @@ class AiPageRuntime(
                 val result = capabilities.httpFetch(url, method, headers, body)
                 lastResult = result
                 if (resultKey.isNotBlank()) state[resultKey] = result["body"]?.toString() ?: ""
+            }
+
+            "ai_chat" -> {
+                val resultKey = step["result_key"]?.asString ?: "ai_response"
+                val inputJson = buildAiChatInput(step, ::ev)
+                val result = capabilities.aiChat(inputJson)
+                lastResult = result
+                if (resultKey.isNotBlank()) state[resultKey] = (result["text"] ?: result["content"] ?: result["error"] ?: "").toString()
+            }
+
+            "background" -> {
+                val action = ev("action")
+                if (action.isNotBlank()) {
+                    scope.launch {
+                        runCatching { executeAction(action) }
+                    }
+                }
+            }
+
+            "parallel" -> {
+                val childSteps = step["steps"]?.asJsonArray ?: return
+                val jobs = (0 until childSteps.size()).mapNotNull { index ->
+                    val child = runCatching { childSteps[index].asJsonObject }.getOrNull() ?: return@mapNotNull null
+                    scope.launch { executeStep(child) }
+                }
+                jobs.joinAll()
             }
 
             "shell" -> {
@@ -166,6 +193,25 @@ class AiPageRuntime(
                 if (pageId.isNotBlank()) onNavigatePage?.invoke(pageId)
             }
         }
+    }
+
+    private suspend fun executeAction(actionName: String) {
+        val stepsArr = def.actions[actionName]?.asJsonArray ?: return
+        val steps = (0 until stepsArr.size()).mapNotNull {
+            runCatching { stepsArr[it].asJsonObject }.getOrNull()
+        }
+        for (step in steps) executeStep(step)
+    }
+
+    private fun buildAiChatInput(step: JsonObject, ev: (String) -> String): String {
+        val explicit = step["input_json"]?.asString?.let { ev("input_json") }
+        if (!explicit.isNullOrBlank()) return explicit
+        val payload = JsonObject()
+        step["system"]?.asString?.let { payload.addProperty("system", ExprEval.eval(it, state.toMap(), inputState.toMap(), lastResult)) }
+        step["prompt"]?.asString?.let { payload.addProperty("prompt", ExprEval.eval(it, state.toMap(), inputState.toMap(), lastResult)) }
+        step["message"]?.asString?.let { payload.addProperty("message", ExprEval.eval(it, state.toMap(), inputState.toMap(), lastResult)) }
+        step["messages"]?.let { payload.add("messages", it) }
+        return gson.toJson(payload)
     }
 
     private fun parseParams(obj: JsonObject?): Map<String, Any> {

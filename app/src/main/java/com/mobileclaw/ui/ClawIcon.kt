@@ -65,10 +65,15 @@ fun clawIconForPage(page: AppPage): ImageVector = when (page) {
     AppPage.HOME -> Icons.Outlined.Home
     AppPage.CHAT -> Icons.Outlined.ChatBubbleOutline
     AppPage.SETTINGS -> Icons.Outlined.Settings
+    AppPage.AI_BASIC_SETTINGS -> Icons.Outlined.Settings
+    AppPage.USER_INFO -> Icons.Outlined.Person
+    AppPage.GENERAL_SETTINGS -> Icons.Outlined.Security
+    AppPage.TOOLS_SETTINGS -> Icons.Outlined.Build
+    AppPage.MEMORY_SETTINGS -> Icons.Outlined.Psychology
     AppPage.SKILLS -> Icons.Outlined.Extension
     AppPage.SKILL_MARKET -> Icons.Outlined.Storefront
     AppPage.PROFILE -> Icons.Outlined.Psychology
-    AppPage.ROLES, AppPage.ROLE_DETAIL, AppPage.ROLE_EDIT -> Icons.Outlined.TheaterComedy
+    AppPage.ROLES, AppPage.ROLE_DETAIL, AppPage.ROLE_WORKSPACE, AppPage.ROLE_EDIT -> Icons.Outlined.TheaterComedy
     AppPage.USER_CONFIG -> Icons.Outlined.Person
     AppPage.APPS -> Icons.Outlined.Apps
     AppPage.CONSOLE -> Icons.Outlined.Terminal

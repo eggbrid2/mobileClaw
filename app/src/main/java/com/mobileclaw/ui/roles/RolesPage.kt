@@ -1,16 +1,12 @@
 package com.mobileclaw.ui.roles
 
-import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -36,13 +32,15 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.outlined.Badge
-import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.SettingsSuggest
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,13 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,15 +63,12 @@ import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.TaskType
 import com.mobileclaw.town.AgentRoom
 import com.mobileclaw.town.RoomFurniture
-import com.mobileclaw.town.AgentSpritePack
 import com.mobileclaw.town.AgentTownState
+import com.mobileclaw.ui.GradientAvatar
 import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
+import com.mobileclaw.ui.RoleWorkspaceFileUi
 import com.mobileclaw.str
-import java.io.File
-
-private const val ROLE_PORTRAIT_STYLE_VERSION = "role_self_portrait_v5"
-private const val ROLE_SPRITE_STYLE_VERSION = "role_self_sprite_v1"
 
 private enum class RoleHomeSection {
     OVERVIEW,
@@ -111,12 +101,17 @@ fun RolesPage(
     onOpenDetail: (Role) -> Unit,
     onGeneratePortrait: (Role) -> Unit,
     onEdit: (Role) -> Unit,
+    onCopy: (Role) -> Unit,
     onDelete: (String) -> Unit,
+    onImport: (Uri) -> Unit,
     onBack: () -> Unit = {},
     showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
-    val pageBg = if (c.isDark) Color(0xFF090908) else Color(0xFFF7F8F5)
+    val pageBg = c.bg
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onImport)
+    }
 
     BackHandler { onBack() }
 
@@ -130,14 +125,17 @@ fun RolesPage(
 
     Column(modifier = Modifier.fillMaxSize().background(pageBg)) {
         if (showHeader) {
-            RoleManagementHeader(onBack = onBack)
+            RoleManagementHeader(
+                onBack = onBack,
+                onImport = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+            )
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                horizontal = if (showHeader) 24.dp else 18.dp,
-                vertical = if (showHeader) 10.dp else 14.dp,
+                horizontal = 14.dp,
+                vertical = if (showHeader) 8.dp else 12.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -149,16 +147,16 @@ fun RolesPage(
                     onOpen = { onOpenDetail(currentRole) },
                 )
             }
-            item { Spacer(Modifier.height(2.dp)) }
-            items(roles, key = { it.id }) { role ->
-                RoleListCard(
-                    role = role,
-                    room = town.rooms[role.id],
-                    isActive = role.id == currentRole.id,
-                    isWorking = role.id in workingAgentIds || role.id in typingAgentIds,
-                    isGeneratingPortrait = role.id in rolePortraitGeneratingIds,
-                    onOpen = { onOpenDetail(role) },
-                    onActivate = { onActivate(role) },
+            item {
+                RoleDirectorySection(
+                    roles = roles,
+                    currentRoleId = currentRole.id,
+                    town = town,
+                    workingAgentIds = workingAgentIds,
+                    typingAgentIds = typingAgentIds,
+                    rolePortraitGeneratingIds = rolePortraitGeneratingIds,
+                    onOpenDetail = onOpenDetail,
+                    onActivate = onActivate,
                 )
             }
             item { Spacer(Modifier.height(24.dp)) }
@@ -167,26 +165,66 @@ fun RolesPage(
 }
 
 @Composable
-private fun RoleManagementHeader(onBack: () -> Unit) {
+private fun RoleManagementHeader(
+    onBack: () -> Unit,
+    onImport: () -> Unit,
+) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
-    Box(
-        Modifier
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .background(c.surface)
+            .statusBarsPadding(),
     ) {
-        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart).size(44.dp)) {
-            Icon(Icons.Default.ArrowBack, contentDescription = null, tint = c.text)
-        }
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (isZh) "角色管理" else "Role Management", color = c.text, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(3.dp))
-            Text(if (isZh) "默认角色与能力偏好" else "Default role and capabilities", color = c.subtext, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onBack)
+                    .padding(start = 10.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                Text(if (isZh) "退出" else "Exit", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (isZh) "角色" else "Roles",
+                    color = c.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(c.text)
+                    .border(0.5.dp, c.text, RoundedCornerShape(999.dp))
+                    .clickable(onClick = onImport)
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = c.bg, modifier = Modifier.size(14.dp))
+                    Text(if (isZh) "导入" else "Import", color = c.bg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+            }
         }
+        HorizontalDivider(color = c.border, thickness = 0.5.dp)
     }
 }
 
@@ -199,45 +237,118 @@ private fun CurrentRolePanel(
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
-    val accent = room?.accent?.toComposeColor() ?: accentForRole(role)
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(26.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        if (c.isDark) Color(0xFF111315) else Color(0xFF16181A),
-                        if (c.isDark) Color(0xFF292B2E) else Color(0xFF42454A),
-                    )
-                )
-            )
+            .background(c.card, RoundedCornerShape(14.dp))
             .clickable { onOpen() }
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.White.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(roleInitial(role), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(if (isZh) "当前默认" else "Current Default", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
-            Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (isWorking) str(R.string.role_card_generating) else if (isZh) "写作、生活、工作空间均使用此角色。" else "Writing, life, and workspace all use this role.",
-                color = Color.White.copy(alpha = 0.68f),
-                fontSize = 12.sp,
-                lineHeight = 15.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                text = if (isZh) "当前会话角色" else "Current chat role",
+                color = c.text,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                modifier = Modifier
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(c.text)
+                    .padding(horizontal = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (isWorking) c.accent else c.bg.copy(alpha = 0.8f))
+                )
+                Text(if (isZh) "默认" else "Default", color = c.bg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .background(c.cardAlt, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                GradientAvatar(
+                    avatar = role.avatar.ifBlank { RoleAvatarDefaults.forRoleId(role.id) },
+                    size = 36.dp,
+                    color = c.text,
+                    shape = RoundedCornerShape(12.dp),
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, color = c.text, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = if (isWorking) str(R.string.role_card_generating) else roleRoleSummary(role, room, isZh),
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoleDirectorySection(
+    roles: List<Role>,
+    currentRoleId: String,
+    town: AgentTownState,
+    workingAgentIds: Set<String>,
+    typingAgentIds: Set<String>,
+    rolePortraitGeneratingIds: Set<String>,
+    onOpenDetail: (Role) -> Unit,
+    onActivate: (Role) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(14.dp)),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (isZh) "全部角色" else "All roles",
+                color = c.text,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text("${roles.size}", color = c.subtext, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
+        roles.forEachIndexed { index, role ->
+            if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 64.dp))
+            RoleListCard(
+                role = role,
+                room = town.rooms[role.id],
+                isActive = role.id == currentRoleId,
+                isWorking = role.id in workingAgentIds || role.id in typingAgentIds,
+                isGeneratingPortrait = role.id in rolePortraitGeneratingIds,
+                onOpen = { onOpenDetail(role) },
+                onActivate = { onActivate(role) },
             )
         }
+        Spacer(Modifier.height(2.dp))
     }
 }
 
@@ -253,30 +364,48 @@ private fun RoleListCard(
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
-    val accent = room?.accent?.toComposeColor() ?: accentForRole(role)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (c.isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.58f))
-            .clickable { onOpen() },
+            .clickable { onOpen() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier = Modifier
-                .padding(start = 12.dp, top = 12.dp, bottom = 12.dp)
-                .size(28.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(roleDotBrush(role, accent)),
+                .size(40.dp)
+                .background(c.cardAlt, RoundedCornerShape(13.dp)),
             contentAlignment = Alignment.Center,
         ) {
+            GradientAvatar(
+                avatar = role.avatar.ifBlank { RoleAvatarDefaults.forRoleId(role.id) },
+                size = 34.dp,
+                color = if (isActive) c.text else c.subtext,
+                shape = RoundedCornerShape(11.dp),
+            )
             if (isWorking || isGeneratingPortrait) {
-                Box(Modifier.size(8.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.88f)))
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.accent)
+                )
+            }
+            if (isActive && !isWorking && !isGeneratingPortrait) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.text)
+                )
             }
         }
 
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Black, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 text = roleRoleSummary(role, room, isZh),
                 fontSize = 11.sp,
@@ -289,11 +418,12 @@ private fun RoleListCard(
 
         Box(
             modifier = Modifier
-                .padding(end = 12.dp)
-                .height(38.dp)
-                .clip(RoundedCornerShape(19.dp))
+                .height(32.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(if (isActive) c.text else c.cardAlt)
+                .border(0.5.dp, if (isActive) c.text else c.border, RoundedCornerShape(16.dp))
                 .clickable(enabled = !isActive) { onActivate() }
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -302,11 +432,12 @@ private fun RoleListCard(
                 } else {
                     if (isZh) "切换" else "Switch"
                 },
-                color = c.subtext,
+                color = if (isActive) c.bg else c.text,
                 fontSize = 11.sp,
                 lineHeight = 12.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -360,150 +491,525 @@ fun RoleDetailPage(
     onActivate: (Role) -> Unit,
     onGeneratePortrait: (Role) -> Unit,
     onEdit: (Role) -> Unit,
-    onOpenHome: (Role) -> Unit,
+    onCopy: (Role) -> Unit,
+    onExport: (Role) -> Unit,
+    onOpenWorkspace: (Role) -> Unit,
     onBack: () -> Unit,
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
     val room = town.rooms[role.id]
-    val spritePack = room?.portraitSpritePack
-        ?.takeIf { it.isNotBlank() }
-        ?.let { town.spritePacks[it] }
-        ?.takeIf { it.imagePath.isNotBlank() && File(it.imagePath).exists() && it.isFreshRolePortrait() }
-    var selectedSection by remember(role.id) { mutableStateOf(RoleHomeSection.OVERVIEW) }
+    val pageBg = c.bg
+    val summary = role.description.ifBlank {
+        role.preferredTaskTypes.take(3).joinToString(if (isZh) "、" else ", ") { it.roleTaskLabel(isZh) }
+            .ifBlank { if (isZh) "通用 AI 工作者" else "General AI worker" }
+    }
+    val isActive = role.id == currentRole.id
+    val taskModesText = role.preferredTaskTypes
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(" / ") { it.roleTaskLabel(isZh) }
+        ?: if (isZh) "通用对话 / 按任务自动判断" else "General chat / auto-routed"
+    val modelText = role.modelOverride?.takeIf { it.isNotBlank() } ?: str(R.string.role_edit_b11de2)
+    val skillText = role.forcedSkillIds
+        .takeIf { it.isNotEmpty() }
+        ?.take(8)
+        ?.joinToString(" / ")
+        ?: if (isZh) "无固定技能，按任务自动选择" else "No pinned skills; selected by task"
+    val routingText = role.keywords
+        .takeIf { it.isNotEmpty() }
+        ?.take(8)
+        ?.joinToString(" / ")
+        ?: if (isZh) "无专门识别词，默认按对话意图判断" else "No routing hints; inferred from chat intent"
+    val workspaceText = room?.wallPins
+        ?.take(3)
+        ?.joinToString(" / ") { it.title }
+        .orEmpty()
+        .ifBlank {
+            if (isZh) "core.md / skills.md / memory.md / model.md" else "core.md / skills.md / memory.md / model.md"
+        }
+    val promptText = role.systemPromptAddendum
+        .takeIf { it.isNotBlank() }
+        ?.take(180)
+        ?: if (isZh) "没有额外系统补充，使用基础角色定义。" else "No extra system addendum; using the base role definition."
 
     BackHandler { onBack() }
 
-    Column(Modifier.fillMaxSize().background(c.bg)) {
+    Column(Modifier.fillMaxSize().background(pageBg)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.surface)
+                .statusBarsPadding(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable(onClick = onBack)
+                        .padding(start = 10.dp, end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                    Text(if (isZh) "退出" else "Exit", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = role.name.ifBlank { if (isZh) "角色档案" else "Role Profile" },
+                        color = c.text,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (role.id == currentRole.id) c.text else c.cardAlt)
+                        .border(0.5.dp, if (role.id == currentRole.id) c.text else c.border, RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .clip(RoundedCornerShape(99.dp))
+                            .background(if (isWorking) c.accent else if (role.id == currentRole.id) c.bg.copy(alpha = 0.78f) else c.subtext.copy(alpha = 0.45f))
+                    )
+                    Text(
+                        if (role.id == currentRole.id) {
+                            if (isZh) "默认" else "Default"
+                        } else {
+                            if (isZh) "可切换" else "Role"
+                        },
+                        color = if (role.id == currentRole.id) c.bg else c.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
+            HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                RoleProfileHero(
+                    role = role,
+                    summary = summary,
+                    isActive = isActive,
+                    isWorking = isWorking,
+                    isGeneratingPortrait = isGeneratingPortrait,
+                    onGeneratePortrait = { onGeneratePortrait(role) },
+                )
+            }
+
+            item {
+                RoleDetailActions(
+                    isActive = isActive,
+                    onActivate = { onActivate(role) },
+                    onOpenWorkspace = { onOpenWorkspace(role) },
+                    onEdit = { onEdit(role) },
+                    onCopy = { onCopy(role) },
+                    onExport = { onExport(role) },
+                )
+            }
+
+            item {
+                RoleDetailInfoGroup(
+                    title = if (isZh) "角色配置" else "Role configuration",
+                    items = listOf(
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.SettingsSuggest,
+                            title = if (isZh) "执行方式" else "Execution",
+                            body = taskModesText,
+                        ),
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.Psychology,
+                            title = if (isZh) "模型" else "Model",
+                            body = modelText,
+                        ),
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.CheckCircle,
+                            title = if (isZh) "固定技能" else "Pinned skills",
+                            body = skillText,
+                        ),
+                    )
+                )
+            }
+
+            item {
+                RoleDetailInfoGroup(
+                    title = if (isZh) "上下文" else "Context",
+                    items = listOf(
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.Badge,
+                            title = if (isZh) "识别线索" else "Routing hints",
+                            body = routingText,
+                        ),
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.Memory,
+                            title = if (isZh) "角色工作区" else "Role workspace",
+                            body = workspaceText,
+                        ),
+                        RoleDetailInfoItem(
+                            icon = Icons.Outlined.FolderOpen,
+                            title = if (isZh) "系统补充" else "System addendum",
+                            body = promptText,
+                        ),
+                    )
+                )
+            }
+
+            item { Spacer(Modifier.height(26.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun RoleProfileHero(
+    role: Role,
+    summary: String,
+    isActive: Boolean,
+    isWorking: Boolean,
+    isGeneratingPortrait: Boolean,
+    onGeneratePortrait: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val roleAvatar = role.avatar.ifBlank { RoleAvatarDefaults.forRoleId(role.id) }
+    val hasCustomImage = com.mobileclaw.agent.isRoleImageAvatar(roleAvatar)
+    val actionText = when {
+        isGeneratingPortrait -> str(R.string.role_card_generating)
+        hasCustomImage -> if (isZh) "更新角色形象" else "Update identity"
+        else -> str(R.string.role_portrait_regenerate_action)
+    }
+    val portraitShape = RoundedCornerShape(22.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(20.dp))
+            .border(0.7.dp, c.border.copy(alpha = 0.72f), RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = if (isZh) "角色形象" else "Role identity",
+                color = c.text,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                modifier = Modifier
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (isActive) c.text else c.cardAlt)
+                    .border(0.5.dp, if (isActive) c.text else c.border, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (isWorking) c.accent else if (isActive) c.bg.copy(alpha = 0.8f) else c.subtext.copy(alpha = 0.45f))
+                )
+                Text(
+                    if (isActive) str(R.string.role_detail_current_role) else if (isZh) "可切换" else "Available",
+                    color = if (isActive) c.bg else c.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
         Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(portraitShape)
+                    .background(c.cardAlt)
+                    .border(0.7.dp, c.border.copy(alpha = 0.68f), portraitShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                GradientAvatar(
+                    avatar = roleAvatar,
+                    size = 96.dp,
+                    color = c.text,
+                    shape = portraitShape,
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .size(10.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (isWorking) c.accent else c.text)
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    role.name.ifBlank { str(R.string.role_card_unnamed) },
+                    color = c.text,
+                    fontSize = 22.sp,
+                    lineHeight = 26.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    summary,
+                    color = c.subtext,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Box(
+                    modifier = Modifier
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(c.cardAlt)
+                        .border(0.5.dp, c.border, RoundedCornerShape(17.dp))
+                        .clickable(enabled = !isGeneratingPortrait) { onGeneratePortrait() }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = actionText,
+                        color = if (isGeneratingPortrait) c.subtext else c.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class RoleDetailInfoItem(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val title: String,
+    val body: String,
+)
+
+@Composable
+private fun RoleDetailInfoGroup(
+    title: String,
+    items: List<RoleDetailInfoItem>,
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(18.dp))
+            .border(0.7.dp, c.border.copy(alpha = 0.66f), RoundedCornerShape(18.dp))
+            .padding(top = 12.dp, bottom = 4.dp),
+    ) {
+        Text(
+            text = title,
+            color = c.text,
+            fontSize = 15.sp,
+            lineHeight = 18.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 14.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        items.forEachIndexed { index, item ->
+            if (index > 0) {
+                HorizontalDivider(color = c.border.copy(alpha = 0.72f), thickness = 0.5.dp, modifier = Modifier.padding(start = 64.dp))
+            }
+            RoleDetailInfoRow(item)
+        }
+    }
+}
+
+@Composable
+private fun RoleDetailInfoRow(item: RoleDetailInfoItem) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .background(c.cardAlt, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(item.icon, contentDescription = null, tint = c.text, modifier = Modifier.size(19.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                item.title,
+                color = c.text,
+                fontSize = 14.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                item.body.ifBlank { str(R.string.role_detail_no_content) },
+                color = c.subtext,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+fun RoleWorkspacePage(
+    role: Role,
+    files: List<RoleWorkspaceFileUi>,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val pageBg = if (c.isDark) Color(0xFF070707) else Color(0xFFF6F6F4)
+    BackHandler { onBack() }
+
+    Column(Modifier.fillMaxSize().background(pageBg)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
                 Icon(Icons.Default.ArrowBack, contentDescription = null, tint = c.text)
             }
-            Text(role.name.ifBlank { str(R.string.role_detail_title_default) }, color = c.text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            RoleStatusDot(active = role.id == currentRole.id, working = isWorking)
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (isZh) "角色工作空间" else "Role Workspace", color = c.text, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black)
+                Text(role.name.ifBlank { role.id }, color = c.subtext, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = onRefresh, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = c.text)
+            }
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(34.dp))
-                        .background(if (c.isDark) Color(0xFF080808) else Color.White)
-                        .border(1.dp, c.border.copy(alpha = 0.75f), RoundedCornerShape(34.dp))
-                        .padding(10.dp),
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color(0xFF080808))
+                        .padding(18.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(
-                                if (c.isDark) {
-                                    Brush.verticalGradient(listOf(Color(0xFF171717), Color(0xFF050505)))
-                                } else {
-                                    Brush.verticalGradient(listOf(Color(0xFFF7F7F4), Color.White))
-                                }
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        TopographicLines(Modifier.matchParentSize(), if (c.isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f))
-                        if (spritePack != null) {
-                            AnimatedRoleSprite(
-                                spritePack = spritePack,
-                                // 详情页强制只展示静态肖像，不允许在这里播放角色动画。
-                                stateName = "idle",
-                                sizeDp = 240,
-                                // 加一层留白，保证全身角色图有呼吸空间，不会贴边显得没展示全。
-                                modifier = Modifier.fillMaxSize().padding(16.dp),
-                                contentScale = ContentScale.Fit,
-                            )
-                        } else {
-                            RolePortraitEmptyState(
-                                isGenerating = isGeneratingPortrait,
-                                compact = false,
-                                onGenerate = { onGeneratePortrait(role) },
-                                dark = c.isDark,
-                            )
+                    TopographicLines(Modifier.matchParentSize(), Color.White.copy(alpha = 0.055f))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.size(8.dp).clip(RoundedCornerShape(99.dp)).background(c.accent))
+                            Text(if (isZh) "持久角色上下文" else "Persistent role context", color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                    }
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp)) {
-                        Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, color = c.text, fontSize = 30.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            text = if (isWorking) str(R.string.role_card_generating) else room?.houseName?.ifBlank { str(R.string.role_detail_home_name) } ?: str(R.string.role_detail_home_name),
-                            color = c.subtext,
+                            text = if (isZh) "这里展示角色自己的 core、memory、skills、model 等文件。" else "Core, memory, skills, model, and other role-owned files.",
+                            color = Color.White,
+                            fontSize = 22.sp,
+                            lineHeight = 26.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            text = if (isZh) "这些内容会参与角色后续执行和长期沉淀。" else "These files feed future execution and long-term role growth.",
+                            color = Color.White.copy(alpha = 0.62f),
                             fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 5.dp),
+                            lineHeight = 18.sp,
                         )
                     }
                 }
             }
-
-            item {
-                RoleDetailActions(
-                    isActive = role.id == currentRole.id,
-                    isBuiltin = role.isBuiltin,
-                    onActivate = { onActivate(role) },
-                    onOpenHome = { onOpenHome(role) },
-                    onGeneratePortrait = { onGeneratePortrait(role) },
-                    onEdit = { onEdit(role) },
-                )
+            if (files.isEmpty()) {
+                item {
+                    RoleWorkspaceFileCard(
+                        file = RoleWorkspaceFileUi(
+                            name = if (isZh) "暂无文件" else "No files",
+                            content = if (isZh) "刷新后会创建并读取角色工作空间。" else "Refresh to create and read the role workspace.",
+                        )
+                    )
+                }
+            } else {
+                items(files, key = { it.name }) { file ->
+                    RoleWorkspaceFileCard(file = file)
+                }
             }
-
-            item {
-                RoleDetailSection(
-                    title = str(R.string.role_detail_home_title),
-                    icon = Icons.Outlined.Home,
-                    lines = listOf(
-                        room?.houseName ?: str(R.string.role_detail_home_for, role.name.ifBlank { str(R.string.role_card_unnamed) }),
-                        room?.style ?: str(R.string.role_detail_home_style),
-                        room?.motto?.ifBlank { role.description } ?: role.description,
-                    ).filter { it.isNotBlank() },
-                )
-            }
-
-            item {
-                RoleDetailSection(
-                    title = str(R.string.role_detail_identity_title),
-                    icon = Icons.Outlined.Badge,
-                    lines = listOf(
-                        role.description,
-                        if (role.preferredTaskTypes.isNotEmpty()) {
-                            str(R.string.role_detail_tasks_label, role.preferredTaskTypes.joinToString(" / ") { it.roleTaskLabel(isZh) })
-                        } else "",
-                        str(R.string.role_detail_model_label, role.modelOverride ?: str(R.string.role_edit_b11de2)),
-                    ).filter { it.isNotBlank() },
-                )
-            }
-
-            item {
-                RoleDetailSection(
-                    title = str(R.string.role_detail_memory_tools_title),
-                    icon = Icons.Outlined.Memory,
-                    lines = listOf(
-                        room?.wallPins?.take(3)?.joinToString(" / ") { it.title }.orEmpty().ifBlank { str(R.string.role_detail_no_memory) },
-                        room?.toolbox?.take(5)?.joinToString(" / ") { it.title }.orEmpty().ifBlank {
-                            if (role.forcedSkillIds.isNotEmpty()) {
-                                str(R.string.role_detail_forced_skills_label, role.forcedSkillIds.take(5).joinToString(" / "))
-                            } else {
-                                str(R.string.role_detail_general_reasoning)
-                            }
-                        },
-                    ),
-                )
-            }
-
-            item { Spacer(Modifier.height(24.dp)) }
+            item { Spacer(Modifier.height(26.dp)) }
         }
+    }
+}
+
+@Composable
+private fun RoleWorkspaceFileCard(file: RoleWorkspaceFileUi) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (c.isDark) Color.White.copy(alpha = 0.055f) else Color.White)
+            .border(1.dp, c.border.copy(alpha = 0.78f), RoundedCornerShape(22.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (c.isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF4F4F2)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Memory, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(file.name, color = c.text, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${file.content.length} chars", color = c.subtext, fontSize = 11.sp, lineHeight = 13.sp)
+            }
+        }
+        HorizontalDivider(color = c.border.copy(alpha = 0.7f), thickness = 0.5.dp)
+        Text(
+            text = file.content.ifBlank { "(empty)" },
+            color = c.subtext,
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+        )
     }
 }
 
@@ -518,10 +1024,6 @@ fun RoleHomePage(
 ) {
     val c = LocalClawColors.current
     val room = town.rooms[role.id]
-    val spritePack = room?.characterSpritePack
-        ?.takeIf { it.isNotBlank() }
-        ?.let { town.spritePacks[it] }
-        ?.takeIf { it.imagePath.isNotBlank() && File(it.imagePath).exists() && it.isFreshRolePortrait() }
     var selectedSection by remember(role.id) { mutableStateOf(RoleHomeSection.OVERVIEW) }
 
     BackHandler { onBack() }
@@ -545,7 +1047,6 @@ fun RoleHomePage(
                 RoleHomeScene(
                     role = role,
                     room = room,
-                    spritePack = spritePack,
                     isActive = role.id == currentRole.id,
                     isWorking = isWorking,
                     selectedSection = selectedSection,
@@ -643,7 +1144,6 @@ private fun GameHudIconButton(
 private fun RoleHomeScene(
     role: Role,
     room: AgentRoom?,
-    spritePack: AgentSpritePack?,
     isActive: Boolean,
     isWorking: Boolean,
     selectedSection: RoleHomeSection,
@@ -655,11 +1155,6 @@ private fun RoleHomeScene(
     val personality = remember(role.id, role.name, role.description, room?.style, room?.motto) {
         roleHomePersonality(role, room)
     }
-    val animatedCharacterPack = spritePack?.takeIf {
-        (it.columns > 1 || it.rows > 1) &&
-            (it.kind == "character" || it.notes.contains(ROLE_SPRITE_STYLE_VERSION))
-    }
-    val portraitPack = spritePack?.takeIf { it.columns == 1 && it.rows == 1 }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -767,45 +1262,12 @@ private fun RoleHomeScene(
             drawRoleHomeSelection(tile, selectedSection, accent)
         }
 
-        if (portraitPack != null) {
-            RoleHomeIdentityProjection(
-                spritePack = portraitPack,
-                accent = accent,
-                framed = animatedCharacterPack != null,
-                modifier = Modifier
-                    .align(if (animatedCharacterPack != null) Alignment.TopStart else Alignment.TopEnd)
-                    .padding(
-                        start = if (animatedCharacterPack != null) 35.dp else 0.dp,
-                        top = if (animatedCharacterPack != null) 34.dp else 54.dp,
-                        end = if (animatedCharacterPack == null) 58.dp else 0.dp,
-                    ),
-            )
-        }
-
-        if (animatedCharacterPack != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 28.dp)
-                    .size(118.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                AnimatedRoleSprite(
-                    spritePack = animatedCharacterPack,
-                    stateName = if (isWorking) "working" else "idle",
-                    sizeDp = 118,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
-            }
-        } else {
-            RolePixelResident(
-                accent = accent,
-                variant = variant,
-                personality = personality,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 50.dp),
-            )
-        }
+        RolePixelResident(
+            accent = accent,
+            variant = variant,
+            personality = personality,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 50.dp),
+        )
         RoleHomeSceneHint(
             section = selectedSection,
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 18.dp),
@@ -827,50 +1289,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRoleHomeSelecti
     }
     drawRect(accent.copy(alpha = 0.12f), topLeft = rect.first, size = rect.second)
     drawRect(accent.copy(alpha = 0.92f), topLeft = rect.first, size = rect.second, style = Stroke(width = 2.dp.toPx()))
-}
-
-@Composable
-private fun RoleHomeIdentityProjection(
-    spritePack: AgentSpritePack,
-    accent: Color,
-    framed: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val projectionWidth = if (framed) 72.dp else 82.dp
-    val projectionHeight = if (framed) 72.dp else 104.dp
-    val frameColor = if (framed) Color(0xFF6A4A2F) else accent.copy(alpha = 0.46f)
-    Box(
-        modifier = modifier
-            .size(width = projectionWidth, height = projectionHeight)
-            .background(Color.Black.copy(alpha = 0.58f))
-            .border(2.dp, Color.Black.copy(alpha = 0.75f))
-            .padding(3.dp)
-            .background(Color(0xFF101410))
-            .border(2.dp, frameColor),
-        contentAlignment = Alignment.Center,
-    ) {
-        AnimatedRoleSprite(
-            spritePack = spritePack,
-            stateName = "idle",
-            sizeDp = if (framed) 64 else 92,
-            modifier = Modifier.fillMaxSize().padding(if (framed) 3.dp else 5.dp),
-            // Home 墙上的身份投影也改为 Fit，避免静态肖像在小窗里继续被裁掉。
-            contentScale = ContentScale.Fit,
-        )
-        Canvas(Modifier.matchParentSize()) {
-            drawRect(Color.White.copy(alpha = 0.14f), size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
-            drawRect(
-                accent.copy(alpha = 0.42f),
-                topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 8.dp.toPx()),
-                size = androidx.compose.ui.geometry.Size(size.width * 0.62f, 3.dp.toPx()),
-            )
-            drawRect(
-                Color.White.copy(alpha = 0.08f),
-                topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.74f, 0f),
-                size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height),
-            )
-        }
-    }
 }
 
 @Composable
@@ -962,8 +1380,8 @@ private fun RolePixelResident(
                     rect(x + unit * 3.05f, y - unit * 2.15f, unit * 1.0f, unit * 0.24f, accent.copy(alpha = 0.60f))
                 }
                 "workshop" -> {
-                    rect(x - unit * 3.0f, y + unit * 0.7f, unit * 0.38f, unit * 2.8f, Color(0xFFFFD166))
-                    rect(x - unit * 3.0f, y - unit * 0.9f, unit * 1.0f, unit * 0.42f, Color(0xFFFFD166))
+                    rect(x - unit * 3.0f, y + unit * 0.7f, unit * 0.38f, unit * 2.8f, Color(0xFFEDEDEA))
+                    rect(x - unit * 3.0f, y - unit * 0.9f, unit * 1.0f, unit * 0.42f, Color(0xFFEDEDEA))
                 }
                 "library" -> {
                     rect(x - unit * 3.05f, y + unit * 0.3f, unit * 0.82f, unit * 2.0f, Color(0xFFF6D7A7))
@@ -971,8 +1389,8 @@ private fun RolePixelResident(
                 }
             }
             if (personality.hasTrophy) {
-                rect(x + unit * 3.05f, y + unit * 0.65f, unit * 0.7f, unit * 0.45f, Color(0xFFFFD166))
-                rect(x + unit * 3.05f, y + unit * 1.02f, unit * 0.24f, unit * 0.48f, Color(0xFFFFD166))
+                rect(x + unit * 3.05f, y + unit * 0.65f, unit * 0.7f, unit * 0.45f, Color(0xFFEDEDEA))
+                rect(x + unit * 3.05f, y + unit * 1.02f, unit * 0.24f, unit * 0.48f, Color(0xFFEDEDEA))
             }
             drawRect(Color.White.copy(alpha = 0.08f), topLeft = androidx.compose.ui.geometry.Offset(x - unit * 2.1f, y - unit * 3.38f), size = androidx.compose.ui.geometry.Size(unit * 4.2f, unit * 7.55f), style = Stroke(width = unit * 0.12f))
         }
@@ -1063,7 +1481,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFurnitureItem(
         "bed" -> {
             shadow()
             drawRect(darkWood, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(w, h))
-            drawRect(Color(0xFF27324A), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.25f, y + tile * 0.28f), size = androidx.compose.ui.geometry.Size(w - tile * 0.5f, h - tile * 0.55f))
+            drawRect(Color(0xFF2A2A2A), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.25f, y + tile * 0.28f), size = androidx.compose.ui.geometry.Size(w - tile * 0.5f, h - tile * 0.55f))
             drawRect(itemAccent.copy(alpha = 0.72f), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.25f, y + tile * 0.28f), size = androidx.compose.ui.geometry.Size(w - tile * 0.5f, tile * 0.46f))
             drawRect(Color.White.copy(alpha = 0.26f), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.55f, y + tile * 1.0f), size = androidx.compose.ui.geometry.Size(w - tile * 1.1f, tile * 0.58f))
         }
@@ -1073,7 +1491,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFurnitureItem(
                 val ry = y + tile * (0.45f + row * 0.9f)
                 drawRect(wood, topLeft = androidx.compose.ui.geometry.Offset(x, ry), size = androidx.compose.ui.geometry.Size(w, tile * 0.18f))
                 repeat((item.width + 1).coerceIn(2, 8)) { col ->
-                    val colors = listOf(itemAccent, Color(0xFFFBBF24), Color(0xFF60A5FA), Color(0xFFF472B6), Color(0xFFE5E7EB))
+                    val colors = listOf(itemAccent, Color(0xFFEDEDEA), Color(0xFFB7B7B7), Color(0xFF8C8A84), Color(0xFFE5E7EB))
                     drawRect(colors[(row + col) % colors.size].copy(alpha = 0.72f), topLeft = androidx.compose.ui.geometry.Offset(x + tile * (0.35f + col * 0.62f), ry - tile * 0.48f), size = androidx.compose.ui.geometry.Size(tile * 0.32f, tile * 0.48f))
                 }
             }
@@ -1165,7 +1583,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPersonalizedBac
         drawRect(accent.copy(alpha = 0.18f), topLeft = androidx.compose.ui.geometry.Offset(tile * (8.0f + personality.layoutShift), cableY - tile * 1.4f), size = androidx.compose.ui.geometry.Size(tile * 0.12f, tile * 1.5f))
     }
     if (personality.warm) {
-        drawRect(Color(0xFFFFD166).copy(alpha = 0.05f), topLeft = androidx.compose.ui.geometry.Offset(tile, tile), size = androidx.compose.ui.geometry.Size(tile * 18f, height - tile * 2f))
+        drawRect(Color(0xFFEDEDEA).copy(alpha = 0.05f), topLeft = androidx.compose.ui.geometry.Offset(tile, tile), size = androidx.compose.ui.geometry.Size(tile * 18f, height - tile * 2f))
     }
     repeat(personality.clutter) { i ->
         val px = tile * (2.0f + seededFloat(personality.seed, 20 + i) * 15.5f)
@@ -1195,7 +1613,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPersonalizedFor
         val x = tile * (11.7f + seededFloat(personality.seed, 71) * 1.8f)
         val y = wallH + tile * 5.9f
         drawRect(Color(0xFF4A3322), topLeft = androidx.compose.ui.geometry.Offset(x, y + tile * 0.9f), size = androidx.compose.ui.geometry.Size(tile * 1.4f, tile * 0.35f))
-        drawRect(Color(0xFFFFD166), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.45f, y + tile * 0.2f), size = androidx.compose.ui.geometry.Size(tile * 0.5f, tile * 0.72f))
+        drawRect(Color(0xFFEDEDEA), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.45f, y + tile * 0.2f), size = androidx.compose.ui.geometry.Size(tile * 0.5f, tile * 0.72f))
         drawRect(accent.copy(alpha = 0.64f), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.28f, y), size = androidx.compose.ui.geometry.Size(tile * 0.84f, tile * 0.24f))
     }
     val plaqueX = tile * (7.8f + personality.layoutShift * 0.24f)
@@ -1278,8 +1696,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHomeHotspots(
     }
     marker(tile * 3.2f, tile * 6.15f, RoleHomeSection.IDENTITY, accent)
     marker(tile * 16.9f, tile * 2.7f, RoleHomeSection.MEMORY, Color(0xFF56D6BA))
-    marker(tile * 4.2f, tile * 10.0f, RoleHomeSection.WORKS, Color(0xFFF472B6))
-    marker(tile * 16.3f, tile * 13.0f, RoleHomeSection.TOOLS, Color(0xFFFBBF24))
+    marker(tile * 4.2f, tile * 10.0f, RoleHomeSection.WORKS, Color(0xFF8C8A84))
+    marker(tile * 16.3f, tile * 13.0f, RoleHomeSection.TOOLS, Color(0xFFB7B7B7))
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRoleHomeSpecials(
@@ -1310,7 +1728,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWorkshopHome(ti
     drawRect(Color(0xFFF5E7C8), topLeft = androidx.compose.ui.geometry.Offset(x + tile * 0.35f, y + tile * 0.35f), size = androidx.compose.ui.geometry.Size(tile * 3.2f, tile * 2.2f))
     repeat((room?.showcase?.size ?: 2).coerceIn(2, 5)) { i ->
         drawRect(
-            listOf(accent, Color(0xFFFFD166), Color(0xFF56D6BA), Color(0xFFF472B6), Color.White)[i],
+            listOf(accent, Color(0xFFEDEDEA), Color(0xFF56D6BA), Color(0xFF8C8A84), Color.White)[i],
             topLeft = androidx.compose.ui.geometry.Offset(x + tile * (0.7f + i * 0.48f), y + tile * 1.0f),
             size = androidx.compose.ui.geometry.Size(tile * 0.28f, tile * 0.28f),
         )
@@ -1353,11 +1771,11 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLibraryHome(til
     repeat(3) { row ->
         drawRect(Color(0xFF2B1B12), topLeft = androidx.compose.ui.geometry.Offset(x, y + tile * (1.25f + row * 1.1f)), size = androidx.compose.ui.geometry.Size(tile * 6.7f, tile * 0.22f))
         repeat(7) { col ->
-            val colors = listOf(accent, Color(0xFFFBBF24), Color(0xFF60A5FA), Color(0xFFF472B6))
+            val colors = listOf(accent, Color(0xFFEDEDEA), Color(0xFFB7B7B7), Color(0xFF8C8A84))
             drawRect(colors[(row + col) % colors.size].copy(alpha = 0.74f), topLeft = androidx.compose.ui.geometry.Offset(x + tile * (0.42f + col * 0.82f), y + tile * (0.35f + row * 1.1f)), size = androidx.compose.ui.geometry.Size(tile * 0.38f, tile * 0.82f))
         }
     }
-    drawRect(Color(0xFF25344A), topLeft = androidx.compose.ui.geometry.Offset(tile * 3.5f, wallH + tile * 4.7f), size = androidx.compose.ui.geometry.Size(tile * 2.8f, tile * 2.2f))
+    drawRect(Color(0xFF2A2A2A), topLeft = androidx.compose.ui.geometry.Offset(tile * 3.5f, wallH + tile * 4.7f), size = androidx.compose.ui.geometry.Size(tile * 2.8f, tile * 2.2f))
     drawRect(accent.copy(alpha = 0.55f), topLeft = androidx.compose.ui.geometry.Offset(tile * 4.25f, wallH + tile * 5.2f), size = androidx.compose.ui.geometry.Size(tile * 1.2f, tile * 1.2f))
     if ((room?.wallPins?.size ?: 0) > 0) drawRect(Color.White.copy(alpha = 0.20f), topLeft = androidx.compose.ui.geometry.Offset(tile * 2.0f, tile * 2.2f), size = androidx.compose.ui.geometry.Size(tile * 2.6f, tile * 1.5f))
 }
@@ -1515,7 +1933,7 @@ private fun RoleHomeMeaningPanel(
                 label = str(R.string.role_home_work_detail),
                 meta = str(R.string.role_home_work_stat),
                 count = works,
-                color = Color(0xFFF472B6),
+                color = Color(0xFF8C8A84),
                 selected = selectedSection == RoleHomeSection.WORKS,
                 onClick = { onSelectSection(RoleHomeSection.WORKS) },
                 modifier = Modifier.weight(1f),
@@ -1524,7 +1942,7 @@ private fun RoleHomeMeaningPanel(
                 label = str(R.string.role_home_tool_detail),
                 meta = str(R.string.role_home_tool_stat),
                 count = tools,
-                color = Color(0xFFFBBF24),
+                color = Color(0xFFB7B7B7),
                 selected = selectedSection == RoleHomeSection.TOOLS,
                 onClick = { onSelectSection(RoleHomeSection.TOOLS) },
                 modifier = Modifier.weight(1f),
@@ -1650,7 +2068,7 @@ private fun RoleHomeShelf(title: String, items: List<Pair<String, String>>, slot
 
 @Composable
 private fun RoleHomeSlot(name: String, desc: String, index: Int) {
-    val slotColors = listOf(Color(0xFFC7F43A), Color(0xFF56D6BA), Color(0xFFFBBF24), Color(0xFFA78BFA), Color(0xFFF472B6))
+    val slotColors = listOf(Color(0xFF56D6BA), Color(0xFFEDEDEA), Color(0xFFB7B7B7), Color(0xFF8C8A84), Color.White)
     val color = slotColors[index.mod(slotColors.size)]
     Row(
         modifier = Modifier
@@ -1678,39 +2096,121 @@ private fun RoleHomeSlot(name: String, desc: String, index: Int) {
 @Composable
 private fun RoleDetailActions(
     isActive: Boolean,
-    isBuiltin: Boolean,
     onActivate: () -> Unit,
-    onOpenHome: () -> Unit,
-    onGeneratePortrait: () -> Unit,
+    onOpenWorkspace: () -> Unit,
     onEdit: () -> Unit,
+    onCopy: () -> Unit,
+    onExport: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            GameCardButton(
-                text = if (isActive) str(R.string.role_detail_current_role) else str(R.string.role_card_set_current),
-                filled = !isActive,
-                onClick = onActivate,
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(18.dp))
+            .border(0.7.dp, c.border.copy(alpha = 0.66f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        RoleActionPill(
+            text = if (isActive) str(R.string.role_detail_current_role) else str(R.string.role_card_set_current),
+            icon = Icons.Outlined.CheckCircle,
+            filled = !isActive,
+            enabled = !isActive,
+            onClick = onActivate,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            RoleActionPill(
+                text = if (isZh) "工作区" else "Workspace",
+                icon = Icons.Outlined.FolderOpen,
+                filled = false,
+                onClick = onOpenWorkspace,
                 modifier = Modifier.weight(1f),
             )
-            GameCardButton(
-                text = if (isBuiltin) str(R.string.role_detail_copy) else str(R.string.role_detail_edit),
+            RoleActionPill(
+                text = if (isZh) "导出" else "Export",
+                icon = Icons.Outlined.Badge,
+                filled = false,
+                onClick = onExport,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            RoleActionPill(
+                text = if (isZh) "编辑" else "Edit",
+                icon = Icons.Default.Edit,
                 filled = false,
                 onClick = onEdit,
                 modifier = Modifier.weight(1f),
             )
+            RoleActionPill(
+                text = if (isZh) "复制" else "Copy",
+                icon = Icons.Default.Add,
+                filled = false,
+                onClick = onCopy,
+                modifier = Modifier.weight(1f),
+            )
         }
-        GameCardButton(
-            text = str(R.string.role_detail_home_title),
-            filled = true,
-            onClick = onOpenHome,
-            modifier = Modifier.fillMaxWidth(),
+    }
+}
+
+@Composable
+private fun RoleActionPill(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    filled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val c = LocalClawColors.current
+    val bg = when {
+        filled -> c.text
+        else -> c.cardAlt
+    }
+    val fg = if (filled) c.bg else c.text
+    Row(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(0.8.dp, if (filled) c.text else c.border.copy(alpha = 0.82f), RoundedCornerShape(999.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (enabled) fg else c.subtext.copy(alpha = 0.58f), modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = text,
+            color = if (enabled) fg else c.subtext.copy(alpha = 0.58f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        GameCardButton(
-            text = str(R.string.role_portrait_regenerate_action),
-            filled = false,
-            onClick = onGeneratePortrait,
-            modifier = Modifier.fillMaxWidth(),
-        )
+    }
+}
+
+@Composable
+private fun GameCardButton(
+    text: String,
+    filled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = LocalClawColors.current
+    Box(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (filled) c.text else c.surface)
+            .border(1.dp, if (filled) c.text else c.border, RoundedCornerShape(999.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (filled) c.bg else c.text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
@@ -1738,27 +2238,6 @@ private fun RoleDetailSection(
         lines.ifEmpty { listOf(str(R.string.role_detail_no_content)) }.forEach {
             Text(it, color = c.subtext, fontSize = 13.sp, lineHeight = 19.sp)
         }
-    }
-}
-
-@Composable
-private fun GameCardButton(
-    text: String,
-    filled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = LocalClawColors.current
-    Box(
-        modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (filled) c.text else c.surface)
-            .border(1.dp, if (filled) c.text else c.border, RoundedCornerShape(999.dp))
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text, color = if (filled) c.bg else c.text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
@@ -1833,62 +2312,6 @@ private fun RoleCardPortraitPlaceholder(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 12.dp),
             )
-        }
-    }
-}
-
-@Composable
-private fun AnimatedRoleSprite(
-    spritePack: AgentSpritePack?,
-    stateName: String,
-    sizeDp: Int,
-    modifier: Modifier = Modifier.size(sizeDp.dp),
-    contentScale: ContentScale = ContentScale.Fit,
-) {
-    val bitmap = remember(spritePack?.imagePath) {
-        val path = spritePack?.imagePath.orEmpty()
-        if (path.isBlank() || !File(path).exists()) null
-        else runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
-    }
-    val state = spritePack?.states?.get(stateName) ?: spritePack?.states?.get("idle")
-    val frameCount = state?.frames?.coerceAtLeast(1) ?: 1
-    val frameProgress by rememberInfiniteTransition(label = "role_sprite").animateFloat(
-        initialValue = 0f,
-        targetValue = frameCount.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween((state?.durationMs ?: 1000).coerceIn(160, 6000)),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "role_sprite_frame",
-    )
-
-    Box(modifier, contentAlignment = Alignment.Center) {
-        if (bitmap != null && spritePack != null && state != null) {
-            val image = bitmap.asImageBitmap()
-            val isStaticPortrait = spritePack.columns == 1 && spritePack.rows == 1
-            if (isStaticPortrait) {
-                Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = contentScale,
-                    filterQuality = FilterQuality.Medium,
-                )
-            } else {
-                Canvas(Modifier.fillMaxSize()) {
-                    val frame = frameProgress.toInt().coerceIn(0, frameCount - 1)
-                    val srcX = (state.startColumn + frame).coerceIn(0, spritePack.columns - 1) * spritePack.frameWidth
-                    val srcY = state.row.coerceIn(0, spritePack.rows - 1) * spritePack.frameHeight
-                    drawImage(
-                        image = image,
-                        srcOffset = IntOffset(srcX, srcY),
-                        srcSize = IntSize(spritePack.frameWidth, spritePack.frameHeight),
-                        dstOffset = IntOffset.Zero,
-                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                        filterQuality = FilterQuality.None,
-                    )
-                }
-            }
         }
     }
 }
@@ -2001,20 +2424,14 @@ private fun String.toHomeTaskLabel(): String = when (this) {
 }
 
 private fun accentForRole(role: Role): Color = when (role.avatar) {
-    RoleAvatarDefaults.CREATOR -> Color(0xFFF472B6)
-    RoleAvatarDefaults.PHONE -> Color(0xFF38BDF8)
-    RoleAvatarDefaults.CODER -> Color(0xFFA78BFA)
-    RoleAvatarDefaults.WEB -> Color(0xFF34D399)
-    RoleAvatarDefaults.SKILL -> Color(0xFFFBBF24)
-    RoleAvatarDefaults.VPN -> Color(0xFF60A5FA)
-    else -> Color(0xFFC7F43A)
+    RoleAvatarDefaults.CREATOR -> Color(0xFF8C8A84)
+    RoleAvatarDefaults.PHONE -> Color(0xFF56D6BA)
+    RoleAvatarDefaults.CODER -> Color(0xFF5F5F5F)
+    RoleAvatarDefaults.WEB -> Color(0xFF1D9B7F)
+    RoleAvatarDefaults.SKILL -> Color(0xFFB7B7B7)
+    RoleAvatarDefaults.VPN -> Color(0xFF6C6C6C)
+    else -> Color(0xFF56D6BA)
 }
-
-private fun AgentSpritePack.isFreshRolePortrait(): Boolean =
-    // 角色页只认真正的静态肖像包，避免把 character spritesheet 错当成角色头像。
-    notes.contains(ROLE_PORTRAIT_STYLE_VERSION) ||
-        kind == "portrait" ||
-        (columns == 1 && rows == 1)
 
 @Composable
 private fun TopographicLines(modifier: Modifier, color: Color) {

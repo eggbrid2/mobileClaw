@@ -1,5 +1,7 @@
 package com.mobileclaw.ui.shell
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -18,6 +20,10 @@ fun ClassicShellContent(
     onPinAiPage: (String) -> Unit,
     onOpenAccessibilitySettings: () -> Unit,
 ) {
+    val miniAppImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.importMiniAppPackage(it) }
+    }
+
     Box(Modifier.fillMaxSize()) {
         when (classicShell.tab) {
             ClassicTab.HOME -> ClassicHomePage(
@@ -47,6 +53,8 @@ fun ClassicShellContent(
                 onOpenApp = onOpenApp,
                 onOpenAiPage = onOpenAiPage,
                 onOpenWorkspace = { vm.openWorkspacePage() },
+                onImportMiniApp = { miniAppImportLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                onDeleteMiniApps = { vm.deleteApps(it) },
                 onGenerateImage = { vm.navigate(AppPage.IMAGE_GENERATOR) },
                 onGenerateVideo = { vm.navigate(AppPage.VIDEO_GENERATOR) },
             )
@@ -54,23 +62,16 @@ fun ClassicShellContent(
             ClassicTab.ME -> ClassicMePage(
                 userAvatarUri = uiState.userAvatarUri,
                 userName = uiState.userConfigEntries["user.name"]?.value ?: "",
-                sessionCount = uiState.sessions.size,
-                miniApps = uiState.miniApps,
                 roleCount = uiState.availableRoles.size,
-                preferenceCount = uiState.userConfigEntries.size,
                 gatewayOnline = uiState.isConfigured || uiState.privServerConnected,
-                onProfile = { vm.navigate(AppPage.PROFILE) },
+                onUserInfo = { vm.navigate(AppPage.USER_INFO) },
                 onRoles = { vm.navigate(AppPage.ROLES) },
-                onUserConfig = { vm.navigate(AppPage.USER_CONFIG) },
-                onVpn = { vm.navigate(AppPage.VPN) },
-                onSettings = { vm.navigate(AppPage.SETTINGS) },
-                onHelp = { vm.navigate(AppPage.HELP) },
-                onSkillMarket = { vm.navigate(AppPage.SKILL_MARKET) },
-                onConsole = { vm.navigate(AppPage.CONSOLE) },
-                onGatewayConfig = { vm.navigate(AppPage.SETTINGS) },
+                onAiBasicSettings = { vm.navigate(AppPage.AI_BASIC_SETTINGS) },
+                onGeneralSettings = { vm.navigate(AppPage.GENERAL_SETTINGS) },
+                onToolsSettings = { vm.navigate(AppPage.TOOLS_SETTINGS) },
+                onMemorySettings = { vm.navigate(AppPage.MEMORY_SETTINGS) },
                 onCheckUpdate = {
-                    vm.navigate(AppPage.CHAT)
-                    vm.checkAppUpdate()
+                    vm.checkAppUpdate(showResultInChat = false, showNoUpdateDialog = true)
                 },
             )
         }

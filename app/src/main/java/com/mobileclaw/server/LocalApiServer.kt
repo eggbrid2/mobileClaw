@@ -6,6 +6,7 @@ import com.mobileclaw.config.UserConfig
 import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.SemanticMemory
 import com.mobileclaw.memory.MemoryWriter
+import com.mobileclaw.runtime.PageRuntimeCapabilities
 import com.mobileclaw.skill.HttpSkillConfig
 import com.mobileclaw.skill.SkillDefinition
 import com.mobileclaw.skill.SkillLoader
@@ -35,12 +36,15 @@ import java.net.Socket
  *   POST /api/memory          — set a memory fact {key, value}
  *   GET  /api/config          — list all user config entries
  *   POST /api/config          — set a config entry {key, value}
+ *   POST /api/ai/chat         — request default LLM gateway {prompt|messages, system?}
+ *   POST /api/runtime/fetch   — HTTP request {url, method?, headers?, body?}
  */
 class LocalApiServer(
     private val skillRegistry: SkillRegistry,
     private val skillLoader: SkillLoader,
     private val semanticMemory: SemanticMemory,
     private val userConfig: UserConfig,
+    private val runtime: PageRuntimeCapabilities? = null,
 ) {
     private val gson = Gson()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -144,6 +148,39 @@ class LocalApiServer(
     private fun route(method: String, path: String, body: String): Pair<String, Any> {
         return when {
             path == "/api/health" -> "200 OK" to mapOf("status" to "ok", "port" to PORT)
+
+            path == "/api/ai/chat" && method == "POST" -> {
+                val rt = runtime
+                if (rt == null) {
+                    "503 Service Unavailable" to mapOf("ok" to false, "error" to "Runtime is unavailable")
+                } else {
+                    runCatching {
+                        "200 OK" to runBlocking { rt.chat(body) }
+                    }.getOrElse { e ->
+                        "400 Bad Request" to mapOf("ok" to false, "error" to (e.message ?: "AI request failed"))
+                    }
+                }
+            }
+
+            path == "/api/runtime/fetch" && method == "POST" -> {
+                val rt = runtime
+                if (rt == null) {
+                    "503 Service Unavailable" to mapOf("ok" to false, "error" to "Runtime is unavailable")
+                } else {
+                    runCatching {
+                        val req = gson.fromJson(body.ifBlank { "{}" }, Map::class.java)
+                        val url = req["url"] as? String ?: throw IllegalArgumentException("url required")
+                        val fetchMethod = req["method"] as? String ?: "GET"
+                        val fetchBody = req["body"]?.toString() ?: ""
+                        @Suppress("UNCHECKED_CAST")
+                        val rawHeaders = req["headers"] as? Map<String, Any> ?: emptyMap()
+                        val headers = rawHeaders.mapValues { it.value.toString() }
+                        "200 OK" to runBlocking { rt.fetch(url, fetchMethod, headers, fetchBody) }
+                    }.getOrElse { e ->
+                        "400 Bad Request" to mapOf("ok" to false, "error" to (e.message ?: "Fetch request failed"))
+                    }
+                }
+            }
 
             path == "/api/skills" && method == "GET" -> {
                 val skills = skillRegistry.all().filterNot { it.meta.internalTool }.map { skill ->

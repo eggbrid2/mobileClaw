@@ -5,7 +5,6 @@ data class AgentTownState(
     val weather: String = "clear",
     val timeOfDay: String = "day",
     val map: TownMapDocument = TownMapDocument(),
-    val spritePacks: Map<String, AgentSpritePack> = defaultAgentSpritePacks().associateBy { it.id },
     val rooms: Map<String, AgentRoom> = emptyMap(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
@@ -34,38 +33,11 @@ data class TownMapSprite(
     val variant: String = "",
 )
 
-data class AgentSpritePack(
-    val id: String,
-    val name: String,
-    val kind: String = "character",
-    val imagePath: String = "",
-    val frameWidth: Int = 192,
-    val frameHeight: Int = 208,
-    val columns: Int = 8,
-    val rows: Int = 9,
-    val states: Map<String, SpriteAnimationState> = defaultSpriteStates(),
-    val palette: List<String> = emptyList(),
-    val notes: String = "",
-    val updatedAt: Long = System.currentTimeMillis(),
-)
-
-data class SpriteAnimationState(
-    val row: Int = 0,
-    val startColumn: Int = 0,
-    val frames: Int = 1,
-    val durationMs: Int = 900,
-    val loop: Boolean = true,
-)
-
 data class AgentRoom(
     val roleId: String,
     val houseName: String = "",
     val style: String = "pixel studio",
     val houseSprite: String = "studio",
-    // portraitSpritePack 只用于角色页/详情页展示的静态角色图，不再和房间里的动态精灵混用。
-    val portraitSpritePack: String = "",
-    // characterSpritePack 只保留给 Home/房间里的动态角色精灵。
-    val characterSpritePack: String = "",
     val accent: String = "#C7F43A",
     val doorSign: String = "",
     val motto: String = "",
@@ -186,49 +158,6 @@ data class RoomTool(
     val id: String,
     val title: String,
     val category: String = "",
-)
-
-fun defaultSpriteStates(): Map<String, SpriteAnimationState> = mapOf(
-    "idle" to SpriteAnimationState(row = 0, frames = 8, durationMs = 1200),
-    "running_right" to SpriteAnimationState(row = 1, frames = 8, durationMs = 720),
-    "running_left" to SpriteAnimationState(row = 2, frames = 8, durationMs = 720),
-    "waving" to SpriteAnimationState(row = 3, frames = 8, durationMs = 900),
-    "jumping" to SpriteAnimationState(row = 4, frames = 8, durationMs = 760),
-    "failed" to SpriteAnimationState(row = 5, frames = 8, durationMs = 1100),
-    "waiting" to SpriteAnimationState(row = 6, frames = 8, durationMs = 1400),
-    "running" to SpriteAnimationState(row = 7, frames = 8, durationMs = 720),
-    "review" to SpriteAnimationState(row = 8, frames = 8, durationMs = 1000),
-    "thinking" to SpriteAnimationState(row = 6, frames = 8, durationMs = 1400),
-    "working" to SpriteAnimationState(row = 8, frames = 8, durationMs = 1000),
-    "happy" to SpriteAnimationState(row = 3, frames = 8, durationMs = 900),
-)
-
-fun defaultAgentSpritePacks(): List<AgentSpritePack> = listOf(
-    AgentSpritePack(
-        id = "builtin_creator",
-        name = "Creator Atelier Sprite",
-        kind = "character",
-        palette = listOf("#2C241A", "#FFE0A6", "#F472B6", "#7C3AED"),
-        notes = "Built-in fallback sprite. Replace with a spritesheet pack when the role generates its own look.",
-    ),
-    AgentSpritePack(
-        id = "builtin_operator",
-        name = "Phone Operator Sprite",
-        kind = "character",
-        palette = listOf("#2C241A", "#FFE0A6", "#38BDF8", "#0F766E"),
-    ),
-    AgentSpritePack(
-        id = "builtin_coder",
-        name = "Coder Terminal Sprite",
-        kind = "character",
-        palette = listOf("#2C241A", "#FFE0A6", "#A78BFA", "#111827"),
-    ),
-    AgentSpritePack(
-        id = "builtin_general",
-        name = "Town Resident Sprite",
-        kind = "character",
-        palette = listOf("#2C241A", "#FFE0A6", "#C7F43A", "#475569"),
-    ),
 )
 
 fun defaultTownLayers(): List<TownMapLayer> {

@@ -16,51 +16,27 @@ import android.os.VibratorManager
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
+import com.mobileclaw.runtime.PageRuntimeCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import com.mobileclaw.R
 import com.mobileclaw.str
-import com.mobileclaw.vpn.AppHttpProxy
 
 /** Exposes all Android system capabilities to AiPageRuntime action steps. */
 class AiPageCapabilities(private val context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    private val http = OkHttpClient.Builder()
-        .proxySelector(AppHttpProxy.proxySelector())
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val runtime = PageRuntimeCapabilities(context)
 
     // ── Network ──────────────────────────────────────────────────────────────
 
     suspend fun httpFetch(url: String, method: String, headers: Map<String, String>, body: String): Map<String, Any> =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val reqBuilder = Request.Builder().url(url)
-                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
-                val reqBody = if (method.uppercase() in setOf("POST", "PUT", "PATCH") && body.isNotEmpty()) {
-                    val ct = (headers["Content-Type"] ?: "application/json").toMediaType()
-                    body.toRequestBody(ct)
-                } else null
-                reqBuilder.method(method.uppercase(), reqBody)
-                val response = http.newCall(reqBuilder.build()).execute()
-                val responseBody = response.body?.string() ?: ""
-                mapOf(
-                    "status" to response.code,
-                    "ok" to response.isSuccessful,
-                    "body" to responseBody,
-                )
-            }.getOrElse { e ->
-                mapOf("error" to (e.message ?: "Network error"), "status" to 0, "ok" to false)
-            }
-        }
+        runtime.fetch(url, method, headers, body)
+
+    suspend fun aiChat(inputJson: String): Map<String, Any> =
+        runtime.chat(inputJson)
 
     // ── Shell ─────────────────────────────────────────────────────────────────
 

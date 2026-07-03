@@ -123,6 +123,15 @@ class MiniAppPreflightValidator(
             val timeoutMs = if (mode == Mode.STARTUP) STARTUP_TIMEOUT_MS else STRICT_TIMEOUT_MS
 
             val webView = WebView(appContext)
+            val metrics = appContext.resources.displayMetrics
+            val viewportWidth = metrics.widthPixels.coerceAtLeast(360)
+            val viewportHeight = metrics.heightPixels.coerceAtLeast(640)
+            webView.layoutParams = android.view.ViewGroup.LayoutParams(viewportWidth, viewportHeight)
+            webView.measure(
+                android.view.View.MeasureSpec.makeMeasureSpec(viewportWidth, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(viewportHeight, android.view.View.MeasureSpec.EXACTLY),
+            )
+            webView.layout(0, 0, viewportWidth, viewportHeight)
             val bridge = AppJsBridge(
                 context = appContext,
                 appId = tempAppId,
@@ -207,6 +216,9 @@ class MiniAppPreflightValidator(
                                 var hasCanvas = document.querySelectorAll('canvas').length > 0;
                                 var mediaCount = document.querySelectorAll('img,svg,video').length;
                                 var bodyRect = body ? body.getBoundingClientRect() : {width:0,height:0};
+                                var doc = document.documentElement || {};
+                                var measuredWidth = Math.max(bodyRect.width || 0, body ? body.scrollWidth || 0 : 0, doc.clientWidth || 0, window.innerWidth || 0);
+                                var measuredHeight = Math.max(bodyRect.height || 0, body ? body.scrollHeight || 0 : 0, doc.clientHeight || 0, window.innerHeight || 0);
                                 return JSON.stringify({
                                   title: document.title || "",
                                   readyState: document.readyState || "",
@@ -218,8 +230,8 @@ class MiniAppPreflightValidator(
                                   interactiveCount: interactive,
                                   hasCanvas: hasCanvas,
                                   mediaCount: mediaCount,
-                                  bodyWidth: Math.round(bodyRect.width || 0),
-                                  bodyHeight: Math.round(bodyRect.height || 0),
+                                  bodyWidth: Math.round(measuredWidth || 0),
+                                  bodyHeight: Math.round(measuredHeight || 0),
                                   bodyHidden: !!(bodyStyle && (bodyStyle.display === "none" || bodyStyle.visibility === "hidden" || bodyStyle.opacity === "0"))
                                 });
                               }catch(e){

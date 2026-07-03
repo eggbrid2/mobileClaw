@@ -87,6 +87,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            LaunchedEffect(Unit) {
+                vm.checkAppUpdateOnLaunch()
+            }
+
             CompositionLocalProvider(LocalActivityResultRegistryOwner provides this@MainActivity) {
                 ClawTheme(
                     darkTheme = configSnapshot.darkTheme,
@@ -186,6 +190,12 @@ class MainActivity : ComponentActivity() {
                                 onOpenAccessibilitySettings = { startActivity(permissionManager.openAccessibilitySettings()) },
                             )
                         }
+                        AppUpdateDialog(
+                            state = uiState.appUpdate,
+                            onDismiss = { vm.dismissAppUpdateDialog() },
+                            onInstall = { vm.installAppUpdate() },
+                            onCheckAgain = { vm.checkAppUpdate(showResultInChat = false, showNoUpdateDialog = true) },
+                        )
                     }
                 }
             }

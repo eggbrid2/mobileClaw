@@ -1,7 +1,5 @@
 package com.mobileclaw.ui.settings
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import com.google.gson.Gson
@@ -106,6 +104,14 @@ private data class GatewayPreset(
     val group: GatewayPresetGroup = GatewayPresetGroup.DIRECT,
 )
 
+private data class ImageProviderPreset(
+    val name: String,
+    val endpoint: String,
+    val model: String,
+    val keyName: String = "image_api_key",
+    val hint: String = "",
+)
+
 private enum class GatewayPresetGroup {
     DIRECT,
     TEMPLATE,
@@ -199,12 +205,52 @@ private val GATEWAY_PRESETS = listOf(
     ),
 )
 
+private val IMAGE_PROVIDER_PRESETS = listOf(
+    ImageProviderPreset(
+        name = "OpenAI Images",
+        endpoint = "https://api.openai.com",
+        model = "gpt-image-2",
+        hint = "OpenAI-compatible Images API.",
+    ),
+    ImageProviderPreset(
+        name = "Agnes Image",
+        endpoint = "https://apihub.agnes-ai.com",
+        model = "agnes-image-2.0-flash",
+        hint = "Agnes APIHub image model template.",
+    ),
+    ImageProviderPreset(
+        name = "DashScope Wanx",
+        endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model = "wanx2.1-t2i-turbo",
+        hint = "Alibaba DashScope compatible image endpoint.",
+    ),
+    ImageProviderPreset(
+        name = "Hugging Face FLUX",
+        endpoint = "",
+        model = "hf-flux-schnell",
+        keyName = "huggingface_api_key",
+        hint = "Uses Hugging Face token; endpoint can stay blank.",
+    ),
+    ImageProviderPreset(
+        name = "SiliconFlow FLUX",
+        endpoint = "https://api.siliconflow.cn",
+        model = "black-forest-labs/FLUX.1-schnell",
+        hint = "SiliconFlow OpenAI-style image endpoint.",
+    ),
+    ImageProviderPreset(
+        name = "Together.ai FLUX",
+        endpoint = "https://api.together.xyz",
+        model = "black-forest-labs/FLUX.1-schnell-Free",
+        hint = "Together.ai OpenAI-style image endpoint.",
+    ),
+)
+
 private val LANGUAGES = listOf(
     "zh"   to R.string.lang_zh,
     "en"   to R.string.lang_en,
 )
 
-private enum class SettingsSub { GATEWAY, LOCAL_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CODEX_DESKTOP, MODELSCOPE, CACHE, TASKS }
+private enum class SettingsSub { GATEWAY, LOCAL_MODEL, IMAGE_MODEL, APPEARANCE, PERMISSIONS, VIRTUAL_DISPLAY, CODEX_DESKTOP, CACHE, TASKS, ROLE_RUNTIME }
 
 private const val CODEX_DESKTOP_ENDPOINT_KEY = "codex_desktop_endpoint"
 private const val CODEX_DESKTOP_TOKEN_KEY = "codex_desktop_token"
@@ -213,7 +259,7 @@ private const val CODEX_DESKTOP_MODEL_KEY = "codex_desktop_model"
 private const val CODEX_DESKTOP_PROVIDER_KEY = "codex_desktop_provider"
 private const val CODEX_DESKTOP_APPROVAL_KEY = "codex_desktop_approval"
 private const val CODEX_DESKTOP_SANDBOX_KEY = "codex_desktop_sandbox"
-private const val MODELSCOPE_TOKEN_KEY = "modelscope_token"
+private const val ROLE_RUNTIME_DRY_RUN_TRACE_KEY = "role_runtime_dry_run_trace_enabled"
 
 @Composable
 private fun gatewayPresetTypeLabel(preset: GatewayPreset): String = when {
@@ -444,7 +490,7 @@ fun SettingsPage(
                 val vdRunning = virtualDisplayManager.isRunning
                 val codexConfigured = userConfigEntries[CODEX_DESKTOP_ENDPOINT_KEY]?.value.orEmpty().isNotBlank() &&
                     userConfigEntries[CODEX_DESKTOP_TOKEN_KEY]?.value.orEmpty().isNotBlank()
-                val modelscopeConnected = userConfigEntries[MODELSCOPE_TOKEN_KEY]?.value.orEmpty().isNotBlank()
+                val roleRuntimeDryRunEnabled = userConfigEntries[ROLE_RUNTIME_DRY_RUN_TRACE_KEY]?.value == "true"
 
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
@@ -515,15 +561,6 @@ fun SettingsPage(
                     ) { subPage = SettingsSub.CODEX_DESKTOP }
                     HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
                     SettingsCategoryRow(
-                        iconKey = "gateway",
-                        title = "ModelScope MCP",
-                        subtitle = if (modelscopeConnected) zhEn(isZh, "已保存 Token，可用于 MCP 广场", "Token saved for MCP marketplace")
-                        else zhEn(isZh, "连接 ModelScope Token", "Connect ModelScope token"),
-                        statusOk = modelscopeConnected,
-                        c = c,
-                    ) { subPage = SettingsSub.MODELSCOPE }
-                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
-                    SettingsCategoryRow(
                         iconKey = "cache",
                         title = str(R.string.cache_title),
                         subtitle = str(R.string.cache_subtitle),
@@ -539,6 +576,15 @@ fun SettingsPage(
                         statusOk = videoTasks.any { it.status == VideoTaskStatuses.DOWNLOADED || it.status == VideoTaskStatuses.COMPLETED },
                         c = c,
                     ) { subPage = SettingsSub.TASKS }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "role:coder",
+                        title = zhEn(isZh, "角色运行实验", "Role Runtime Lab"),
+                        subtitle = if (roleRuntimeDryRunEnabled) zhEn(isZh, "Dry-run trace 已开启", "Dry-run trace enabled")
+                        else zhEn(isZh, "旁路观察角色小步流程", "Observe role steps in the side channel"),
+                        statusOk = roleRuntimeDryRunEnabled,
+                        c = c,
+                    ) { subPage = SettingsSub.ROLE_RUNTIME }
                 }
                 SettingsHubCard(c) {
                     SettingsCategoryRow(
@@ -627,11 +673,6 @@ fun SettingsPage(
                 c = c,
                 onBack = { subPage = null },
             )
-            SettingsSub.MODELSCOPE -> ModelScopeConnectSubPage(
-                userConfig = userConfig,
-                c = c,
-                onBack = { subPage = null },
-            )
             SettingsSub.CACHE -> CacheSubPage(c = c, onBack = { subPage = null })
             SettingsSub.TASKS -> VideoTasksSubPage(
                 tasks = videoTasks,
@@ -642,6 +683,379 @@ fun SettingsPage(
                 onRefreshTask = onRefreshVideoTask,
                 onRefreshAll = onRefreshPendingVideoTasks,
                 onDeleteTask = onDeleteVideoTask,
+            )
+            SettingsSub.ROLE_RUNTIME -> RoleRuntimeLabSubPage(
+                userConfig = userConfig,
+                c = c,
+                onBack = { subPage = null },
+            )
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+fun AiBasicSettingsPage(
+    config: Flow<ConfigSnapshot>,
+    onSave: (ConfigSnapshot) -> Unit,
+    onBack: () -> Unit,
+    localModels: List<LocalModelInfo>,
+    onLocalModelEnabled: (Boolean) -> Unit,
+    onLocalNativeOnly: (Boolean) -> Unit,
+    onLocalToolCallingEnabled: (Boolean) -> Unit,
+    onSelectLocalModel: (String) -> Unit,
+    onDownloadLocalModel: (String, String, String) -> Unit,
+    onImportLocalModel: (String, android.net.Uri) -> Unit,
+    onDeleteLocalModel: (String) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val context = LocalContext.current
+    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
+    val snapshot by config.collectAsState(initial = ConfigSnapshot())
+    var gateways by remember(snapshot.gateways) { mutableStateOf(snapshot.gateways) }
+    var activeGatewayId by remember(snapshot.activeGatewayId) { mutableStateOf(snapshot.activeGatewayId) }
+    var localEnabled by remember(snapshot.localModelEnabled) { mutableStateOf(snapshot.localModelEnabled) }
+    var localNativeOnly by remember(snapshot.localNativeOnly) { mutableStateOf(snapshot.localNativeOnly) }
+    var localToolCallingEnabled by remember(snapshot.localToolCallingEnabled) { mutableStateOf(snapshot.localToolCallingEnabled) }
+    var subPage by remember { mutableStateOf<SettingsSub?>(null) }
+    val isZh = LocalAppLanguage.current == "zh"
+
+    val currentSnapshot = {
+        snapshot.copy(
+            gateways = gateways,
+            activeGatewayId = activeGatewayId,
+            localModelEnabled = localEnabled,
+            localNativeOnly = localNativeOnly,
+            localToolCallingEnabled = localToolCallingEnabled,
+            uiStyle = "classic",
+        )
+    }
+
+    BackHandler {
+        if (subPage != null) subPage = null else onBack()
+    }
+
+    val activeGateway = gateways.find { it.id == activeGatewayId } ?: gateways.firstOrNull()
+
+    if (subPage == null) {
+        Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
+            ClawPageHeader(title = zhEn(isZh, "AI基础配置", "AI Basics"), onBack = onBack)
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val isConfigured = activeGateway != null && activeGateway.endpoint.isNotBlank() && activeGateway.apiKey.isNotBlank()
+                val activeLocal = localModels.firstOrNull { it.id == snapshot.localModelId } ?: localModels.firstOrNull()
+                val imageModel = activeGateway?.capabilityModel("image")
+                    ?: userConfigEntries["image_api_model"]?.value.orEmpty()
+                val imageEndpoint = userConfigEntries["image_api_endpoint"]?.value.orEmpty()
+                val hfToken = userConfigEntries["huggingface_api_key"]?.value.orEmpty()
+                val imageConfigured = imageModel.isNotBlank() &&
+                    (activeGateway?.capabilityModel("image").orEmpty().isNotBlank() || imageEndpoint.isNotBlank() || hfToken.isNotBlank())
+
+                SettingsHubCard(c) {
+                    SettingsCategoryRow(
+                        iconKey = "gateway",
+                        title = zhEn(isZh, "网关配置", "Gateway Configuration"),
+                        subtitle = if (gateways.isEmpty()) str(R.string.status_not_configured)
+                        else str(R.string.gateways_status, gateways.size, activeGateway?.name ?: "-"),
+                        statusOk = isConfigured,
+                        c = c,
+                    ) { subPage = SettingsSub.GATEWAY }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "model",
+                        title = str(R.string.local_model_title),
+                        subtitle = when {
+                            activeLocal == null -> str(R.string.status_not_configured)
+                            localEnabled && activeLocal.installed -> str(R.string.local_model_enabled_status, activeLocal.name)
+                            activeLocal.installed -> str(R.string.local_model_installed_status, activeLocal.name)
+                            else -> str(R.string.local_model_not_downloaded_status, activeLocal.name)
+                        },
+                        statusOk = activeLocal?.installed == true && localEnabled,
+                        c = c,
+                    ) { subPage = SettingsSub.LOCAL_MODEL }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "image",
+                        title = zhEn(isZh, "Image 生成配置", "Image Generation"),
+                        subtitle = imageModel.ifBlank { zhEn(isZh, "未配置图片模型", "Image model not configured") },
+                        statusOk = imageConfigured,
+                        c = c,
+                    ) { subPage = SettingsSub.IMAGE_MODEL }
+                }
+            }
+        }
+    } else {
+        when (subPage) {
+            SettingsSub.GATEWAY -> GatewayListSubPage(
+                gateways = gateways,
+                activeGatewayId = activeGatewayId,
+                c = c,
+                onBack = { subPage = null },
+                onSave = { newList, newActiveId ->
+                    gateways = newList
+                    activeGatewayId = newActiveId
+                    onSave(currentSnapshot())
+                },
+            )
+            SettingsSub.LOCAL_MODEL -> LocalModelSubPage(
+                models = localModels,
+                enabled = localEnabled,
+                nativeOnly = localNativeOnly,
+                toolCallingEnabled = localToolCallingEnabled,
+                selectedModelId = snapshot.localModelId,
+                c = c,
+                onBack = { subPage = null },
+                onEnabled = {
+                    localEnabled = it
+                    if (!it) localNativeOnly = false
+                    if (!it) localToolCallingEnabled = false
+                    onLocalModelEnabled(it)
+                    onSave(currentSnapshot())
+                },
+                onNativeOnly = {
+                    localNativeOnly = it
+                    if (it) localEnabled = true
+                    onLocalNativeOnly(it)
+                    onSave(currentSnapshot())
+                },
+                onToolCallingEnabled = {
+                    localToolCallingEnabled = it
+                    if (it) localEnabled = true
+                    onLocalToolCallingEnabled(it)
+                    onSave(currentSnapshot())
+                },
+                onSelect = onSelectLocalModel,
+                onDownload = onDownloadLocalModel,
+                onImport = onImportLocalModel,
+                onDelete = onDeleteLocalModel,
+            )
+            SettingsSub.IMAGE_MODEL -> ImageModelConfigSubPage(
+                userConfig = userConfig,
+                activeGateway = activeGateway,
+                c = c,
+                onBack = { subPage = null },
+            )
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+fun GeneralSettingsPage(
+    config: Flow<ConfigSnapshot>,
+    virtualDisplayManager: VirtualDisplayManager,
+    vdTestResult: String?,
+    privServerConnected: Boolean,
+    onSave: (ConfigSnapshot) -> Unit,
+    onBack: () -> Unit,
+    onOpenHelp: () -> Unit,
+    onTestVirtualDisplay: () -> Unit,
+    onCheckPrivServer: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val context = LocalContext.current
+    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
+    val snapshot by config.collectAsState(initial = ConfigSnapshot())
+    var language by remember(snapshot.language) { mutableStateOf(snapshot.language) }
+    var darkTheme by remember(snapshot.darkTheme) { mutableStateOf(snapshot.darkTheme) }
+    var accent by remember(snapshot.accentColor) { mutableStateOf(snapshot.accentColor) }
+    var subPage by remember { mutableStateOf<SettingsSub?>(null) }
+    val isZh = LocalAppLanguage.current == "zh"
+
+    val currentSnapshot = {
+        snapshot.copy(
+            language = language,
+            darkTheme = darkTheme,
+            accentColor = accent,
+            uiStyle = "classic",
+        )
+    }
+
+    BackHandler {
+        if (subPage != null) subPage = null else onBack()
+    }
+
+    if (subPage == null) {
+        Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
+            ClawPageHeader(title = zhEn(isZh, "通用设置", "General Settings"), onBack = onBack)
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val storageManager = remember { com.mobileclaw.config.UserStorageManager(context) }
+                val hasFileAccess = remember { storageManager.hasAllFilesAccess() }
+                val vdRunning = virtualDisplayManager.isRunning
+                val roleRuntimeDryRunEnabled = userConfigEntries[ROLE_RUNTIME_DRY_RUN_TRACE_KEY]?.value == "true"
+
+                SettingsHubCard(c) {
+                    SettingsCategoryRow(
+                        iconKey = "appearance",
+                        title = str(R.string.settings_ce650e),
+                        subtitle = if (darkTheme) str(R.string.settings_theme_night_short) else str(R.string.settings_theme_day_short),
+                        statusOk = true,
+                        c = c,
+                    ) { subPage = SettingsSub.APPEARANCE }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "permissions",
+                        title = str(R.string.settings_permissions),
+                        subtitle = if (hasFileAccess) str(R.string.settings_done) else str(R.string.settings_not),
+                        statusOk = hasFileAccess,
+                        c = c,
+                    ) { subPage = SettingsSub.PERMISSIONS }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "desktop",
+                        title = str(R.string.section_virtual_display),
+                        subtitle = when {
+                            vdTestResult?.startsWith("ok:") == true -> str(R.string.settings_ad6b70)
+                            vdRunning -> str(R.string.settings_d679ae)
+                            else -> str(R.string.settings_not_2)
+                        },
+                        statusOk = vdTestResult?.startsWith("ok:") == true || vdRunning,
+                        c = c,
+                    ) { subPage = SettingsSub.VIRTUAL_DISPLAY }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "cache",
+                        title = str(R.string.cache_title),
+                        subtitle = str(R.string.cache_subtitle),
+                        statusOk = true,
+                        c = c,
+                    ) { subPage = SettingsSub.CACHE }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "role:coder",
+                        title = zhEn(isZh, "角色运行实验", "Role Runtime Lab"),
+                        subtitle = if (roleRuntimeDryRunEnabled) zhEn(isZh, "Dry-run trace 已开启", "Dry-run trace enabled")
+                        else zhEn(isZh, "旁路观察角色小步流程", "Observe role steps in the side channel"),
+                        statusOk = roleRuntimeDryRunEnabled,
+                        c = c,
+                    ) { subPage = SettingsSub.ROLE_RUNTIME }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "help",
+                        title = zhEn(isZh, "使用指南", "Guide"),
+                        subtitle = zhEn(isZh, "角色运行实验与常见问题", "Role runtime lab and FAQ"),
+                        statusOk = true,
+                        c = c,
+                    ) { onOpenHelp() }
+                }
+            }
+        }
+    } else {
+        when (subPage) {
+            SettingsSub.APPEARANCE -> AppearanceSubPage(
+                darkTheme = darkTheme,
+                onDarkTheme = { darkTheme = it },
+                accent = accent,
+                onAccent = { accent = it },
+                language = language,
+                onLanguage = { language = it },
+                c = c,
+                onBack = { subPage = null },
+                onSave = {
+                    onSave(currentSnapshot())
+                    subPage = null
+                },
+            )
+            SettingsSub.PERMISSIONS -> PermissionsSubPage(c = c, onBack = { subPage = null })
+            SettingsSub.VIRTUAL_DISPLAY -> VirtualDisplaySubPage(
+                virtualDisplayManager = virtualDisplayManager,
+                vdTestResult = vdTestResult,
+                privServerConnected = privServerConnected,
+                c = c,
+                onBack = { subPage = null },
+                onTestVirtualDisplay = onTestVirtualDisplay,
+                onCheckPrivServer = onCheckPrivServer,
+            )
+            SettingsSub.CACHE -> CacheSubPage(c = c, onBack = { subPage = null })
+            SettingsSub.ROLE_RUNTIME -> RoleRuntimeLabSubPage(
+                userConfig = userConfig,
+                c = c,
+                onBack = { subPage = null },
+            )
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+fun ToolsSettingsPage(
+    onOpenSkillMarket: () -> Unit,
+    onOpenConsole: () -> Unit,
+    onOpenVpn: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val context = LocalContext.current
+    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
+    var subPage by remember { mutableStateOf<SettingsSub?>(null) }
+    val isZh = LocalAppLanguage.current == "zh"
+
+    BackHandler {
+        if (subPage != null) subPage = null else onBack()
+    }
+
+    if (subPage == null) {
+        Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
+            ClawPageHeader(title = zhEn(isZh, "工具", "Tools"), onBack = onBack)
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val codexConfigured = userConfigEntries[CODEX_DESKTOP_ENDPOINT_KEY]?.value.orEmpty().isNotBlank() &&
+                    userConfigEntries[CODEX_DESKTOP_TOKEN_KEY]?.value.orEmpty().isNotBlank()
+                SettingsHubCard(c) {
+                    SettingsCategoryRow(
+                        iconKey = "market",
+                        title = zhEn(isZh, "Skill 市场", "Skill Market"),
+                        subtitle = zhEn(isZh, "安装和管理能力扩展", "Install and manage extensions"),
+                        statusOk = true,
+                        c = c,
+                    ) { onOpenSkillMarket() }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "console",
+                        title = zhEn(isZh, "控制台", "Console"),
+                        subtitle = zhEn(isZh, "查看运行状态与调试入口", "Runtime status and diagnostics"),
+                        statusOk = true,
+                        c = c,
+                    ) { onOpenConsole() }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "role:vpn",
+                        title = "VPN",
+                        subtitle = zhEn(isZh, "网络通道与代理设置", "Network tunnel and proxy"),
+                        statusOk = true,
+                        c = c,
+                    ) { onOpenVpn() }
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 56.dp))
+                    SettingsCategoryRow(
+                        iconKey = "role:coder",
+                        title = zhEn(isZh, "Codex 桥接", "Codex Bridge"),
+                        subtitle = if (codexConfigured) zhEn(isZh, "已配置电脑端桥接", "Desktop bridge configured")
+                        else zhEn(isZh, "连接电脑上的 Codex CLI", "Connect to Codex CLI on your computer"),
+                        statusOk = codexConfigured,
+                        c = c,
+                    ) { subPage = SettingsSub.CODEX_DESKTOP }
+                }
+            }
+        }
+    } else {
+        when (subPage) {
+            SettingsSub.CODEX_DESKTOP -> CodexDesktopSubPage(
+                userConfig = userConfig,
+                c = c,
+                onBack = { subPage = null },
             )
             else -> Unit
         }
@@ -949,7 +1363,7 @@ private fun GatewayConnectionHero(
                 Modifier
                     .size(12.dp)
                     .clip(CircleShape)
-                    .background(if (connected) Color(0xFFC7F43A) else Color.White.copy(alpha = 0.46f)),
+                    .background(if (connected) Color(0xFF56D6BA) else Color.White.copy(alpha = 0.46f)),
             )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2477,7 +2891,7 @@ private fun AppearanceSubPage(
                                     modifier = Modifier.weight(1f),
                                     title = themePresetTitle(preset.name),
                                     subtitle = themePresetSubtitle(preset.name),
-                                    active = darkTheme == preset.darkTheme && accent == preset.accentColor,
+                                    active = darkTheme == preset.darkTheme,
                                     dark = preset.darkTheme,
                                     previewBg = Color(preset.previewBg),
                                     previewAccent = Color(preset.previewAccent),
@@ -2551,15 +2965,12 @@ private fun ThemeModeCard(
 private fun themePresetTitle(name: String): String = when (name) {
     "AI Night" -> stringResource(R.string.theme_ai_night)
     "AI Day" -> stringResource(R.string.theme_ai_day)
-    "Tech Night" -> stringResource(R.string.theme_tech_night)
-    "Tech Day" -> stringResource(R.string.theme_tech_day)
     else -> name
 }
 
 @Composable
 private fun themePresetSubtitle(name: String): String = when (name) {
     "AI Night", "AI Day" -> stringResource(R.string.theme_ai_desc)
-    "Tech Night", "Tech Day" -> stringResource(R.string.theme_tech_desc)
     else -> ""
 }
 
@@ -2774,117 +3185,251 @@ private fun formatCacheSize(bytes: Long): String = when {
 }
 
 @Composable
-private fun ModelScopeConnectSubPage(
+private fun RoleRuntimeLabSubPage(
     userConfig: com.mobileclaw.config.UserConfig,
     c: ClawColors,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val isZh = LocalAppLanguage.current == "zh"
-    var token by remember { mutableStateOf("") }
-    var saved by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        token = userConfig.get(MODELSCOPE_TOKEN_KEY).orEmpty()
-    }
-    LaunchedEffect(saved) {
-        if (saved) {
-            delay(1300)
-            saved = false
-        }
-    }
-
-    fun saveToken() {
-        scope.launch {
-            userConfig.set(
-                MODELSCOPE_TOKEN_KEY,
-                token.trim(),
-                "ModelScope access token for MCP marketplace deployment and tool calls",
-            )
-            saved = true
-        }
-    }
-
-    fun clearToken() {
-        scope.launch {
-            userConfig.delete(MODELSCOPE_TOKEN_KEY)
-            token = ""
-            saved = true
-        }
-    }
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
+    val dryRunEnabled = userConfigEntries[ROLE_RUNTIME_DRY_RUN_TRACE_KEY]?.value == "true"
 
     Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
-        ClawPageHeader(title = "ModelScope MCP", onBack = onBack)
+        ClawPageHeader(title = zhEn(isZh, "角色运行实验", "Role Runtime Lab"), onBack = onBack)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            SettingsSection(zhEn(isZh, "连接 Token", "Connect Token"), c) {
-                Column(
+            SettingsSection(zhEn(isZh, "运行观察", "Runtime Trace"), c) {
+                Row(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(c.surface)
                         .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
                         .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        zhEn(
-                            isZh,
-                            "MobileClaw 不接管账号密码登录。请在 ModelScope 官网登录后复制 Access Token，保存后 MCP 广场会自动使用它部署和调用工具。",
-                            "MobileClaw does not handle account/password login. Sign in on ModelScope, copy an Access Token, and save it here so MCP marketplace deployment and tool calls can use it.",
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            zhEn(isZh, "Dry-run trace", "Dry-run trace"),
+                            color = c.text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        Text(
+                            zhEn(isZh, "旁路运行角色小步流程，写入工作空间，不影响真实回复", "Run role steps on the side, write traces to workspace, and keep replies unchanged"),
+                            color = c.subtext,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Switch(
+                        checked = dryRunEnabled,
+                        onCheckedChange = { enabled ->
+                            scope.launch {
+                                userConfig.set(
+                                    ROLE_RUNTIME_DRY_RUN_TRACE_KEY,
+                                    enabled.toString(),
+                                    "Enable role runtime dry-run trace for agent runs",
+                                )
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = c.text,
+                            uncheckedThumbColor = c.subtext,
+                            uncheckedTrackColor = c.border,
                         ),
-                        color = c.subtext,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
                     )
-                    OutlinedTextField(
-                        value = token,
-                        onValueChange = { token = it },
-                        label = { Text("ModelScope Token") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = { saveToken() },
-                            enabled = token.trim().isNotBlank(),
-                            shape = RoundedCornerShape(999.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
-                        ) {
-                            Text(if (saved) zhEn(isZh, "已保存", "Saved") else zhEn(isZh, "保存连接", "Save Connection"))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://modelscope.cn/my/myaccesstoken")))
-                            },
-                            shape = RoundedCornerShape(999.dp),
-                        ) {
-                            Text(zhEn(isZh, "打开 Token 页面", "Open Token Page"))
-                        }
-                        TextButton(onClick = { clearToken() }, enabled = token.isNotBlank()) {
-                            Text(zhEn(isZh, "清除", "Clear"), color = c.red)
-                        }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageModelConfigSubPage(
+    userConfig: com.mobileclaw.config.UserConfig,
+    activeGateway: GatewayConfig?,
+    c: ClawColors,
+    onBack: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val isZh = LocalAppLanguage.current == "zh"
+    val userConfigEntries by userConfig.entriesFlow.collectAsState(initial = emptyMap())
+    var endpoint by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+    var hfKey by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(false) }
+
+    LaunchedEffect(userConfigEntries) {
+        endpoint = userConfigEntries["image_api_endpoint"]?.value.orEmpty()
+        apiKey = userConfigEntries["image_api_key"]?.value.orEmpty()
+        model = userConfigEntries["image_api_model"]?.value.orEmpty()
+        hfKey = userConfigEntries["huggingface_api_key"]?.value.orEmpty()
+    }
+    LaunchedEffect(saved) {
+        if (saved) {
+            delay(1200)
+            saved = false
+        }
+    }
+
+    fun applyPreset(preset: ImageProviderPreset) {
+        endpoint = preset.endpoint
+        model = preset.model
+    }
+
+    fun saveConfig() {
+        scope.launch {
+            userConfig.set("image_api_endpoint", endpoint.trim().trimEnd('/'), "Dedicated image generation endpoint")
+            userConfig.set("image_api_key", apiKey.trim(), "Dedicated image generation API key")
+            userConfig.set("image_api_model", model.trim(), "Dedicated image generation model")
+            userConfig.set("huggingface_api_key", hfKey.trim(), "Hugging Face token for image generation")
+            saved = true
+        }
+    }
+
+    Column(Modifier.fillMaxSize().background(settingsWorkbenchBrush(c)).navigationBarsPadding()) {
+        ClawPageHeader(title = zhEn(isZh, "Image 生成配置", "Image Generation"), onBack = onBack) {
+            Button(
+                onClick = { saveConfig() },
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                shape = RoundedCornerShape(18.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(if (saved) zhEn(isZh, "已保存", "Saved") else str(R.string.role_save), fontSize = 13.sp, maxLines = 1)
+            }
+            Spacer(Modifier.width(4.dp))
+        }
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            activeGateway?.capabilityModel("image")?.takeIf { it.isNotBlank() }?.let { gatewayImageModel ->
+                SettingsSection(zhEn(isZh, "当前网关图片能力", "Gateway Image Capability"), c) {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(c.surface)
+                            .border(0.5.dp, c.border, RoundedCornerShape(18.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(activeGateway.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(gatewayImageModel, color = c.subtext, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
 
-            SettingsSection(zhEn(isZh, "使用方式", "Usage"), c) {
-                Column(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(c.cardAlt)
-                        .border(0.5.dp, c.border, RoundedCornerShape(16.dp))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(zhEn(isZh, "1. 点击“打开 Token 页面”，在官网登录并复制 Access Token。", "1. Open the token page, sign in on ModelScope, and copy an Access Token."), color = c.text, fontSize = 12.sp)
-                    Text(zhEn(isZh, "2. 保存 Token 后，技能市场的 ModelScope MCP 页会自动带入。", "2. After saving, the ModelScope MCP marketplace uses it automatically."), color = c.text, fontSize = 12.sp)
-                    Text(zhEn(isZh, "3. 安装后的 MCP 工具在聊天中执行失败时，也会用这个 Token 自动刷新 SSE 地址。", "3. Installed MCP tools also use this token to refresh SSE endpoints during chat execution."), color = c.text, fontSize = 12.sp)
+            SettingsSection(zhEn(isZh, "厂商模板", "Provider Templates"), c) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IMAGE_PROVIDER_PRESETS.forEach { preset ->
+                        ImageProviderTemplateRow(
+                            preset = preset,
+                            selected = model == preset.model && endpoint == preset.endpoint,
+                            c = c,
+                            onClick = { applyPreset(preset) },
+                        )
+                    }
                 }
             }
+
+            SettingsSection(zhEn(isZh, "专用图片生成接口", "Dedicated Image API"), c) {
+                ClawPageTextField(
+                    value = endpoint,
+                    onValueChange = { endpoint = it },
+                    label = "image_api_endpoint",
+                    placeholder = "https://api.openai.com",
+                    c = c,
+                )
+                ClawPageTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = "image_api_model",
+                    placeholder = "gpt-image-2",
+                    c = c,
+                )
+                ClawPageTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = "image_api_key",
+                    placeholder = "sk-...",
+                    c = c,
+                    isSecret = true,
+                )
+                ClawPageTextField(
+                    value = hfKey,
+                    onValueChange = { hfKey = it },
+                    label = "huggingface_api_key",
+                    placeholder = "hf_...",
+                    c = c,
+                    isSecret = true,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageProviderTemplateRow(
+    preset: ImageProviderPreset,
+    selected: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) c.text else c.surface)
+            .border(0.6.dp, if (selected) c.text else c.border, RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ClawIconTile(
+            symbol = "image",
+            size = 38.dp,
+            iconSize = 19.dp,
+            tint = if (selected) c.bg else c.text,
+            background = if (selected) c.bg.copy(alpha = 0.14f) else c.cardAlt,
+            border = if (selected) c.bg.copy(alpha = 0.18f) else c.border,
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                preset.name,
+                color = if (selected) c.bg else c.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                preset.model,
+                color = if (selected) c.bg.copy(alpha = 0.68f) else c.subtext,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (preset.hint.isNotBlank()) {
+                Text(
+                    preset.hint,
+                    color = if (selected) c.bg.copy(alpha = 0.50f) else c.subtext.copy(alpha = 0.72f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (selected) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = c.bg, modifier = Modifier.size(18.dp))
         }
     }
 }

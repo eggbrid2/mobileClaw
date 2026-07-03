@@ -13,9 +13,12 @@ import com.mobileclaw.skill.SkillParam
 import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
 import com.mobileclaw.skill.SkillToolCategory
+import com.mobileclaw.ui.aipage.AiPagePackageImportOptions
 import com.mobileclaw.ui.aipage.AiPageDef
 import com.mobileclaw.ui.aipage.AiPageStore
 import kotlinx.coroutines.flow.MutableSharedFlow
+import java.io.File
+import java.util.UUID
 
 /**
  * AI skill that creates and manages native Compose pages.
@@ -38,14 +41,14 @@ class UiBuilderSkill(
         nameZh = "AI 原生页面生成",
         description = "Preferred tool for creating user-facing pages inside MobileClaw: native Android pages, dashboards, forms, settings panels, management screens, data viewers, control pages, and lightweight tools. " +
             "Use this before mini-app/HTML unless the user explicitly needs a program/game/custom HTML runtime. Never return page JSON or code in chat; call this tool. " +
-            "Pages support real UI components, Android APIs, app context data, HTTP, shell, notifications, sensors. Actions: create | update | analyze_change | inspect_structure | inspect_runtime | validate | list | get | delete | open | pin_shortcut | get_guide",
+            "Pages support real UI components, Android APIs, app context data, HTTP, shell, notifications, sensors. Actions: create | update | analyze_change | inspect_structure | inspect_runtime | validate | list | get | delete | open | pin_shortcut | export_package | import_package | get_guide",
         descriptionZh = "优先用于创建 MobileClaw 内的用户可见原生页面：AI 页面、仪表盘、表单、设置面板、管理页、数据查看器、控制页和轻量工具。除非用户明确需要程序/小游戏/自定义 HTML 运行时，否则优先用此工具，不要在聊天里返回页面 JSON 或代码。",
         parameters = listOf(
             SkillParam("action", "string", required = true,
                 description = "create | update | analyze_change | validate | list | get | delete | open | pin_shortcut | get_guide"),
             SkillParam("limit", "number", required = false, description = "Optional limit for structure inspection output."),
             SkillParam("id", "string", required = false,
-                description = "Page ID in snake_case (required for all except list/get_guide)"),
+                description = "Page ID in snake_case. Required for update/delete/open/get/analyze/validate. Optional for create; create will generate a unique id and will not overwrite an existing page."),
             SkillParam("title", "string", required = false, description = "Display title shown in the top bar"),
             SkillParam("icon", "string", required = false, description = "Semantic icon key for the page, e.g. page, chat, settings, weather, profile"),
             SkillParam("description", "string", required = false, description = "Short description of the page"),
@@ -62,6 +65,10 @@ class UiBuilderSkill(
                 description = "Component tree object (see get_guide for reference). String JSON is also accepted."),
             SkillParam("actions", "object", required = false,
                 description = "Actions object: {\"actionName\": [{\"type\":\"...\",\"key\":\"...\"},...]}. String JSON is also accepted."),
+            SkillParam("file_path", "string", required = false,
+                description = "AI page package path for export/import. Optional for export_package; required for import_package."),
+            SkillParam("overwrite", "boolean", required = false,
+                description = "Whether import_package may overwrite an existing page. Defaults to false."),
         ),
         injectionLevel = 1,
         type = SkillType.NATIVE,
@@ -199,14 +206,19 @@ class UiBuilderSkill(
             }
 
             "create", "update" -> {
-                val id = (params["id"] as? String)?.trim()?.replace(" ", "_")
-                    ?: return SkillResult(false, "id required")
+                val requestedId = (params["id"] as? String)?.trim()?.replace(" ", "_")
+                val titleParam = params["title"] as? String
+                val id = when (action) {
+                    "create" -> uniqueCreateId(requestedId, titleParam)
+                    else -> requestedId ?: return SkillResult(false, "id required")
+                }
                 val existing = store.get(id)
                 if (action == "update" && existing == null) {
                     return SkillResult(false, "Page not found: $id. Use action=create to create it first.")
                 }
+                val createIdWasReassigned = action == "create" && !requestedId.isNullOrBlank() && requestedId != id
 
-                val title = params["title"] as? String ?: existing?.title ?: id
+                val title = titleParam ?: existing?.title ?: id
                 val icon = params["icon"] as? String ?: existing?.icon ?: "page"
                 val description = params["description"] as? String ?: existing?.description ?: ""
                 val changeRequest = params["change_request"] as? String ?: ""
@@ -267,8 +279,14 @@ class UiBuilderSkill(
                         "if runtime_issues or missing features remain, do one focused repair pass instead of rewriting the page",
                     ),
                     "open_hint" to "ui_builder(action=open, id=$id)",
+                    "id_reassigned" to createIdWasReassigned,
+                    "requested_id" to requestedId.orEmpty(),
                     "summary" to if (action == "create") {
-                        "Created AI native page '$id' at version ${def.version}."
+                        if (createIdWasReassigned) {
+                            "Created AI native page '$id' at version ${def.version}; requested id '$requestedId' already existed, so a new page id was assigned."
+                        } else {
+                            "Created AI native page '$id' at version ${def.version}."
+                        }
                     } else {
                         "Updated AI native page '$id' to version ${def.version}."
                     }
@@ -297,7 +315,54 @@ class UiBuilderSkill(
                 SkillResult(true, "Requesting launcher shortcut for page '$id'. The user will see a dialog to confirm.")
             }
 
-            else -> SkillResult(false, "Unknown action: $action. Use: create | update | analyze_change | inspect_structure | inspect_runtime | validate | list | get | delete | open | pin_shortcut | get_guide")
+            "export_package" -> {
+                val id = params["id"] as? String ?: return SkillResult(false, "id required")
+                if (store.get(id) == null) return SkillResult(false, "Page not found: $id")
+                val requestedPath = params["file_path"] as? String
+                val file = store.exportPackage(id, requestedPath?.takeIf { it.isNotBlank() }?.let(::File))
+                val output = linkedMapOf(
+                    "artifact_type" to "ai_native_page",
+                    "action" to "export_package",
+                    "id" to id,
+                    "package_path" to file.absolutePath,
+                    "summary" to "Exported AI page '$id' to ${file.absolutePath}.",
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            "import_package" -> {
+                val path = params["file_path"] as? String
+                    ?: return SkillResult(false, "file_path is required for import_package")
+                val file = File(path)
+                if (!file.exists()) return SkillResult(false, "Package file not found: $path")
+                val preferredId = params["id"] as? String ?: ""
+                val overwrite = params["overwrite"] as? Boolean ?: false
+                val result = store.importPackage(
+                    file,
+                    AiPagePackageImportOptions(
+                        preferredId = preferredId,
+                        overwrite = overwrite,
+                    ),
+                )
+                val output = linkedMapOf(
+                    "artifact_type" to "ai_native_page",
+                    "action" to "import_package",
+                    "original_id" to result.originalId,
+                    "id" to result.importedId,
+                    "title" to result.page.title,
+                    "id_changed" to result.idChanged,
+                    "overwritten" to result.overwritten,
+                    "warnings" to result.warnings,
+                    "summary" to if (result.idChanged) {
+                        "Imported AI page '${result.originalId}' as '${result.importedId}'."
+                    } else {
+                        "Imported AI page '${result.importedId}'."
+                    },
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            else -> SkillResult(false, "Unknown action: $action. Use: create | update | analyze_change | inspect_structure | inspect_runtime | validate | list | get | delete | open | pin_shortcut | export_package | import_package | get_guide")
         }
     }
 
@@ -309,6 +374,24 @@ class UiBuilderSkill(
             else -> runCatching { gson.toJsonTree(raw).asJsonObject }.getOrNull()
         }
     }
+
+    private fun uniqueCreateId(requestedId: String?, title: String?): String {
+        val base = sanitizeArtifactId(requestedId?.takeIf { it.isNotBlank() } ?: title.orEmpty())
+            .ifBlank { "page_${UUID.randomUUID().toString().take(8)}" }
+        if (store.get(base) == null) return base
+        repeat(20) { index ->
+            val candidate = "${base}_${index + 2}"
+            if (store.get(candidate) == null) return candidate
+        }
+        return "${base}_${UUID.randomUUID().toString().take(8)}"
+    }
+
+    private fun sanitizeArtifactId(raw: String): String =
+        raw.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trim('_')
+            .take(48)
 
     private fun jsonValueToStateString(value: JsonElement): String {
         return when {
@@ -536,7 +619,6 @@ Native pages run as real Compose UI (not WebView). They support full Android cap
 
 ### Create a page
 ui_builder(action=create,
-  id="my_page",
   title="My Page",
   icon="page",
   state={"count":"0","result":""},
@@ -545,7 +627,8 @@ ui_builder(action=create,
 )
 
 ### Update a page
-ui_builder(action=update, id="my_page", layout=..., actions=...)
+Use the id returned by create:
+ui_builder(action=update, id="returned_page_id", layout=..., actions=...)
 
 ### Repair loop after every edit
 1. `ui_builder(action=analyze_change, ...)`
@@ -555,10 +638,10 @@ ui_builder(action=update, id="my_page", layout=..., actions=...)
 5. If `runtime_issues`, `structure_warnings`, `missing_required_features`, or `missing_snapshot_features` are still present, issue one focused repair update instead of rewriting the whole page
 
 ### Open a page
-ui_builder(action=open, id="my_page")
+ui_builder(action=open, id="returned_page_id")
 
 ### Pin as desktop shortcut
-ui_builder(action=pin_shortcut, id="my_page")
+ui_builder(action=pin_shortcut, id="returned_page_id")
 
 ---
 
@@ -614,6 +697,20 @@ Each named action is a list of steps executed sequentially:
 {"type":"http","url":"https://api.example.com/data","method":"GET","result_key":"response"}
 Body stored in state[result_key]; use ${'$'}{state.response} in layout.
 
+### AI / Default LLM Gateway
+Request AI through MobileClaw's default gateway config. Never put API keys or OpenAI-compatible endpoints into page JSON.
+{"type":"ai_chat","prompt":"请总结：${'$'}{input.text}","system":"你是简洁可靠的助手","result_key":"summary"}
+Result text is stored in state[result_key]; full fields are available via ${'$'}{result.text}, ${'$'}{result.ok}, ${'$'}{result.error}.
+
+### Background / Parallel Execution
+Start another named action without blocking the current action:
+{"type":"background","action":"refresh"}
+Run independent steps concurrently and wait for all to finish:
+{"type":"parallel","steps":[
+  {"type":"http","url":"https://api.example.com/a","method":"GET","result_key":"a"},
+  {"type":"ai_chat","prompt":"生成一句欢迎语","result_key":"welcome"}
+]}
+
 ### Shell
 {"type":"shell","cmd":"date +%Y-%m-%d","result_key":"today"}
 stdout → state[result_key]
@@ -664,7 +761,7 @@ ${'$'}{state.x == "done"}   — equality
 
 ## Full Example — Weather Dashboard
 
-ui_builder(action=create, id="weather", title="天气查询", icon="weather",
+ui_builder(action=create, title="天气查询", icon="weather",
   state={"city":"北京","weather":"点击查询"},
   layout={"type":"column","gap":12,"padding":16,"children":[
     {"type":"text","content":"天气查询","bold":true,"size":18},
@@ -686,6 +783,7 @@ ui_builder(action=create, id="weather", title="天气查询", icon="weather",
 ## Notes
 - Pages survive app restarts; state resets to initial values on each open.
 - Actions run on background thread; UI updates via Compose state flow.
+- Use ai_chat for LLM calls so pages inherit the app's default gateway safely.
 - AI pages can now build dashboards or tools from app memory, chats, group chats, settings, roles, skills, AI pages, and VPN summaries.
 - Prefer app_context for reading MobileClaw data and skill_call for doing work through existing capabilities.
 - Call get_guide to see this reference; call list to see existing pages.

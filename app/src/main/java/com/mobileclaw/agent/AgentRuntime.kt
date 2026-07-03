@@ -37,10 +37,6 @@ class AgentRuntime(
         private const val TAG = "AgentRuntime"
         private val artifactSkillIds = setOf("app_manager", "ui_builder")
         private val artifactStructuredActions = setOf("create", "update", "validate", "inspect_logs", "inspect_runtime", "analyze_change", "get")
-        private val perceptionSkillIds = setOf("see_screen", "screenshot", "read_screen", "bg_screenshot", "bg_read_screen")
-        private val screenshotFallbackSourceIds = setOf("see_screen", "read_screen", "bg_read_screen")
-        private val passivePhoneSkillIds = perceptionSkillIds + setOf("phone_status", "list_apps", "check_permissions")
-        private val uiChangingSkillIds = setOf("tap", "scroll", "input_text", "long_click", "navigate", "vpn_control")
         private const val MAX_SEGMENTS = 5
         private const val REVIEW_INTERVAL_STEPS = 5
     }
@@ -60,6 +56,7 @@ class AgentRuntime(
         role: Role? = null,
         userProfileContext: String = "",
         allowedToolIds: List<String> = emptyList(),
+        roleWorkspaceContext: String = "",
         preferFastLocalVision: Boolean = false,
         preferFastPlan: Boolean = false,
         onToken: ((String) -> Unit)? = null,
@@ -95,15 +92,26 @@ class AgentRuntime(
         val injectedSkills = if (preferFastLocalVision && taskType in setOf(TaskType.CHAT, TaskType.GENERAL)) {
             emptyList()
         } else {
-            TaskToolPolicy.select(
-                registry = registry,
-                taskType = taskType,
-                goal = goal,
-                forcedSkillIds = role?.forcedSkillIds.orEmpty(),
-                memoryContext = foundationalMemoryContext,
-            ).let { skills ->
+            val forcedIds = role?.forcedSkillIds.orEmpty()
+            val selected = if (role != null) {
+                registry.allMetasWithTaxonomy()
+                    .filterNot { it.internalTool }
+                    .let { allSkills ->
+                        val forced = forcedIds.mapNotNull { id -> registry.get(id)?.meta }
+                        (allSkills + forced).distinctBy { it.id }
+                    }
+            } else {
+                TaskToolPolicy.select(
+                    registry = registry,
+                    taskType = taskType,
+                    goal = goal,
+                    forcedSkillIds = forcedIds,
+                    memoryContext = foundationalMemoryContext,
+                )
+            }
+            selected.let { skills ->
                 val allowed = allowedToolIds.toSet()
-                val forced = role?.forcedSkillIds.orEmpty().toSet()
+                val forced = forcedIds.toSet()
                 if (allowed.isEmpty()) {
                     skills
                 } else {
@@ -159,6 +167,7 @@ class AgentRuntime(
             userProfileContext = userProfileContext,
             taskType = taskType,
             taskPlan = taskPlan,
+            roleWorkspaceContext = roleWorkspaceContext,
         )
 
         var completedSegments = 0
@@ -507,35 +516,13 @@ class AgentRuntime(
                 val tc = response.toolCall
                 emit(AgentEvent.SkillCalling(tc.skillId, tc.params))
 
-                val phoneGuard = phoneControlGuardResult(taskType, ctx.steps, tc.skillId)
-                if (phoneGuard != null) {
-                    logGuardBlocked(
-                        taskId = ctx.taskId,
-                        taskType = taskType,
-                        skillId = tc.skillId,
-                        stage = "phone_control_guard",
-                        reason = phoneGuard.output,
-                    )
-                }
-                val repeatedPerceptionGuard = if (phoneGuard == null) repeatedPerceptionResult(ctx.steps, tc.skillId) else null
-                if (repeatedPerceptionGuard != null) {
-                    logGuardBlocked(
-                        taskId = ctx.taskId,
-                        taskType = taskType,
-                        skillId = tc.skillId,
-                        stage = "repeated_perception_guard",
-                        reason = repeatedPerceptionGuard.output,
-                    )
-                }
-                val skillResult = phoneGuard
-                    ?: repeatedPerceptionGuard
-                    ?: executeSkillWithDiagnostics(
-                        taskId = ctx.taskId,
-                        taskType = taskType,
-                        skillId = tc.skillId,
-                        params = tc.params,
-                        stage = "tool_call",
-                    )
+                val skillResult = executeSkillWithDiagnostics(
+                    taskId = ctx.taskId,
+                    taskType = taskType,
+                    skillId = tc.skillId,
+                    params = tc.params,
+                    stage = "tool_call",
+                )
 
                 emit(AgentEvent.Observation(
                     text = skillResult.output,
@@ -699,21 +686,6 @@ class AgentRuntime(
             emit(AgentEvent.Error(message))
             SkillResult(success = false, output = message)
         }
-    }
-
-    private suspend fun logGuardBlocked(
-        taskId: String,
-        taskType: TaskType,
-        skillId: String,
-        stage: String,
-        reason: String,
-    ) {
-        Log.w(
-            TAG,
-            "Guard blocked skill during $stage. taskId=$taskId taskType=$taskType skillId=$skillId reason=${reason.take(320)}"
-        )
-        // Guard 拦截代表当前动作不合适，不代表任务失败；单独降级成 warning，避免 UI 一片报错红条。
-        emit(AgentEvent.Warning("Guard blocked $skillId: ${reason.lineSequence().firstOrNull().orEmpty()}"))
     }
 
     private suspend fun createFiveStepReview(
@@ -1023,51 +995,6 @@ This note is for your own next step, so be direct and operational.
             .minOrNull()
             ?: return this
         return substring(0, firstIndex)
-    }
-
-    private fun repeatedPerceptionResult(steps: List<AgentStep>, skillId: String): SkillResult? {
-        if (skillId !in perceptionSkillIds) return null
-        val last = steps.lastOrNull() ?: return null
-        if (last.skillId !in perceptionSkillIds) return null
-        if (skillId == "screenshot" && last.isError && last.skillId in screenshotFallbackSourceIds) return null
-        return SkillResult(
-            success = false,
-            output = "Repeated screen-reading blocked. You already observed the screen in the previous step. " +
-                "Use that observation to take a concrete action now: tap, scroll, input_text, navigate(back/home), " +
-                "or finish if the task is complete. Only read the screen again after an action changes the UI.",
-        )
-    }
-
-    private fun phoneControlGuardResult(taskType: TaskType, steps: List<AgentStep>, skillId: String): SkillResult? {
-        if (taskType != TaskType.PHONE_CONTROL) return null
-        if (skillId !in passivePhoneSkillIds) return null
-
-        val lastActionIndex = steps.indexOfLast { it.skillId in uiChangingSkillIds && !it.isError }
-        val lastSuccessfulPerceptionIndex = steps.indexOfLast { it.skillId in perceptionSkillIds && !it.isError }
-        if (lastSuccessfulPerceptionIndex < 0 || lastSuccessfulPerceptionIndex < lastActionIndex) return null
-
-        val lastStep = steps.lastOrNull()
-        if (skillId == "screenshot" && lastStep?.isError == true && lastStep.skillId in screenshotFallbackSourceIds) return null
-
-        val lastObservation = steps.getOrNull(lastSuccessfulPerceptionIndex)?.observation.orEmpty()
-        val compactObservation = lastObservation
-            .lineSequence()
-            .filter { it.isNotBlank() }
-            .take(18)
-            .joinToString("\n")
-            .take(1800)
-
-        return SkillResult(
-            success = false,
-            output = """
-                Passive phone check blocked: the latest successful screen observation has not been followed by a concrete UI-changing action.
-                Do not keep checking/opening/looking. Use the current screenshot and coordinate list already in context.
-                Next step must be one of: tap, scroll, input_text, long_click, navigate(back/home/launch), or final answer/blocker.
-
-                Latest usable observation:
-                $compactObservation
-            """.trimIndent(),
-        )
     }
 
     private fun unresolvedArtifactValidationIssue(

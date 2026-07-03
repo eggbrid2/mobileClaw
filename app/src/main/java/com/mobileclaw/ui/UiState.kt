@@ -20,12 +20,28 @@ import com.mobileclaw.vpn.VpnSubscription
 import com.mobileclaw.ui.workspace.WorkspaceUiState
 import kotlinx.coroutines.flow.Flow
 
-enum class AppPage { HOME, CHAT, SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_DETAIL, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN, AI_TOWN, WORKSPACE, IMAGE_GENERATOR, VIDEO_GENERATOR }
+enum class AppPage { HOME, CHAT, SETTINGS, AI_BASIC_SETTINGS, USER_INFO, GENERAL_SETTINGS, TOOLS_SETTINGS, MEMORY_SETTINGS, SKILLS, SKILL_MARKET, PROFILE, ROLES, ROLE_DETAIL, ROLE_WORKSPACE, ROLE_EDIT, USER_CONFIG, APPS, CONSOLE, HELP, GROUPS, GROUP_CHAT, BROWSER, AI_PAGES, VPN, AI_TOWN, WORKSPACE, IMAGE_GENERATOR, VIDEO_GENERATOR }
 
 enum class SettingsLaunchTarget { GATEWAY }
 
 const val LATENCY_TESTING = -1L
 const val LATENCY_ERROR   = -2L
+
+data class AppUpdateUiState(
+    val checking: Boolean = false,
+    val installing: Boolean = false,
+    val showDialog: Boolean = false,
+    val hasNewVersion: Boolean = false,
+    val currentVersion: String = "",
+    val currentVersionCode: Int = 0,
+    val remoteVersion: String = "",
+    val remoteVersionCode: Int? = null,
+    val releaseNotes: String = "",
+    val downloadUrl: String = "",
+    val installUrl: String = "",
+    val errorMessage: String = "",
+    val checkedAt: Long = 0L,
+)
 
 data class MainUiState(
     // Per-session run states (task may run in multiple sessions simultaneously)
@@ -64,6 +80,7 @@ data class MainUiState(
     val availableRoles: List<Role> = emptyList(),
     val detailRole: Role? = null,
     val editingRole: Role? = null,
+    val roleWorkspaceFiles: List<RoleWorkspaceFileUi> = emptyList(),
     // Dynamic user config (value + optional description per key)
     val userConfigEntries: Map<String, ConfigEntry> = emptyMap(),
     // History-based recommendations
@@ -113,4 +130,10 @@ data class MainUiState(
     val imagePromptAiRunning: Boolean = false,
     val imageGenerationPreviewBase64: String = "",
     val imageGenerationPreviewPrompt: String = "",
+    val appUpdate: AppUpdateUiState = AppUpdateUiState(),
+)
+
+data class RoleWorkspaceFileUi(
+    val name: String,
+    val content: String,
 )

@@ -97,7 +97,9 @@ class LocalGemmaGateway(
         }
         val content = rawContent.cleanLocalGeneratedText()
         Log.i("LocalGemma", "request done model=$modelId rawChars=${rawContent.length} cleanChars=${content.length} cost=${System.currentTimeMillis() - startedAt}ms")
-        content.toLocalToolResponse(request.tools) ?: ChatResponse(content = content.ifBlank { null })
+        content.toLocalToolResponse(request.tools)
+            ?: content.toLocalToolParseFallback(request.tools, request.preferredLocalLanguage())
+            ?: ChatResponse(content = content.ifBlank { null })
     }
 
     override suspend fun embed(text: String): FloatArray {
@@ -473,7 +475,7 @@ private fun String.middleEllipsize(maxChars: Int): String {
     return take(head) + "\n...[local context trimmed]...\n" + takeLast(tail)
 }
 
-private fun String.toLocalToolResponse(tools: List<ToolDefinition>): ChatResponse? {
+internal fun String.toLocalToolResponse(tools: List<ToolDefinition>): ChatResponse? {
     if (tools.isEmpty()) return null
     val jsonText = extractJsonObject() ?: return null
     return runCatching {
@@ -489,9 +491,28 @@ private fun String.toLocalToolResponse(tools: List<ToolDefinition>): ChatRespons
     }.getOrNull()
 }
 
+private fun String.toLocalToolParseFallback(tools: List<ToolDefinition>, language: String): ChatResponse? {
+    if (tools.isEmpty() || !looksLikeLocalToolDirective()) return null
+    val message = if (language == "en") {
+        "The local model produced an internal tool instruction, but MobileClaw could not match it to an executable tool. Please try rephrasing the task."
+    } else {
+        "本地模型生成了内部工具指令，但 MobileClaw 没能匹配到可执行工具。请换个说法再试一次。"
+    }
+    return ChatResponse(content = message, finishReason = "tool_parse_failed")
+}
+
 private fun JsonObject.localToolCallObject(): JsonObject? {
+    val toolCalls = get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray
+    val firstToolCall = toolCalls
+        ?.firstOrNull()
+        ?.takeIf { it.isJsonObject }
+        ?.asJsonObject
+    if (firstToolCall != null) return firstToolCall.localToolCallObject()
+
     val wrapped = get("tool_call")?.takeIf { it.isJsonObject }?.asJsonObject
     if (wrapped != null) return wrapped
+    val function = get("function")?.takeIf { it.isJsonObject }?.asJsonObject
+    if (function != null) return function
     if (localToolName() != null) return this
     val functionCall = get("function_call")?.takeIf { it.isJsonObject }?.asJsonObject
     if (functionCall != null) return functionCall
@@ -537,4 +558,17 @@ private fun String.extractJsonObject(): String? {
     val start = indexOf('{')
     val end = lastIndexOf('}')
     return if (start >= 0 && end > start) substring(start, end + 1) else null
+}
+
+private fun String.looksLikeLocalToolDirective(): Boolean {
+    val text = trim()
+    if (!text.contains("{") || !text.contains("}")) return false
+    return listOf(
+        "\"tool_call\"",
+        "\"tool_calls\"",
+        "\"function_call\"",
+        "\"arguments\"",
+        "\"tool_name\"",
+        "\"tool\"",
+    ).any { text.contains(it, ignoreCase = true) }
 }

@@ -1,6 +1,7 @@
 package com.mobileclaw.llm
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LocalTextCleanerTest {
@@ -90,5 +91,53 @@ class LocalTextCleanerTest {
             "你好，我可以帮你。",
             raw.cleanLocalGeneratedText(),
         )
+    }
+
+    @Test
+    fun parsesLocalToolCallJsonWithoutExposingProtocolText() {
+        val tools = listOf(
+            ToolDefinition(
+                name = "open_app",
+                description = "Open an app",
+                parameters = ToolParameters(
+                    properties = mapOf("name" to ToolProperty("string", "App name")),
+                    required = listOf("name"),
+                ),
+            ),
+        )
+        val raw = """{"tool_call":{"id":"local-call","name":"open_app","arguments":{"name":"微信"}},"content":"打开应用"}"""
+
+        val response = raw.toLocalToolResponse(tools)
+
+        assertNotNull(response)
+        assertEquals("打开应用", response?.content)
+        assertEquals("open_app", response?.toolCall?.skillId)
+        assertEquals("微信", response?.toolCall?.params?.get("name"))
+    }
+
+    @Test
+    fun parsesOpenAiStyleToolCallsFromLocalModelText() {
+        val tools = listOf(
+            ToolDefinition(
+                name = "open_app",
+                description = "Open an app",
+                parameters = ToolParameters(
+                    properties = mapOf("name" to ToolProperty("string", "App name")),
+                    required = listOf("name"),
+                ),
+            ),
+        )
+        val raw = """
+            ```json
+            {"tool_calls":[{"id":"call_1","type":"function","function":{"name":"open_app","arguments":"{\"name\":\"微信\"}"}}]}
+            ```
+        """.trimIndent()
+
+        val response = raw.toLocalToolResponse(tools)
+
+        assertNotNull(response)
+        assertEquals("call_1", response?.toolCall?.id)
+        assertEquals("open_app", response?.toolCall?.skillId)
+        assertEquals("微信", response?.toolCall?.params?.get("name"))
     }
 }

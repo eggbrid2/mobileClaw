@@ -6,6 +6,8 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.RolePackageImportOptions
+import com.mobileclaw.agent.RolePackageStore
 import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChatBubbleDecoration
@@ -18,6 +20,7 @@ import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
 import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
+import java.io.File
 import java.util.UUID
 
 /**
@@ -27,6 +30,7 @@ import java.util.UUID
 class RoleManagerSkill(
     private val roleManager: RoleManager,
     private val roleRequests: MutableSharedFlow<String>,
+    private val rolePackageStore: RolePackageStore? = null,
 ) : Skill {
     private val gson = Gson()
 
@@ -34,15 +38,15 @@ class RoleManagerSkill(
         id = "role_manager",
         name = "Role Manager",
         description = "Create, list, update, delete, and activate agent roles (personas). " +
-            "Each role has an avatar image/icon key, name, description, optional system prompt addendum, " +
+            "Each role has one role image field (avatar image/icon key), name, description, optional system prompt addendum, " +
             "scheduler keywords, preferred task types, forced skill IDs, optional model override, and open group chat bubble theme DSL. " +
-            "Use an image path/content URI/data URI, or a role icon key like role:custom. To generate a custom avatar, call generate_icon with apply_to_role. " +
-            "Actions: list, create, update, delete, activate.",
+            "Use an image path/content URI/data URI, or a role icon key like role:custom. This single field is used everywhere the role image appears. " +
+            "Actions: list, create, update, delete, activate, export_package, import_package.",
         parameters = listOf(
-            SkillParam("action", "string", "Action: list | create | update | delete | activate"),
+            SkillParam("action", "string", "Action: list | create | update | delete | activate | export_package | import_package"),
             SkillParam("id", "string", "Role ID (snake_case). Required for update/delete/activate. Auto-generated for create.", required = false),
             SkillParam("name", "string", "Display name of the role", required = false),
-            SkillParam("avatar", "string", "Image path/content URI/data URI or role icon key.", required = false),
+            SkillParam("avatar", "string", "Single role image value: image path/content URI/data URI or role icon key.", required = false),
             SkillParam("description", "string", "Short description of the role's purpose", required = false),
             SkillParam("system_prompt", "string", "Additional system prompt text injected when this role is active", required = false),
             SkillParam("preferred_task_types", "string", "Comma-separated TaskType names this role fits, e.g. WEB_RESEARCH,CODE_EXECUTION", required = false),
@@ -78,6 +82,8 @@ class RoleManagerSkill(
             SkillParam("bubble_html_allow_js", "boolean", "Allow JavaScript in the HTML bubble.", required = false),
             SkillParam("bubble_html_allow_network", "boolean", "Allow network images/links in the HTML bubble.", required = false),
             SkillParam("bubble_html_transparent", "boolean", "Render HTML bubble with transparent WebView background.", required = false),
+            SkillParam("file_path", "string", "Role package file path for export/import. Optional for export_package; required for import_package.", required = false),
+            SkillParam("overwrite", "boolean", "Whether import_package may overwrite an existing non-builtin role. Defaults to false.", required = false),
             SkillParam(
                 "bubble_style_json",
                 "object",
@@ -207,7 +213,58 @@ class RoleManagerSkill(
                 SkillResult(true, "Activated role '$id'.")
             }
 
-            else -> SkillResult(false, "Unknown action: $action. Use list | create | update | delete | activate")
+            "export_package" -> {
+                val packageStore = rolePackageStore ?: return SkillResult(false, "Role package store is not available.")
+                val id = params["id"] as? String
+                    ?: return SkillResult(false, "id is required for export_package")
+                if (roleManager.get(id) == null) return SkillResult(false, "Role '$id' not found.")
+                val requestedPath = params["file_path"] as? String
+                val file = packageStore.exportPackage(id, requestedPath?.takeIf { it.isNotBlank() }?.let(::File))
+                val output = linkedMapOf(
+                    "artifact_type" to "role",
+                    "action" to "export_package",
+                    "id" to id,
+                    "package_path" to file.absolutePath,
+                    "summary" to "Exported role '$id' to ${file.absolutePath}.",
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            "import_package" -> {
+                val packageStore = rolePackageStore ?: return SkillResult(false, "Role package store is not available.")
+                val path = params["file_path"] as? String
+                    ?: return SkillResult(false, "file_path is required for import_package")
+                val file = File(path)
+                if (!file.exists()) return SkillResult(false, "Package file not found: $path")
+                val preferredId = params["id"] as? String ?: ""
+                val overwrite = params["overwrite"] as? Boolean ?: false
+                val result = packageStore.importPackage(
+                    file,
+                    RolePackageImportOptions(
+                        preferredId = preferredId,
+                        overwrite = overwrite,
+                    ),
+                )
+                val output = linkedMapOf(
+                    "artifact_type" to "role",
+                    "action" to "import_package",
+                    "original_id" to result.originalId,
+                    "id" to result.importedId,
+                    "name" to result.role.name,
+                    "avatar" to result.role.avatar,
+                    "id_changed" to result.idChanged,
+                    "overwritten" to result.overwritten,
+                    "warnings" to result.warnings,
+                    "summary" to if (result.idChanged) {
+                        "Imported role '${result.originalId}' as '${result.importedId}'."
+                    } else {
+                        "Imported role '${result.importedId}'."
+                    },
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            else -> SkillResult(false, "Unknown action: $action. Use list | create | update | delete | activate | export_package | import_package")
         }
     }
 

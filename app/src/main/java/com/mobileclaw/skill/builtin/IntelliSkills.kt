@@ -87,7 +87,8 @@ class SkillCheckSkill(private val registry: SkillRegistry) : Skill {
 
         sb.appendLine("---")
         sb.appendLine("To create a new skill from a description: use **quick_skill**")
-        sb.appendLine("To search & install from marketplace: use **skill_market(action=search, query=...)**")
+        sb.appendLine("To browse recommended installable skills: use **skill_market(action=browse)**")
+        sb.appendLine("To search remote marketplaces only when needed: use **skill_market(action=search, market=clawhub, query=...)**")
         sb.appendLine("To build a custom skill manually: use **create_skill**")
 
         return SkillResult(true, sb.toString())
@@ -267,30 +268,40 @@ class SkillMarketSkill(
     override val meta = SkillMeta(
         id = "skill_market",
         name = "Skill Marketplace",
-        description = "Search and install skills from real skill markets.\n" +
+        description = "Browse, search, and install skills from real skill markets.\n" +
             "market= 'clawhub' (OpenClaw官方, 13k+ skills) | 'skillsmp' (聚合270k+) | 'local' (内置推荐)\n" +
-            "Actions: 'search' (find by keyword), 'install' (download+install by slug), 'list' (browse local)",
+            "Actions: 'browse'/'list' (show recommended local catalog), 'search' (find by keyword), 'install' (download+install by slug). Prefer browse/list before search.",
         parameters = listOf(
-            SkillParam("action", "string", "'search' | 'install' | 'list'"),
-            SkillParam("market", "string", "'clawhub' | 'skillsmp' | 'local' (default: clawhub)", required = false),
+            SkillParam("action", "string", "'browse' | 'list' | 'search' | 'install' (default: browse)", required = false),
+            SkillParam("market", "string", "'local' | 'clawhub' | 'skillsmp' (default: local)", required = false),
             SkillParam("query", "string", "Search keyword (for action=search)", required = false),
             SkillParam("slug", "string", "Skill slug to install, e.g. 'username/skill-name' (for action=install)", required = false),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
         nameZh = "技能市场",
-        descriptionZh = "从 ClawHub、SkillsMP 等真实技能市场搜索并安装技能。",
+        descriptionZh = "浏览推荐技能，也可从 ClawHub、SkillsMP 搜索并安装技能。",
         categories = listOf(SkillToolCategory.SKILL),
         tags = listOf("技能"),
     )
 
     override suspend fun execute(params: Map<String, Any>): SkillResult {
-        val action = params["action"] as? String ?: return SkillResult(false, "action is required: search | install | list")
-        val market = (params["market"] as? String)?.lowercase() ?: "clawhub"
+        val action = (params["action"] as? String)?.lowercase() ?: "browse"
+        val market = (params["market"] as? String)?.lowercase() ?: "local"
 
         return when (action) {
+            "browse", "list", "recommend", "recommended" -> {
+                when (market) {
+                    "local", "recommended" -> searchLocal("")
+                    "clawhub", "skillsmp" -> SkillResult(
+                        true,
+                        "Remote market '$market' requires a keyword search. Browse the local recommended catalog with skill_market(action=browse), or use skill_market(action=search, market=$market, query='...').",
+                    )
+                    else -> SkillResult(false, "Unknown market: $market. Use local, clawhub, or skillsmp.")
+                }
+            }
             "search" -> {
-                val query = params["query"] as? String ?: return SkillResult(false, "query is required for search")
+                val query = (params["query"] as? String).orEmpty()
                 when (market) {
                     "clawhub"  -> searchClawHub(query)
                     "skillsmp" -> searchSkillsMP(query)
@@ -298,7 +309,6 @@ class SkillMarketSkill(
                     else -> SkillResult(false, "Unknown market: $market. Use clawhub, skillsmp, or local.")
                 }
             }
-            "list" -> searchLocal("")
             "install" -> {
                 val slug = params["slug"] as? String ?: return SkillResult(false, "slug is required for install (e.g. 'username/skill-name')")
                 when (market) {
@@ -307,7 +317,7 @@ class SkillMarketSkill(
                     else -> SkillResult(false, "Install from '$market' not yet supported. Use clawhub or local.")
                 }
             }
-            else -> SkillResult(false, "Unknown action: $action. Use search, install, or list.")
+            else -> SkillResult(false, "Unknown action: $action. Use browse, search, install, or list.")
         }
     }
 
@@ -414,7 +424,7 @@ class SkillMarketSkill(
                 entry.category.contains(q)
         }
         if (entries.isEmpty()) return SkillResult(true, "No local market skills found for '$query'.")
-        val lines = mutableListOf("Local bundled skills${if (q.isNotBlank()) " matching '$q'" else ""}:\n")
+        val lines = mutableListOf(if (q.isBlank()) "Recommended installable skills:\n" else "Recommended skills matching '$q':\n")
         entries.groupBy { it.category }.forEach { (cat, catEntries) ->
             lines += "【$cat】"
             catEntries.forEach { e ->

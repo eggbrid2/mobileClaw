@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.RoleWorkspaceStore
 import com.mobileclaw.agent.TaskRecipeStore
 import com.mobileclaw.agent.TaskReplayStore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +27,7 @@ import com.mobileclaw.memory.UserProfileExtractor
 import com.mobileclaw.memory.db.ClawDatabase
 import com.mobileclaw.perception.VirtualDisplayManager
 import com.mobileclaw.permission.PermissionManager
+import com.mobileclaw.runtime.PageRuntimeCapabilities
 import com.mobileclaw.server.ConsoleServer
 import com.mobileclaw.server.LocalApiServer
 import com.mobileclaw.skill.SkillLoader
@@ -82,6 +84,9 @@ class ClawApplication : Application() {
         private set
 
     lateinit var roleManager: RoleManager
+        private set
+
+    lateinit var roleWorkspaceStore: RoleWorkspaceStore
         private set
 
     lateinit var localApiServer: LocalApiServer
@@ -149,6 +154,7 @@ class ClawApplication : Application() {
         virtualDisplayManager = VirtualDisplayManager(this)
         userConfig = UserConfig(this)
         roleManager = RoleManager(this)
+        roleWorkspaceStore = RoleWorkspaceStore(this)
         val consoleServerEnabled = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 || runBlocking {
             userConfig.get("console_server_enabled") == "true"
         }
@@ -170,6 +176,7 @@ class ClawApplication : Application() {
             skillLoader = sharedSkillLoader,
             semanticMemory = semanticMemory,
             userConfig = userConfig,
+            runtime = PageRuntimeCapabilities(this),
         )
         localApiServer.start()
         miniAppStore = MiniAppStore(this)

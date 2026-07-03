@@ -2,10 +2,18 @@ package com.mobileclaw.app
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.mobileclaw.artifact.PortableArtifactEntry
+import com.mobileclaw.artifact.PortableArtifactPackageManifest
+import com.mobileclaw.artifact.PortableArtifactTypes
 import com.mobileclaw.artifact.ArtifactHistoryEntry
 import com.mobileclaw.artifact.ArtifactSpec
 import com.mobileclaw.storage.AtomicTextFile
 import java.io.File
+import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 data class MiniApp(
     val id: String,
@@ -20,13 +28,29 @@ data class MiniApp(
     val history: List<ArtifactHistoryEntry> = emptyList(),
 )
 
+data class MiniAppPackageImportOptions(
+    val preferredId: String = "",
+    val overwrite: Boolean = false,
+)
+
+data class MiniAppPackageImportResult(
+    val app: MiniApp,
+    val originalId: String,
+    val importedId: String,
+    val idChanged: Boolean,
+    val overwritten: Boolean,
+    val warnings: List<String> = emptyList(),
+)
+
 /** Persists mini-app metadata and HTML content under filesDir/apps/. */
 class MiniAppStore(private val context: Context) {
 
     private val gson = Gson()
+    private val prettyGson = GsonBuilder().setPrettyPrinting().create()
     private val ioLock = Any()
     private val bridgeMarker = "window.__clawBridgeInstalled"
     private val appsDir: File get() = context.filesDir.resolve("apps").also { it.mkdirs() }
+    private val exportsDir: File get() = context.filesDir.resolve("workspace_exports/miniapps").also { it.mkdirs() }
 
     fun all(): List<MiniApp> = synchronized(ioLock) {
         appsDir.listFiles { f -> f.extension == "json" }
@@ -127,6 +151,112 @@ class MiniAppStore(private val context: Context) {
 
     fun appDataDir(id: String): File = File(appsDir, "${id}_data").also { it.mkdirs() }
 
+    fun exportPackage(id: String, targetFile: File? = null): File = synchronized(ioLock) {
+        val app = get(id) ?: throw IllegalArgumentException("MiniAPP not found: $id")
+        val html = readHtml(id).orEmpty()
+        val python = readPython(id).orEmpty()
+        val dataFiles = appDataDir(id)
+            .walkTopDown()
+            .filter { it.isFile }
+            .filterNot { it.name == "backend.py" || it.name == "app.log" }
+            .toList()
+        val entries = buildList {
+            add(PortableArtifactEntry("manifest.json", "manifest", size = -1))
+            add(PortableArtifactEntry("miniapp.json", "miniapp_metadata", size = -1))
+            add(PortableArtifactEntry("app.html", "html", size = html.toByteArray(Charsets.UTF_8).size.toLong()))
+            if (python.isNotBlank()) {
+                add(PortableArtifactEntry("backend.py", "python_backend", required = false, size = python.toByteArray(Charsets.UTF_8).size.toLong()))
+            }
+            dataFiles.forEach { file ->
+                add(
+                    PortableArtifactEntry(
+                        path = "data/${file.relativeTo(appDataDir(id)).invariantSeparatorsPath}",
+                        kind = "app_data",
+                        required = false,
+                        size = file.length(),
+                    )
+                )
+            }
+        }
+        val manifest = PortableArtifactPackageManifest(
+            packageType = PortableArtifactTypes.MINI_APP,
+            artifactId = app.id,
+            title = app.title,
+            entries = entries,
+            metadata = mapOf(
+                "description" to app.description,
+                "icon" to app.icon,
+                "format" to MINI_APP_PACKAGE_EXTENSION,
+            ),
+        )
+        val outFile = targetFile ?: File(exportsDir, "${sanitizePackageName(app.title.ifBlank { app.id })}.$MINI_APP_PACKAGE_EXTENSION")
+        outFile.parentFile?.mkdirs()
+        ZipOutputStream(outFile.outputStream().buffered()).use { zip ->
+            zip.writeTextEntry("manifest.json", prettyGson.toJson(manifest))
+            zip.writeTextEntry("miniapp.json", prettyGson.toJson(app.copy(htmlPath = "")))
+            zip.writeTextEntry("app.html", html)
+            if (python.isNotBlank()) zip.writeTextEntry("backend.py", python)
+            dataFiles.forEach { file ->
+                zip.writeFileEntry("data/${file.relativeTo(appDataDir(id)).invariantSeparatorsPath}", file)
+            }
+        }
+        outFile
+    }
+
+    fun importPackage(packageFile: File, options: MiniAppPackageImportOptions = MiniAppPackageImportOptions()): MiniAppPackageImportResult =
+        synchronized(ioLock) {
+            val warnings = mutableListOf<String>()
+            ZipFile(packageFile).use { zip ->
+                val manifest = zip.readJson("manifest.json", PortableArtifactPackageManifest::class.java)
+                    ?: throw IllegalArgumentException("Package manifest.json is missing or invalid")
+                require(manifest.packageType == PortableArtifactTypes.MINI_APP) {
+                    "Unsupported package type: ${manifest.packageType}"
+                }
+                require(manifest.schemaVersion == 1) {
+                    "Unsupported package schema version: ${manifest.schemaVersion}"
+                }
+                val packagedApp = zip.readJson("miniapp.json", MiniApp::class.java)
+                    ?: throw IllegalArgumentException("miniapp.json is missing or invalid")
+                val html = zip.readTextEntry("app.html")
+                    ?: throw IllegalArgumentException("app.html is missing")
+                val originalId = packagedApp.id.ifBlank { manifest.artifactId }
+                val targetId = resolveImportId(
+                    preferredId = options.preferredId,
+                    originalId = originalId,
+                    title = packagedApp.title,
+                    overwrite = options.overwrite,
+                )
+                val overwritten = options.overwrite && get(targetId) != null
+                if (overwritten) delete(targetId)
+                val importedApp = packagedApp.copy(
+                    id = targetId,
+                    htmlPath = "",
+                    updatedAt = System.currentTimeMillis(),
+                    history = packagedApp.history + ArtifactHistoryEntry(
+                        action = "import",
+                        request = "Imported from ${packageFile.name}",
+                        summary = if (targetId == originalId) {
+                            "Imported MiniAPP package."
+                        } else {
+                            "Imported MiniAPP package from original id '$originalId'."
+                        },
+                    ),
+                )
+                save(importedApp, html)
+                zip.readTextEntry("backend.py")?.takeIf { it.isNotBlank() }?.let { savePython(targetId, it) }
+                importPackageData(zip, targetId, warnings)
+                val saved = get(targetId) ?: importedApp.copy(htmlPath = htmlFile(targetId).absolutePath)
+                MiniAppPackageImportResult(
+                    app = saved,
+                    originalId = originalId,
+                    importedId = targetId,
+                    idChanged = targetId != originalId,
+                    overwritten = overwritten,
+                    warnings = warnings,
+                )
+            }
+        }
+
     /**
      * Injects the Claw JS bridge helper script into HTML content.
      * Tries to insert before </head>, then before <body>, then after <html>, else prepends.
@@ -195,6 +325,17 @@ class MiniAppStore(private val context: Context) {
     python:_async(function(d,id){A.callPythonAsync(typeof d==='string'?d:JSON.stringify(d),id);}),
     shell:_async(function(cmd,id){A.shellExecAsync(cmd,id);}),
     pip:_async(function(pkg,id){A.pipInstallAsync(pkg,id);}),
+    ai:{
+      chat:_async(function(d,id){A.llmChatAsync(typeof d==='string'?JSON.stringify({prompt:d}):JSON.stringify(d||{}),id);})
+    },
+    task:{
+      run:_async(function(kind,d,id){A.runtimeTaskAsync(String(kind||''),typeof d==='string'?d:JSON.stringify(d||{}),id);}),
+      all:function(tasks){
+        return Promise.all((tasks||[]).map(function(t){
+          return window.Claw.task.run(t.kind||t.type||'ai_chat',t.payload||t.input||t);
+        }));
+      }
+    },
     pythonEnv:function(){try{return JSON.parse(A.pythonEnvInfo()||'{}')}catch(e){return {error:e.message}}},
     // ── Config / Memory (sync — fast, no I/O wait) ────────────────────────
     config:{
@@ -267,6 +408,75 @@ class MiniAppStore(private val context: Context) {
   })();
 })();
 """.trimIndent()
+
+    private fun resolveImportId(preferredId: String, originalId: String, title: String, overwrite: Boolean): String {
+        val base = sanitizeArtifactId(preferredId.ifBlank { originalId.ifBlank { title } })
+            .ifBlank { "app_${UUID.randomUUID().toString().take(8)}" }
+        if (overwrite || get(base) == null) return base
+        repeat(50) { index ->
+            val candidate = "${base}_${index + 2}"
+            if (get(candidate) == null) return candidate
+        }
+        return "${base}_${UUID.randomUUID().toString().take(8)}"
+    }
+
+    private fun importPackageData(zip: ZipFile, targetId: String, warnings: MutableList<String>) {
+        val dataDir = appDataDir(targetId)
+        zip.entries().asSequence()
+            .filter { !it.isDirectory && it.name.startsWith("data/") }
+            .forEach { entry ->
+                val relative = entry.name.removePrefix("data/")
+                if (relative.isBlank() || relative == "backend.py" || relative == "app.log") return@forEach
+                val target = safeChild(dataDir, relative)
+                if (target == null) {
+                    warnings += "Skipped unsafe data path: ${entry.name}"
+                    return@forEach
+                }
+                target.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+            }
+    }
+
+    private fun safeChild(root: File, relativePath: String): File? {
+        val normalizedRoot = root.canonicalFile
+        val candidate = File(root, relativePath.replace('\\', '/')).canonicalFile
+        return candidate.takeIf { it.path == normalizedRoot.path || it.path.startsWith(normalizedRoot.path + File.separator) }
+    }
+
+    private fun ZipOutputStream.writeTextEntry(name: String, text: String) {
+        putNextEntry(ZipEntry(name))
+        write(text.toByteArray(Charsets.UTF_8))
+        closeEntry()
+    }
+
+    private fun ZipOutputStream.writeFileEntry(name: String, file: File) {
+        putNextEntry(ZipEntry(name))
+        file.inputStream().use { it.copyTo(this) }
+        closeEntry()
+    }
+
+    private fun <T> ZipFile.readJson(name: String, clazz: Class<T>): T? =
+        readTextEntry(name)?.let { runCatching { gson.fromJson(it, clazz) }.getOrNull() }
+
+    private fun ZipFile.readTextEntry(name: String): String? {
+        val entry = getEntry(name) ?: return null
+        return getInputStream(entry).bufferedReader(Charsets.UTF_8).use { it.readText() }
+    }
+
+    private fun sanitizePackageName(raw: String): String =
+        raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9_\\-\\u4e00-\\u9fa5]+"), "_")
+            .trim('_')
+            .ifBlank { "miniapp" }
+
+    private fun sanitizeArtifactId(raw: String): String =
+        raw.trim().lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trim('_')
+
+    companion object {
+        const val MINI_APP_PACKAGE_EXTENSION = "mobileclaw-miniapp"
+    }
 
     fun injectBridge(html: String): String {
         if (html.contains(bridgeMarker)) return html

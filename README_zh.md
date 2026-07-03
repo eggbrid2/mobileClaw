@@ -29,6 +29,15 @@ MobileClaw 目前正在翻新 UI，所以部分页面在过渡期内可能会有
 
 MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill 连接标准 Streamable HTTP 或 SSE MCP Server，执行 `initialize`、`tools/list` 和 `tools/call`。技能市场里也有 `ModelScope MCP` 入口：粘贴 ModelScope MCP 广场生成的 SSE 地址或配置 JSON，再填 Token，即可发现工具并安装成普通 MobileClaw 技能。
 
+## 最近更新
+
+- 全局 UI 统一到会话首页的简洁黑白 AI 风格：暖白背景、白色分组列表、黑色主按钮、克制的薄荷色状态点。
+- 重新整理角色列表、角色详情和角色编辑，角色头像与形象合并为一个角色形象字段，并接入角色工作区和角色包导入导出。
+- MiniAPP 增加列表导入、详情导出、长按删除和批量删除入口。
+- “我的/设置”区域拆成 AI 基础配置、通用设置、工具、记忆/历史等模块，并让用户画像配置进入 AI 上下文。
+- 补充 MiniAPP v2 技术方案：Javet 内置 Node、Vue/TS 项目构建、原生桥边界、项目级导入导出包。
+- 恢复蒲公英发布链路：启动自动检测、原生更新弹框、APK 安装器唤起、Git 版本对齐和桌面上传脚本。
+
 ## 真机能力演示
 
 以下素材来自小米真机运行的 debug build。它们不是静态展示页，而是真实 Agent 执行链路：MobileClaw 创建并打开了 WebView MiniAPP，创建了原生 AI Page，展示了多 Agent 群聊和表情包，也展示了本地模型与视觉资源包管理，以及 skill、VPN 等真实运行界面。
@@ -50,7 +59,7 @@ MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw 微信群二维码" width="260" />
 </p>
 
-该微信群二维码有效期至 **2026 年 7 月 3 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
+该微信群二维码有效期至 **2026 年 7 月 10 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
 
 ## 为什么做这个
 
@@ -246,15 +255,35 @@ MobileClaw 内置 `pgyer_release` skill，支持：
 
 - `status`：检查蒲公英配置是否存在。
 - `check_update` / `update`：调用蒲公英检查更新接口。
-- `download`：调用 Android `DownloadManager` 下载最新 APK 到系统 Downloads。
+- `download`：下载最新 APK，并唤起 Android 系统安装器；如果接口只返回安装页，则打开蒲公英安装页。
 - `upload`：上传一个手机本地 APK 路径到蒲公英。
 
-需要在 MobileClaw 用户配置中写入：
+App 每次启动会自动检测一次更新。只有发布通道返回新版本时，才会显示黑白 AI 风格更新弹框，里面包含当前版本、发布版本、更新说明和更新按钮。Android 可能会要求用户先允许 MobileClaw 安装未知来源应用，然后才能继续打开系统安装器。
+
+手机端可以在 MobileClaw 用户配置中写入：
 
 ```text
 pgyer_api_key = 蒲公英 API Key
 pgyer_app_key = 蒲公英 App Key
+pgyer_user_key = 蒲公英 User Key，可选
 pgyer_install_password = 安装密码，可选
+```
+
+本地桌面构建可以把密钥放进 `local.properties` 或环境变量，不要提交到 Git：
+
+```text
+pgyer.api_key = 蒲公英 API Key
+pgyer.app_key = 蒲公英 App Key
+pgyer.user_key = 蒲公英 User Key
+```
+
+也可以用环境变量注入：
+
+```bash
+PGYER_API_KEY="蒲公英 API Key" \
+PGYER_APP_KEY="蒲公英 App Key" \
+PGYER_USER_KEY="蒲公英 User Key" \
+./gradlew :app:assembleDebug
 ```
 
 聊天里可以直接说：
@@ -267,11 +296,11 @@ pgyer_install_password = 安装密码，可选
 
 Agent 会调用 `pgyer_release` 完成对应动作。
 
-电脑端也提供发布脚本，适合 Codex 在桌面构建和上传：
+电脑端也提供发布脚本，适合 Codex 在桌面构建和上传。脚本默认使用蒲公英当前的 COS 上传流程：
 
 ```bash
 PGYER_API_KEY="蒲公英 API Key" \
-python3 scripts/pgyer_release.py build-upload
+python3 scripts/pgyer_release.py build-upload --gradle-task assembleDebug --notes "MobileClaw 0.5.0"
 ```
 
 如果 APK 已经构建好，可以只上传：
@@ -292,7 +321,7 @@ python3 scripts/pgyer_release.py check
 脚本默认发布说明会使用当前 Git 信息，例如：
 
 ```text
-MobileClaw v0.3.7-dirty (main/47226c4)
+MobileClaw 0.5.0-dirty (main/47226c4)
 ```
 
 ### 版本和 Git 保持统一
@@ -312,7 +341,7 @@ BuildConfig.GIT_COMMIT
 BuildConfig.GIT_BRANCH
 ```
 
-这样蒲公英更新检查、App 内状态、发布脚本和 Git 版本能保持同一个来源。工作区有未提交改动时，`versionName` 会带 `-dirty`，例如 `v0.3.7-dirty`。
+这样蒲公英更新检查、App 内状态、发布脚本和 Git 版本能保持同一个来源。工作区有未提交改动时，`versionName` 会带 `-dirty`，例如 `0.5.0-dirty`。
 
 ### 构建注意事项
 

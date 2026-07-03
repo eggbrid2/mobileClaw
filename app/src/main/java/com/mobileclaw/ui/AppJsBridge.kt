@@ -24,17 +24,12 @@ import com.mobileclaw.config.UserConfig
 import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.MemoryWriter
 import com.mobileclaw.memory.SemanticMemory
-import com.mobileclaw.vpn.AppHttpProxy
+import com.mobileclaw.runtime.PageRuntimeCapabilities
 import kotlinx.coroutines.runBlocking
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.lang.ref.WeakReference
 import java.net.URLEncoder
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /** Native bridge exposed to mini-app HTML as `window.Android`. */
 class AppJsBridge(
@@ -49,11 +44,7 @@ class AppJsBridge(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    private val http = OkHttpClient.Builder()
-        .proxySelector(AppHttpProxy.proxySelector())
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val runtime = PageRuntimeCapabilities(context)
     private var pythonNamespace: PyObject? = null
     private var sqliteDb: SQLiteDatabase? = null
 
@@ -74,6 +65,41 @@ class AppJsBridge(
     @JavascriptInterface
     fun httpFetchAsync(url: String, method: String, headersJson: String, body: String, callbackId: String) {
         bgExecutor.submit { fireCallback(callbackId, httpFetch(url, method, headersJson, body)) }
+    }
+
+    @JavascriptInterface
+    fun llmChatAsync(inputJson: String, callbackId: String) {
+        bgExecutor.submit {
+            val result = runCatching {
+                gson.toJson(runtime.chatBlocking(inputJson))
+            }.getOrElse { e ->
+                gson.toJson(mapOf("ok" to false, "error" to (e.message ?: "AI request failed")))
+            }
+            fireCallback(callbackId, result)
+        }
+    }
+
+    @JavascriptInterface
+    fun runtimeTaskAsync(kind: String, inputJson: String, callbackId: String) {
+        bgExecutor.submit {
+            val result = runCatching {
+                when (kind.lowercase()) {
+                    "ai", "llm", "chat", "ai_chat" -> gson.toJson(runtime.chatBlocking(inputJson))
+                    "fetch", "http" -> gson.toJson(runtimeFetchFromJson(inputJson))
+                    "python" -> callPython(inputJson)
+                    "shell" -> {
+                        val cmd = runCatching {
+                            gson.fromJson(inputJson.ifBlank { "{}" }, Map::class.java)["cmd"] as? String
+                        }.getOrNull() ?: inputJson
+                        shellExec(cmd)
+                    }
+                    else -> gson.toJson(mapOf("ok" to false, "error" to "Unsupported task kind: $kind"))
+                }
+            }.getOrElse { e ->
+                gson.toJson(mapOf("ok" to false, "error" to (e.message ?: "Task failed")))
+            }
+            fireCallback(callbackId, result)
+        }
     }
 
     @JavascriptInterface
@@ -246,35 +272,30 @@ _env_info = json.dumps({
                 gson.fromJson(headersJson, Map::class.java) as? Map<String, String>
             }.getOrNull() ?: emptyMap()
 
-            val reqBuilder = Request.Builder().url(url)
-            headers.forEach { (k, v) -> reqBuilder.header(k, v) }
-
-            val requestBody = if (method.uppercase() in setOf("POST", "PUT", "PATCH") && body.isNotEmpty()) {
-                val ct = (headers["Content-Type"] ?: "application/json").toMediaType()
-                body.toRequestBody(ct)
-            } else null
-
-            reqBuilder.method(method.uppercase(), requestBody)
-            val response = http.newCall(reqBuilder.build()).execute()
-            val responseBody = response.body?.string() ?: ""
-            val responseHeaders = mutableMapOf<String, String>()
-            response.headers.forEach { (k, v) -> responseHeaders[k] = v }
+            val result = runtime.fetchBlocking(url, method, headers, body)
             val compactUrl = url.take(200)
+            val status = (result["status"] as? Number)?.toInt() ?: 0
             when {
-                response.code >= 500 -> store.appendLog(appId, "error", "http", "${method.uppercase()} $compactUrl -> ${response.code}")
-                response.code >= 400 -> store.appendLog(appId, "warn", "http", "${method.uppercase()} $compactUrl -> ${response.code}")
+                status >= 500 -> store.appendLog(appId, "error", "http", "${method.uppercase()} $compactUrl -> $status")
+                status >= 400 -> store.appendLog(appId, "warn", "http", "${method.uppercase()} $compactUrl -> $status")
                 else -> Unit
             }
-            gson.toJson(mapOf(
-                "status" to response.code,
-                "ok" to response.isSuccessful,
-                "body" to responseBody,
-                "headers" to responseHeaders,
-            ))
+            gson.toJson(result)
         }.getOrElse { e ->
             store.appendLog(appId, "error", "http", "${method.uppercase()} ${url.take(200)} failed: ${e.message ?: "network error"}")
             gson.toJson(mapOf("error" to (e.message?.take(400) ?: "Network error"), "status" to 0, "ok" to false))
         }
+    }
+
+    private fun runtimeFetchFromJson(inputJson: String): Map<String, Any> {
+        val req = gson.fromJson(inputJson.ifBlank { "{}" }, Map::class.java)
+        val url = req["url"] as? String ?: throw IllegalArgumentException("url required")
+        val method = req["method"] as? String ?: "GET"
+        val body = req["body"]?.toString() ?: ""
+        @Suppress("UNCHECKED_CAST")
+        val rawHeaders = req["headers"] as? Map<String, Any> ?: emptyMap()
+        val headers = rawHeaders.mapValues { it.value.toString() }
+        return runtime.fetchBlocking(url, method, headers, body)
     }
 
     // ── SQLite ─────────────────────────────────────────────────────────────────

@@ -45,6 +45,7 @@ data class LogLine(
     val text: String,
     val skillId: String? = null,
     val imageBase64: String? = null,
+    val attachments: List<SkillAttachment> = emptyList(),
     val details: List<String> = emptyList(),
     val startedAt: Long = 0L,
     val finishedAt: Long = 0L,

@@ -1,9 +1,11 @@
 package com.mobileclaw.ui.shell
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +35,6 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -42,6 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,6 +91,7 @@ fun ClassicScaffold(
     content: @Composable () -> Unit,
 ) {
     val c = LocalClawColors.current
+    val contentBottomPadding = if (selected == ClassicTab.HOME) 0.dp else ClassicBottomDockSafePadding
     Box(
         Modifier
             .fillMaxSize()
@@ -107,7 +110,7 @@ fun ClassicScaffold(
                 Box(
                     Modifier
                         .weight(1f)
-                        .padding(bottom = ClassicBottomDockSafePadding)
+                        .padding(bottom = contentBottomPadding)
                 ) { content() }
             }
         }
@@ -689,6 +692,7 @@ fun ClassicHomePage(
         "group" -> conversationItems.filterIsInstance<ClassicConversationItem.GroupChat>()
         else -> conversationItems
     }
+    val listSurface = if (c.isDark) c.surface.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.52f)
     Column(
         Modifier
             .fillMaxSize()
@@ -728,7 +732,7 @@ fun ClassicHomePage(
                         spotColor = Color.Black.copy(alpha = 0.07f),
                     )
                     .clip(RoundedCornerShape(24.dp))
-                    .background(if (c.isDark) c.surface.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.52f))
+                    .background(listSurface)
                     .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.10f else 0.58f), RoundedCornerShape(24.dp)),
             ) {
                 LazyColumn(
@@ -758,6 +762,21 @@ fun ClassicHomePage(
                         )
                     }
                 }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    listSurface,
+                                )
+                            )
+                        )
+                        .zIndex(1f),
+                )
             }
         }
     }
@@ -1076,20 +1095,14 @@ private fun formatClassicSessionTime(updatedAt: Long, isZh: Boolean = java.util.
 fun ClassicMePage(
     userAvatarUri: String?,
     userName: String,
-    sessionCount: Int,
-    miniApps: List<MiniApp>,
     roleCount: Int,
-    preferenceCount: Int,
     gatewayOnline: Boolean,
-    onProfile: () -> Unit,
+    onUserInfo: () -> Unit,
     onRoles: () -> Unit,
-    onUserConfig: () -> Unit,
-    onVpn: () -> Unit,
-    onSettings: () -> Unit,
-    onHelp: () -> Unit,
-    onSkillMarket: () -> Unit,
-    onConsole: () -> Unit,
-    onGatewayConfig: () -> Unit,
+    onAiBasicSettings: () -> Unit,
+    onGeneralSettings: () -> Unit,
+    onToolsSettings: () -> Unit,
+    onMemorySettings: () -> Unit,
     onCheckUpdate: () -> Unit,
 ) {
     val c = LocalClawColors.current
@@ -1130,7 +1143,7 @@ fun ClassicMePage(
                     )
                 )
                 .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.10f else 0.68f), RoundedCornerShape(22.dp))
-                .clickable(onClick = onProfile)
+                .clickable(onClick = onUserInfo)
                 .padding(horizontal = 11.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1170,7 +1183,7 @@ fun ClassicMePage(
                     .height(27.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f))
-                    .clickable(onClick = onProfile)
+                    .clickable(onClick = onUserInfo)
                     .padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1178,267 +1191,169 @@ fun ClassicMePage(
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ClassicMeMeter(label = if (isZh) "角色" else "Roles", value = roleCount.coerceAtLeast(0).toString(), modifier = Modifier.weight(1f))
-            ClassicMeMeter(label = if (isZh) "空间" else "Spaces", value = (miniApps.size + sessionCount).coerceAtLeast(0).toString(), modifier = Modifier.weight(1f))
-            ClassicMeMeter(label = if (isZh) "偏好" else "Prefs", value = preferenceCount.coerceAtLeast(0).toString(), modifier = Modifier.weight(1f))
-        }
+        ClassicMeRoleEntry(
+            roleCount = roleCount,
+            onClick = onRoles,
+        )
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            ClassicMeRoleCard(
-                label = if (isZh) "角色管理" else "Role Management",
-                title = "Claw",
-                subtitle = if (isZh) "默认角色 · 写作 · 生活助手" else "Default role · Writing · Life helper",
-                onClick = onRoles,
-                modifier = Modifier.weight(1.24f),
+        ClassicMeSection(title = if (isZh) "空间模块" else "Space Modules") {
+            ClassicMeRow(
+                icon = Icons.Filled.Settings,
+                title = if (isZh) "AI基础配置" else "AI Basics",
+                subtitle = if (isZh) "网关、本地模型、Image 生成" else "Gateway, local model, image generation",
+                onClick = onAiBasicSettings,
             )
-            ClassicMePortraitCard(
-                label = if (isZh) "用户画像" else "Profile",
-                title = if (isZh) "偏好与记忆" else "Preferences and Memory",
-                onClick = onProfile,
-                modifier = Modifier.weight(0.76f),
+            ClassicMeRow(
+                icon = Icons.Filled.Shield,
+                title = if (isZh) "通用设置" else "General Settings",
+                subtitle = if (isZh) "主题、权限、虚拟屏幕、缓存" else "Theme, permissions, display, cache",
+                onClick = onGeneralSettings,
             )
-        }
-
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                ClassicMeTile(if (isZh) "用户配置" else "User Config", if (isZh) "模型 · 输入 · 生成" else "Model · Input · Generation", onUserConfig, Modifier.weight(1f))
-                ClassicMeTile(if (isZh) "设置" else "Settings", if (isZh) "安全 · 通知 · 外观" else "Security · Alerts · Theme", onSettings, Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                ClassicMeTile(if (isZh) "使用指南" else "Guide", if (isZh) "入门 · 问题" else "Start · FAQ", onHelp, Modifier.weight(1f))
-                ClassicMeTile(if (isZh) "网关配置" else "Gateway", if (isZh) "连接 · 隐私 · 数据" else "Connection · Privacy · Data", onGatewayConfig, Modifier.weight(1f), quiet = true)
-            }
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            ClassicMeServiceButton(if (isZh) "Skill 市场" else "Skill Market", onSkillMarket, Modifier.weight(1f))
-            ClassicMeServiceButton(if (isZh) "控制台" else "Console", onConsole, Modifier.weight(1f))
-            ClassicMeServiceButton("VPN", onVpn, Modifier.weight(1f))
+            ClassicMeRow(
+                icon = Icons.Filled.Extension,
+                title = if (isZh) "工具" else "Tools",
+                subtitle = if (isZh) "Skill 市场、控制台、VPN、Codex 桥接" else "Skill market, console, VPN, Codex bridge",
+                onClick = onToolsSettings,
+            )
+            ClassicMeRow(
+                icon = Icons.Filled.Psychology,
+                title = if (isZh) "记忆" else "Memory",
+                subtitle = if (isZh) "记忆、历史、工具策略" else "Memory, history, tool strategy",
+                onClick = onMemorySettings,
+                showDivider = false,
+            )
         }
     }
 }
 
 @Composable
-private fun ClassicMeMeter(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
+private fun ClassicMeRoleEntry(
+    roleCount: Int,
+    onClick: () -> Unit,
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
-    Column(
-        modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.34f)),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(label, color = c.text.copy(alpha = 0.42f), fontSize = 10.5.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(5.dp))
-        Text(value, color = c.text.copy(alpha = 0.86f), fontSize = 15.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold)
-    }
-}
-
-@Composable
-private fun ClassicMeRoleCard(
-    label: String,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier
-            .heightIn(min = 104.dp)
-            .clip(RoundedCornerShape(23.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF161917), Color(0xFF373F3A).copy(alpha = 0.92f))
-                )
-            )
-            .border(0.7.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(23.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 14.dp),
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Text(label, color = Color.White.copy(alpha = 0.68f), fontSize = 12.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(22.dp))
-            Text(title, color = Color.White.copy(alpha = 0.96f), fontSize = 24.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(8.dp))
-            Text(subtitle, color = Color.White.copy(alpha = 0.54f), fontSize = 10.5.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun ClassicMePortraitCard(
-    label: String,
-    title: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = LocalClawColors.current
-    Column(
-        modifier
-            .heightIn(min = 104.dp)
-            .clip(RoundedCornerShape(23.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = if (c.isDark) 0.10f else 0.60f),
-                        Color(0xFFF4F6F3).copy(alpha = if (c.isDark) 0.08f else 0.36f),
-                    )
-                )
-            )
-            .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.10f else 0.54f), RoundedCornerShape(23.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 13.dp, vertical = 14.dp),
-    ) {
-        Text(label, color = c.text.copy(alpha = 0.62f), fontSize = 12.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(28.dp))
-        Text(title, color = c.text.copy(alpha = 0.86f), fontSize = 13.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun ClassicMeUpdateCard(
-    onCheckUpdate: () -> Unit,
-) {
-    val c = LocalClawColors.current
-    val isZh = LocalAppLanguage.current == "zh"
+    val countText = if (isZh) "${roleCount.coerceAtLeast(0)} 个角色" else "${roleCount.coerceAtLeast(0)} roles"
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 70.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .heightIn(min = 88.dp)
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(24.dp),
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = if (c.isDark) 0.06f else 0.08f),
+                spotColor = Color.Black.copy(alpha = if (c.isDark) 0.08f else 0.12f),
+            )
+            .clip(RoundedCornerShape(24.dp))
             .background(
                 Brush.linearGradient(
                     listOf(
-                        Color(0xFFFFF7E8).copy(alpha = if (c.isDark) 0.08f else 0.76f),
-                        Color(0xFFF3D6AC).copy(alpha = if (c.isDark) 0.06f else 0.34f),
-                        Color.White.copy(alpha = if (c.isDark) 0.06f else 0.54f),
+                        Color(0xFF050505),
+                        Color(0xFF151515),
                     )
                 )
             )
-            .border(0.8.dp, Color(0xFFE2B56F).copy(alpha = if (c.isDark) 0.10f else 0.38f), RoundedCornerShape(22.dp))
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .border(0.7.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(24.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.10f))
+                .border(0.7.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Psychology,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.92f),
+                modifier = Modifier.size(22.dp),
+            )
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
-                if (isZh) "检测更新" else "Check for Updates",
-                color = c.text.copy(alpha = 0.90f),
-                fontSize = 14.sp,
-                lineHeight = 16.sp,
+                if (isZh) "角色管理" else "Role Management",
+                color = Color.White,
+                fontSize = 17.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (isZh) "检查是否有可用的新版本" else "See whether a new version is available",
-                color = c.text.copy(alpha = 0.46f),
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
+                if (isZh) "管理默认角色、工作区与角色包" else "Manage default roles, workspaces, and packages",
+                color = Color.White.copy(alpha = 0.58f),
+                fontSize = 11.5.sp,
+                lineHeight = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        ClassicMeMiniButton(if (isZh) "检测" else "Check", onCheckUpdate, primary = true)
-    }
-}
-
-@Composable
-private fun ClassicMeMiniButton(
-    label: String,
-    onClick: () -> Unit,
-    primary: Boolean = false,
-) {
-    val c = LocalClawColors.current
-    Box(
-        Modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (primary) Color(0xFF171716) else Color.White.copy(alpha = 0.62f))
-            .border(
-                0.7.dp,
-                if (primary) Color.Black.copy(alpha = 0.08f) else Color(0xFFE2B56F).copy(alpha = 0.28f),
-                RoundedCornerShape(999.dp),
+        Box(
+            Modifier
+                .height(28.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.12f))
+                .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                countText,
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 10.5.sp,
+                lineHeight = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            label,
-            color = if (primary) Color.White else c.text.copy(alpha = 0.70f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.62f),
+            modifier = Modifier.size(18.dp),
         )
     }
 }
 
 @Composable
-private fun ClassicMeTile(
-    label: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    quiet: Boolean = false,
+private fun ClassicMeSection(
+    title: String,
+    content: @Composable () -> Unit,
 ) {
     val c = LocalClawColors.current
     Column(
-        modifier
-            .heightIn(min = 70.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                if (quiet) {
-                    Color(0xFFEFF2EE).copy(alpha = if (c.isDark) 0.08f else 0.42f)
-                } else {
-                    Color.White.copy(alpha = if (c.isDark) 0.08f else 0.35f)
-                }
-            )
-            .border(0.8.dp, Color.White.copy(alpha = if (c.isDark) 0.08f else 0.38f), RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(13.dp),
-    ) {
-        Text(label, color = c.text.copy(alpha = 0.86f), fontSize = 13.sp, lineHeight = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.weight(1f))
-        Text(subtitle, color = c.text.copy(alpha = 0.42f), fontSize = 10.5.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun ClassicMeServiceButton(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = LocalClawColors.current
-    Box(
-        modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = if (c.isDark) 0.08f else 0.34f))
-            .border(0.7.dp, Color.White.copy(alpha = if (c.isDark) 0.08f else 0.32f), RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp),
-        contentAlignment = Alignment.Center,
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            label,
-            color = c.text.copy(alpha = 0.60f),
-            fontSize = 11.sp,
-            lineHeight = 11.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
+            title,
+            color = c.subtext.copy(alpha = 0.86f),
+            fontSize = 12.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 3.dp),
         )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(c.surface)
+                .border(
+                    0.7.dp,
+                    c.border.copy(alpha = if (c.isDark) 0.58f else 0.68f),
+                    RoundedCornerShape(22.dp),
+                )
+        ) {
+            content()
+        }
     }
 }
 
@@ -1449,10 +1364,17 @@ fun ClassicHubPage(
     onOpenApp: (String) -> Unit,
     onOpenAiPage: (String) -> Unit,
     onOpenWorkspace: () -> Unit,
+    onImportMiniApp: () -> Unit,
+    onDeleteMiniApps: (Set<String>) -> Unit,
     onGenerateImage: () -> Unit,
     onGenerateVideo: () -> Unit,
 ) {
     var filter by remember { mutableStateOf("all") }
+    var selectedMiniAppIds by remember { mutableStateOf(setOf<String>()) }
+    val selectableMiniAppIds = remember(miniApps) { miniApps.map { it.id }.toSet() }
+    LaunchedEffect(selectableMiniAppIds) {
+        selectedMiniAppIds = selectedMiniAppIds.intersect(selectableMiniAppIds)
+    }
     val items = remember(miniApps, aiPages) {
         buildList {
             miniApps.forEach { add(ClassicWorkspaceItem.MiniAppItem(it)) }
@@ -1466,6 +1388,7 @@ fun ClassicHubPage(
             else -> items
         }
     }
+    val selectionMode = selectedMiniAppIds.isNotEmpty()
     Column(
         Modifier
             .fillMaxSize()
@@ -1483,11 +1406,39 @@ fun ClassicHubPage(
         ClassicWorkbenchBar(count = items.size)
         Spacer(Modifier.height(10.dp))
         ClassicWorkbenchFilter(selected = filter, onSelected = { filter = it })
+        Spacer(Modifier.height(10.dp))
+        ClassicMiniAppToolbar(
+            miniAppCount = miniApps.size,
+            selectedCount = selectedMiniAppIds.size,
+            selectionMode = selectionMode,
+            onImportMiniApp = onImportMiniApp,
+            onSelectAll = { selectedMiniAppIds = selectableMiniAppIds },
+            onDeleteSelected = {
+                val ids = selectedMiniAppIds
+                if (ids.isNotEmpty()) {
+                    onDeleteMiniApps(ids)
+                    selectedMiniAppIds = emptySet()
+                }
+            },
+            onCancelSelection = { selectedMiniAppIds = emptySet() },
+        )
         Spacer(Modifier.height(12.dp))
         ClassicWorkspaceList(
             items = filteredItems,
+            selectedMiniAppIds = selectedMiniAppIds,
+            selectionMode = selectionMode,
             onOpenApp = onOpenApp,
             onOpenAiPage = onOpenAiPage,
+            onToggleMiniAppSelection = { appId ->
+                selectedMiniAppIds = if (appId in selectedMiniAppIds) {
+                    selectedMiniAppIds - appId
+                } else {
+                    selectedMiniAppIds + appId
+                }
+            },
+            onStartMiniAppSelection = { appId ->
+                selectedMiniAppIds = selectedMiniAppIds + appId
+            },
         )
     }
 }
@@ -1821,10 +1772,151 @@ private fun ClassicWorkbenchFilter(
 }
 
 @Composable
+private fun ClassicMiniAppToolbar(
+    miniAppCount: Int,
+    selectedCount: Int,
+    selectionMode: Boolean,
+    onImportMiniApp: () -> Unit,
+    onSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onCancelSelection: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(19.dp))
+            .background(if (selectionMode) c.text else Color.White.copy(alpha = if (c.isDark) 0.10f else 0.46f))
+            .border(
+                0.6.dp,
+                if (selectionMode) c.text else Color.White.copy(alpha = if (c.isDark) 0.14f else 0.62f),
+                RoundedCornerShape(19.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (selectionMode) {
+            Text(
+                if (isZh) "已选 $selectedCount" else "$selectedCount selected",
+                color = c.bg,
+                fontSize = 12.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            ClassicToolbarPill(
+                text = if (isZh) "全选" else "All",
+                filled = false,
+                onClick = onSelectAll,
+                darkBar = true,
+            )
+            ClassicToolbarPill(
+                text = if (isZh) "删除" else "Delete",
+                filled = true,
+                enabled = selectedCount > 0,
+                onClick = onDeleteSelected,
+                darkBar = true,
+            )
+            ClassicToolbarPill(
+                text = if (isZh) "完成" else "Done",
+                filled = false,
+                onClick = onCancelSelection,
+                darkBar = true,
+            )
+        } else {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (isZh) "MiniAPP 包" else "MiniAPP packages",
+                    color = c.text,
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "MiniAPP · $miniAppCount",
+                    color = c.text.copy(alpha = 0.45f),
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            ClassicToolbarPill(
+                text = if (isZh) "导入" else "Import",
+                filled = true,
+                onClick = onImportMiniApp,
+                darkBar = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClassicToolbarPill(
+    text: String,
+    filled: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    darkBar: Boolean,
+) {
+    val c = LocalClawColors.current
+    val bg = when {
+        filled && darkBar -> c.bg
+        filled -> c.text
+        darkBar -> Color.White.copy(alpha = 0.12f)
+        else -> Color.White.copy(alpha = if (c.isDark) 0.10f else 0.66f)
+    }
+    val border = when {
+        filled && darkBar -> c.bg
+        filled -> c.text
+        darkBar -> Color.White.copy(alpha = 0.16f)
+        else -> c.border.copy(alpha = 0.74f)
+    }
+    val fg = when {
+        !enabled -> if (darkBar) c.bg.copy(alpha = 0.42f) else c.subtext.copy(alpha = 0.56f)
+        filled && darkBar -> c.text
+        filled -> c.bg
+        darkBar -> c.bg
+        else -> c.text
+    }
+    Box(
+        modifier = Modifier
+            .height(31.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(bg)
+            .border(0.6.dp, border, RoundedCornerShape(999.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 11.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = fg,
+            fontSize = 11.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun ClassicWorkspaceList(
     items: List<ClassicWorkspaceItem>,
+    selectedMiniAppIds: Set<String>,
+    selectionMode: Boolean,
     onOpenApp: (String) -> Unit,
     onOpenAiPage: (String) -> Unit,
+    onToggleMiniAppSelection: (String) -> Unit,
+    onStartMiniAppSelection: (String) -> Unit,
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
@@ -1857,14 +1949,24 @@ private fun ClassicWorkspaceList(
             )
         } else {
             items.forEachIndexed { index, item ->
+                val miniAppId = (item as? ClassicWorkspaceItem.MiniAppItem)?.app?.id
                 ClassicWorkspaceRow(
                     item = item,
                     index = index,
                     showDivider = index < items.lastIndex,
+                    selectionMode = selectionMode,
+                    isSelected = miniAppId != null && miniAppId in selectedMiniAppIds,
                     onClick = {
                         when (item) {
-                            is ClassicWorkspaceItem.MiniAppItem -> onOpenApp(item.app.id)
+                            is ClassicWorkspaceItem.MiniAppItem -> {
+                                if (selectionMode) onToggleMiniAppSelection(item.app.id) else onOpenApp(item.app.id)
+                            }
                             is ClassicWorkspaceItem.NativePageItem -> onOpenAiPage(item.page.id)
+                        }
+                    },
+                    onLongClick = {
+                        if (item is ClassicWorkspaceItem.MiniAppItem) {
+                            onStartMiniAppSelection(item.app.id)
                         }
                     },
                 )
@@ -1873,20 +1975,28 @@ private fun ClassicWorkspaceList(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ClassicWorkspaceRow(
     item: ClassicWorkspaceItem,
     index: Int,
     showDivider: Boolean,
+    selectionMode: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
+    val miniAppSelectable = item is ClassicWorkspaceItem.MiniAppItem
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 76.dp)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (miniAppSelectable) onLongClick else null,
+            )
             .padding(horizontal = 13.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1944,12 +2054,27 @@ private fun ClassicWorkspaceRow(
                 .clip(RoundedCornerShape(15.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = c.text.copy(alpha = 0.32f),
-                modifier = Modifier.size(18.dp),
-            )
+            if (selectionMode && miniAppSelectable) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) c.text else Color.Transparent)
+                        .border(0.8.dp, if (isSelected) c.text else c.text.copy(alpha = 0.26f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) {
+                        Text("✓", color = c.bg, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                    }
+                }
+            } else if (!selectionMode) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = c.text.copy(alpha = 0.32f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
     if (showDivider) {
@@ -2178,7 +2303,7 @@ private fun ClassicMeRow(
     subtitle: String,
     onClick: () -> Unit,
     showDivider: Boolean = true,
-    accent: Color = Color(0xFFC7F43A),
+    accent: Color = Color(0xFF56D6BA),
     highlighted: Boolean = false,
 ) {
     val c = LocalClawColors.current

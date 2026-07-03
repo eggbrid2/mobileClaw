@@ -361,7 +361,6 @@ private fun SkillMarketSection(
     c: ClawColors,
 ) {
     val categories = remember { SkillMarket.catalog.map { it.category }.distinct() }
-    var selectedCategory by remember { mutableStateOf(categories.firstOrNull() ?: "") }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // Header
@@ -383,29 +382,19 @@ private fun SkillMarketSection(
             Text(str(R.string.count_items, SkillMarket.catalog.size), color = c.subtext, fontSize = 11.sp)
         }
 
-        // Category chips
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            categories.forEach { cat ->
-                val selected = cat == selectedCategory
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (selected) c.text else Color.White.copy(alpha = if (c.isDark) 0.08f else 0.46f))
-                        .border(0.6.dp, if (selected) c.text else Color.White.copy(alpha = if (c.isDark) 0.12f else 0.58f), RoundedCornerShape(16.dp))
-                        .clickable { selectedCategory = cat }
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                ) {
-                    Text(cat, fontSize = 12.sp, color = if (selected) c.bg else c.text.copy(alpha = 0.76f), fontWeight = FontWeight.Medium)
+        categories.forEach { category ->
+            Text(
+                category,
+                color = c.subtext,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 2.dp, top = 4.dp),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SkillMarket.catalog.filter { it.category == category }.forEach { entry ->
+                    val installed = entry.def.meta.id in installedIds
+                    MarketSkillCard(entry = entry, installed = installed, onInstall = { onInstall(entry.def) }, c = c)
                 }
-            }
-        }
-
-        // Skill cards for selected category
-        val items = remember(selectedCategory) { SkillMarket.catalog.filter { it.category == selectedCategory } }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items.forEach { entry ->
-                val installed = entry.def.meta.id in installedIds
-                MarketSkillCard(entry = entry, installed = installed, onInstall = { onInstall(entry.def) }, c = c)
             }
         }
     }

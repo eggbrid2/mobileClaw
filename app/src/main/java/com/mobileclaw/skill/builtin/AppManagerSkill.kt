@@ -2,6 +2,7 @@ package com.mobileclaw.skill.builtin
 
 import com.google.gson.Gson
 import com.mobileclaw.app.MiniApp
+import com.mobileclaw.app.MiniAppPackageImportOptions
 import com.mobileclaw.app.MiniAppPreflightValidator
 import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.artifact.ArtifactHistoryEntry
@@ -14,6 +15,7 @@ import com.mobileclaw.skill.SkillResult
 import com.mobileclaw.skill.SkillType
 import com.mobileclaw.skill.SkillToolCategory
 import kotlinx.coroutines.flow.MutableSharedFlow
+import java.io.File
 import java.util.UUID
 
 /**
@@ -65,10 +67,10 @@ class AppManagerSkill(
             "IMPORTANT: Always call action=get_guide before creating or updating an app to get the full API reference and starter template. " +
             "All Claw async methods (fetch/sql/python/shell) MUST be used with await — synchronous calls will freeze the UI. " +
             "Use Claw.log.info/warn/error/debug and Claw.log.read() for runtime diagnostics and debugging. " +
-            "Actions: get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon",
+            "Actions: get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon | export_package | import_package",
         descriptionZh = "创建和管理在 MobileClaw 中运行的持久化 HTML+JS MiniAPP 程序。仅在用户明确要求应用/小程序/程序/游戏，或需要自定义 HTML/CSS/JavaScript、Canvas、复杂浏览器渲染、SQLite、Python 后端时使用。普通页面、仪表盘、表单、管理页优先使用 ui_builder。重要：创建或更新应用前请先调用 action=get_guide 获取完整 API 参考和起始模板。",
         parameters = listOf(
-            SkillParam("action", "string", "Action: 'get_guide' | 'create' | 'update' | 'analyze_change' | 'validate' | 'inspect_logs' | 'list' | 'delete' | 'open' | 'set_icon'"),
+            SkillParam("action", "string", "Action: 'get_guide' | 'create' | 'update' | 'analyze_change' | 'validate' | 'inspect_logs' | 'list' | 'delete' | 'open' | 'set_icon' | 'export_package' | 'import_package'"),
             SkillParam("id", "string", "App ID (snake_case). Required for update/delete/open. Auto-generated for create.", required = false),
             SkillParam("title", "string", "App title shown in launcher", required = false),
             SkillParam("description", "string", "Short description of what the app does", required = false),
@@ -82,6 +84,8 @@ class AppManagerSkill(
             SkillParam("change_request", "string", "Latest user correction or requested change", required = false),
             SkillParam("html", "string", "Complete HTML+CSS+JS. Use Claw.* APIs for all native features. For HTTP use Claw.fetch(url) — do NOT use fetch()/XMLHttpRequest (CORS blocked). For Python call Claw.python({action:'...',...}).", required = false),
             SkillParam("python", "string", "Optional Python backend. Must define handle(input_json_str)->str returning JSON. Called via Claw.python(obj) from HTML.", required = false),
+            SkillParam("file_path", "string", "Package file path for export/import. Optional for export; required for import_package.", required = false),
+            SkillParam("overwrite", "boolean", "Whether import_package may overwrite an existing MiniAPP with the target id. Defaults to false.", required = false),
         ),
         type = SkillType.NATIVE,
         injectionLevel = 1,
@@ -227,8 +231,9 @@ class AppManagerSkill(
                 val icon = params["icon"] as? String ?: "apps"
                 val python = params["python"] as? String
                 val changeRequest = params["change_request"] as? String ?: ""
-                val id = (params["id"] as? String)?.takeIf { it.matches(Regex("[a-z0-9_]+")) }
-                    ?: "app_${UUID.randomUUID().toString().take(8)}"
+                val requestedId = params["id"] as? String
+                val id = uniqueCreateId(requestedId, title)
+                val createIdWasReassigned = !requestedId.isNullOrBlank() && requestedId != id
                 val app = MiniApp(
                     id = id,
                     title = title,
@@ -267,6 +272,8 @@ class AppManagerSkill(
                         "needs_runtime_repair" to logReport.needsRepair,
                         "latest_log_summary" to preflight.recentLogs.takeLast(8).joinToString(" | ").take(800),
                         "debug_protocol" to MINI_APP_DEBUG_PROTOCOL,
+                        "id_reassigned" to createIdWasReassigned,
+                        "requested_id" to requestedId.orEmpty(),
                         "summary" to "MiniAPP draft '$id' was saved, but preflight failed so it was not opened. Repair the reported issues, then validate and open it.",
                     )
                     return SkillResult(true, gson.toJson(output))
@@ -293,7 +300,13 @@ class AppManagerSkill(
                     "ui_open_request_emitted" to true,
                     "suggested_next_action" to "If the user is still in chat, use the bottom-right validation preview first. If that preview shows issues, inspect_logs -> focused repair -> validate, instead of treating the preview as the final app surface.",
                     "open_hint" to "app_manager(action=open, id=$id)",
-                    "summary" to "Created MiniAPP '$id'${if (python != null) " with Python backend" else ""}."
+                    "id_reassigned" to createIdWasReassigned,
+                    "requested_id" to requestedId.orEmpty(),
+                    "summary" to if (createIdWasReassigned) {
+                        "Created MiniAPP '$id'${if (python != null) " with Python backend" else ""}; requested id '$requestedId' already existed, so a new app id was assigned."
+                    } else {
+                        "Created MiniAPP '$id'${if (python != null) " with Python backend" else ""}."
+                    }
                 )
                 SkillResult(true, gson.toJson(output))
             }
@@ -443,9 +456,75 @@ class AppManagerSkill(
                 SkillResult(true, "Icon updated for app '$id'.")
             }
 
-            else -> SkillResult(false, "Unknown action: $action. Use get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon")
+            "export_package" -> {
+                val id = params["id"] as? String
+                    ?: return SkillResult(false, "id is required for export_package")
+                if (store.get(id) == null) return SkillResult(false, "App '$id' not found.")
+                val requestedPath = params["file_path"] as? String
+                val file = store.exportPackage(id, requestedPath?.takeIf { it.isNotBlank() }?.let(::File))
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "export_package",
+                    "id" to id,
+                    "package_path" to file.absolutePath,
+                    "summary" to "Exported MiniAPP '$id' to ${file.absolutePath}.",
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            "import_package" -> {
+                val path = params["file_path"] as? String
+                    ?: return SkillResult(false, "file_path is required for import_package")
+                val file = File(path)
+                if (!file.exists()) return SkillResult(false, "Package file not found: $path")
+                val preferredId = params["id"] as? String ?: ""
+                val overwrite = params["overwrite"] as? Boolean ?: false
+                val result = store.importPackage(
+                    file,
+                    MiniAppPackageImportOptions(
+                        preferredId = preferredId,
+                        overwrite = overwrite,
+                    ),
+                )
+                val output = linkedMapOf(
+                    "artifact_type" to "miniapp",
+                    "action" to "import_package",
+                    "original_id" to result.originalId,
+                    "id" to result.importedId,
+                    "title" to result.app.title,
+                    "id_changed" to result.idChanged,
+                    "overwritten" to result.overwritten,
+                    "warnings" to result.warnings,
+                    "summary" to if (result.idChanged) {
+                        "Imported MiniAPP '${result.originalId}' as '${result.importedId}'."
+                    } else {
+                        "Imported MiniAPP '${result.importedId}'."
+                    },
+                )
+                SkillResult(true, gson.toJson(output))
+            }
+
+            else -> SkillResult(false, "Unknown action: $action. Use get_guide | create | update | analyze_change | validate | inspect_logs | list | delete | open | set_icon | export_package | import_package")
         }
     }
+
+    private fun uniqueCreateId(requestedId: String?, title: String): String {
+        val base = sanitizeArtifactId(requestedId?.takeIf { it.isNotBlank() } ?: title)
+            .ifBlank { "app_${UUID.randomUUID().toString().take(8)}" }
+        if (store.get(base) == null) return base
+        repeat(20) { index ->
+            val candidate = "${base}_${index + 2}"
+            if (store.get(candidate) == null) return candidate
+        }
+        return "${base}_${UUID.randomUUID().toString().take(8)}"
+    }
+
+    private fun sanitizeArtifactId(raw: String): String =
+        raw.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trim('_')
+            .take(48)
 }
 
 private fun parseArtifactStringList(value: Any?): List<String>? = when (value) {
@@ -569,9 +648,10 @@ private fun inferChangeType(changeRequest: String): String {
 
 private fun validateMiniAppRuntime(html: String, python: String): List<String> {
     val issues = mutableListOf<String>()
-    val loweredHtml = html.lowercase()
+    val executableJs = stripJavaScriptNoise(extractScriptBlocks(html))
+    val loweredJs = executableJs.lowercase()
     val loweredPython = python.lowercase()
-    val merged = "$loweredHtml\n$loweredPython"
+    val merged = "${html.lowercase()}\n$loweredPython"
 
     if (Regex("""https?://[^"'\\s)]+/v1/v1(/|$)""").containsMatchIn(merged)) {
         issues += "Found duplicated '/v1/v1' in endpoint URL. Normalize the base endpoint before appending API paths."
@@ -579,14 +659,14 @@ private fun validateMiniAppRuntime(html: String, python: String): List<String> {
     if (Regex("""https?://(localhost|127\.0\.0\.1)(:\d+)?/v1/""").containsMatchIn(merged)) {
         issues += "Found OpenAI-style API call pointing at localhost/127.0.0.1. MiniAPPs should use Claw.fetch or MobileClaw local APIs, not ad hoc local /v1 endpoints."
     }
-    if (Regex("""(?<!claw\.)fetch\s*\(""").containsMatchIn(loweredHtml)) {
+    if (Regex("""(?<!claw\.)(?<!android\.)(?<!\.)\bfetch\s*\(""").containsMatchIn(loweredJs)) {
         issues += "Detected native fetch(). Use await Claw.fetch(...) instead so requests go through the app bridge."
     }
-    if ("xmlhttprequest" in loweredHtml) {
+    if ("xmlhttprequest" in loweredJs) {
         issues += "Detected XMLHttpRequest. Use await Claw.fetch(...) instead."
     }
-    if (Regex("""(?<!await\s)claw\.(fetch|sql|python|shell|pip)\s*\(""").containsMatchIn(html)) {
-        issues += "Detected Claw async API call without 'await'. All Claw.fetch/sql/python/shell/pip calls must be awaited."
+    if (hasClearlyUnawaitedClawAsyncCall(loweredJs)) {
+        issues += "Detected Claw async API call without 'await'. All Claw.fetch/ai.chat/task/sql/python/shell/pip calls must be awaited."
     }
     if (Regex("""https?://127\.0\.0\.1:52732(?!/api/)""").containsMatchIn(merged)) {
         issues += "Local API server URL is malformed. Use ${LocalApiServer.BASE_URL}/api/... paths."
@@ -598,6 +678,35 @@ private fun validateMiniAppRuntime(html: String, python: String): List<String> {
         issues += "Detected direct privileged TCP endpoint usage. MiniAPPs should not call the privileged server directly."
     }
     return issues.distinct()
+}
+
+private fun extractScriptBlocks(html: String): String {
+    return Regex("""(?is)<script\b[^>]*>(.*?)</script>""")
+        .findAll(html)
+        .map { it.groupValues.getOrElse(1) { "" } }
+        .joinToString("\n")
+}
+
+private fun stripJavaScriptNoise(js: String): String =
+    js.replace(Regex("""(?s)/\*.*?\*/"""), " ")
+        .replace(Regex("""(?m)//.*$"""), " ")
+        .replace(Regex("""(?s)'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`"""), "\"\"")
+
+private fun hasClearlyUnawaitedClawAsyncCall(js: String): Boolean {
+    val asyncCall = Regex("""(?:window\.)?claw\.(fetch|sql|python|shell|pip|ai\.chat|task\.run|task\.all)\s*\(""")
+    return js.lineSequence().any { rawLine ->
+        val line = rawLine.trim()
+        val match = asyncCall.find(line) ?: return@any false
+        val beforeCall = line.substring(0, match.range.first)
+        val isHandled =
+            "await" in beforeCall ||
+                "promise.all" in beforeCall ||
+                beforeCall.endsWith("return ") ||
+                beforeCall.endsWith("return") ||
+                beforeCall.endsWith("=>") ||
+                beforeCall.endsWith("=")
+        !isHandled
+    }
 }
 
 private data class MiniAppLogReport(
@@ -639,7 +748,7 @@ private val APP_CREATION_GUIDE = """
 ## MobileClaw Mini-App Development Guide
 
 ### ⚠️ CRITICAL RULE: ALL async operations MUST use async/await
-Claw.fetch, Claw.sql, Claw.python, Claw.shell are Promises — they MUST be awaited.
+Claw.fetch, Claw.ai.chat, Claw.task.run, Claw.sql, Claw.python, Claw.shell are Promises — they MUST be awaited.
 Calling them without await will cause silent failures and UI freezes.
 
 ### Starter Template
@@ -694,6 +803,9 @@ async function run(){
 | API | Returns | Description |
 |-----|---------|-------------|
 | await Claw.fetch(url, {method?,headers?,body?}) | {status,ok,body,headers} | HTTP request, bypasses CORS |
+| await Claw.ai.chat({prompt,system?,messages?}) | {ok,text,content,finishReason,error?} | Ask the default MobileClaw LLM gateway. Do not expose API keys or call OpenAI-compatible /v1 directly |
+| await Claw.task.run(kind, payload) | varies | Run a background task on native worker threads. kind: ai_chat/chat/fetch/http/python/shell |
+| await Claw.task.all([{kind,payload},...]) | array | Run multiple native tasks concurrently |
 | await Claw.sql(query, params?) | {rows,rowCount,error?} | Per-app SQLite database |
 | await Claw.python(dataObj) | any | Call Python handle(json) function |
 | await Claw.shell(cmd) | {stdout,exitCode,ok} | Shell command execution |
@@ -739,6 +851,7 @@ Call from JS: `var r = await Claw.python({action:'greet', name:'Alice'})`
 - For **scrollable inner containers** (chat history, lists, etc.) use: `overflow-y:auto; -webkit-overflow-scrolling:touch; max-height:XXXpx`
 - Do NOT set `overflow:hidden` on `html` or `body` — it creates scroll conflicts in Android WebView
 - `native fetch()` and `XMLHttpRequest` are **blocked** (CORS) — always use `Claw.fetch()`
+- For AI text generation, use `await Claw.ai.chat({prompt:'...'})`; never hard-code gateway URLs, tokens, or `/v1/chat/completions`
 
 ### Debugging Rules
 - Required repair loop after every meaningful edit:
@@ -759,7 +872,8 @@ Call from JS: `var r = await Claw.python({action:'greet', name:'Alice'})`
 1. Dark theme: background #1a1a2e, cards #1e1e3f, accent #7c3aed, text #eee
 2. All persistent data goes in Claw.files or Claw.sql — localStorage is unreliable in WebView
 3. Use Claw.fetch for ALL HTTP — never native fetch() or XMLHttpRequest (CORS blocks them)
-4. Wrap async operations in try/catch, always show error state in UI
-5. Disable buttons during async operations to prevent double-submission
-6. Never use busy-polling loops (while/for). For recurring updates use: `setTimeout(poll, 1000)` pattern
+4. Use Claw.ai.chat for LLM calls so the app default gateway config is reused securely
+5. Wrap async operations in try/catch, always show error state in UI
+6. Disable buttons during async operations to prevent double-submission
+7. Never use busy-polling loops (while/for). For recurring updates use: `setTimeout(poll, 1000)` pattern
 """.trimIndent()

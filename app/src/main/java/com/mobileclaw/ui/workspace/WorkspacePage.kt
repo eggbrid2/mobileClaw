@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,16 +32,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.R
 import com.mobileclaw.memory.MemoryFact
+import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.ui.ClawPageHeader
 import com.mobileclaw.ui.LocalClawColors
+import com.mobileclaw.ui.common.openFileAttachment
 import com.mobileclaw.str
 import com.mobileclaw.workspace.WorkspaceInspectorSnapshot
+import java.io.File
+import java.net.URLConnection
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,35 +55,41 @@ import java.util.Locale
 fun WorkspacePage(
     snapshot: WorkspaceInspectorSnapshot?,
     facts: List<MemoryFact>,
+    areas: List<WorkspaceAreaUi>,
+    openArea: WorkspaceAreaUi?,
+    openAreaRoots: List<String>,
+    openAreaCurrentPath: String,
+    openAreaEntries: List<WorkspaceFileEntryUi>,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenArea: (String) -> Unit,
+    onOpenFolder: (String) -> Unit,
+    onNavigateFolderUp: () -> Unit,
+    onCloseArea: () -> Unit,
     onPromoteFact: (String) -> Unit,
     onDeleteFact: (String) -> Unit,
 ) {
     val c = LocalClawColors.current
+    if (openArea != null) {
+        BackHandler { if (openAreaCurrentPath.isNotBlank()) onNavigateFolderUp() else onCloseArea() }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg)
             .navigationBarsPadding(),
     ) {
-        ClawPageHeader(title = str(R.string.workspace_title), onBack = onBack) {
+        ClawPageHeader(
+            title = openArea?.title ?: str(R.string.workspace_title),
+            onBack = if (openArea != null) {
+                { if (openAreaCurrentPath.isNotBlank()) onNavigateFolderUp() else onCloseArea() }
+            } else {
+                onBack
+            },
+        ) {
             IconButton(onClick = onRefresh) {
                 Icon(Icons.Default.Refresh, contentDescription = str(R.string.workspace_refresh))
             }
-        }
-        if (snapshot == null) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = str(R.string.workspace_empty),
-                    color = c.subtext,
-                    fontSize = 14.sp,
-                )
-            }
-            return
         }
 
         Column(
@@ -85,27 +99,52 @@ fun WorkspacePage(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (openArea != null) {
+                WorkspaceAreaDetail(
+                    area = openArea,
+                    roots = openAreaRoots,
+                    currentPath = openAreaCurrentPath,
+                    entries = openAreaEntries,
+                    onOpenFolder = onOpenFolder,
+                    onNavigateUp = onNavigateFolderUp,
+                )
+                Spacer(Modifier.height(8.dp))
+                return@Column
+            }
+
+            WorkspaceOverview(areas = areas, onOpenArea = onOpenArea)
+
+            if (snapshot == null) {
+                WorkspaceSectionCard(title = str(R.string.workspace_current_task)) {
+                    WorkspaceEmptyLine(str(R.string.workspace_empty))
+                }
+                Spacer(Modifier.height(8.dp))
+                return@Column
+            }
+
+            val currentSnapshot = snapshot
+
             WorkspaceSectionCard(title = str(R.string.workspace_current_task)) {
-                WorkspaceKeyValue(str(R.string.workspace_name), snapshot.manifest.title)
-                WorkspaceKeyValue(str(R.string.workspace_goal), snapshot.manifest.goal)
-                WorkspaceKeyValue(str(R.string.workspace_scope), snapshot.manifest.scope.ifBlank { str(R.string.workspace_scope_session) })
-                WorkspaceKeyValue(str(R.string.workspace_status), snapshot.manifest.status)
-                snapshot.execution?.taskType?.takeIf { it.isNotBlank() }?.let {
+                WorkspaceKeyValue(str(R.string.workspace_name), currentSnapshot.manifest.title)
+                WorkspaceKeyValue(str(R.string.workspace_goal), currentSnapshot.manifest.goal)
+                WorkspaceKeyValue(str(R.string.workspace_scope), currentSnapshot.manifest.scope.ifBlank { str(R.string.workspace_scope_session) })
+                WorkspaceKeyValue(str(R.string.workspace_status), currentSnapshot.manifest.status)
+                currentSnapshot.execution?.taskType?.takeIf { it.isNotBlank() }?.let {
                     WorkspaceKeyValue(str(R.string.workspace_task_type), it)
                 }
-                snapshot.execution?.checkpointLabel?.takeIf { it.isNotBlank() }?.let {
+                currentSnapshot.execution?.checkpointLabel?.takeIf { it.isNotBlank() }?.let {
                     WorkspaceKeyValue(str(R.string.workspace_checkpoint), it)
                 }
-                snapshot.execution?.checkpointSummary?.takeIf { it.isNotBlank() }?.let {
+                currentSnapshot.execution?.checkpointSummary?.takeIf { it.isNotBlank() }?.let {
                     WorkspaceMultilineValue(str(R.string.workspace_summary), it)
                 }
             }
 
             WorkspaceSectionCard(title = str(R.string.workspace_artifacts)) {
-                if (snapshot.recentArtifacts.isEmpty()) {
+                if (currentSnapshot.recentArtifacts.isEmpty()) {
                     WorkspaceEmptyLine(str(R.string.workspace_no_artifacts))
                 } else {
-                    snapshot.recentArtifacts.forEachIndexed { index, artifact ->
+                    currentSnapshot.recentArtifacts.forEachIndexed { index, artifact ->
                         if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
@@ -132,10 +171,10 @@ fun WorkspacePage(
             }
 
             WorkspaceSectionCard(title = str(R.string.workspace_checkpoints)) {
-                if (snapshot.recentCheckpoints.isEmpty()) {
+                if (currentSnapshot.recentCheckpoints.isEmpty()) {
                     WorkspaceEmptyLine(str(R.string.workspace_no_checkpoints))
                 } else {
-                    snapshot.recentCheckpoints.forEachIndexed { index, checkpoint ->
+                    currentSnapshot.recentCheckpoints.forEachIndexed { index, checkpoint ->
                         if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
@@ -159,10 +198,10 @@ fun WorkspacePage(
             }
 
             WorkspaceSectionCard(title = str(R.string.workspace_events)) {
-                if (snapshot.recentEvents.isEmpty()) {
+                if (currentSnapshot.recentEvents.isEmpty()) {
                     WorkspaceEmptyLine(str(R.string.workspace_no_events))
                 } else {
-                    snapshot.recentEvents.forEachIndexed { index, event ->
+                    currentSnapshot.recentEvents.forEachIndexed { index, event ->
                         if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
@@ -186,10 +225,10 @@ fun WorkspacePage(
             }
 
             WorkspaceSectionCard(title = str(R.string.workspace_notes)) {
-                if (snapshot.recentNotes.isEmpty()) {
+                if (currentSnapshot.recentNotes.isEmpty()) {
                     WorkspaceEmptyLine(str(R.string.workspace_no_notes))
                 } else {
-                    snapshot.recentNotes.forEachIndexed { index, (name, content) ->
+                    currentSnapshot.recentNotes.forEachIndexed { index, (name, content) ->
                         if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
@@ -249,6 +288,302 @@ fun WorkspacePage(
             Spacer(Modifier.height(8.dp))
         }
     }
+}
+
+@Composable
+private fun WorkspaceOverview(
+    areas: List<WorkspaceAreaUi>,
+    onOpenArea: (String) -> Unit,
+) {
+    val c = LocalClawColors.current
+    WorkspaceSectionCard(title = "总工作空间") {
+        if (areas.isEmpty()) {
+            WorkspaceEmptyLine("暂无区域数据")
+        } else {
+            areas.forEachIndexed { index, area ->
+                if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenArea(area.id) },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(c.cardAlt, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = (index + 1).toString().padStart(2, '0'),
+                            color = c.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = area.title,
+                                color = c.text,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = area.countLabel,
+                                color = c.text,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                        Text(
+                            text = area.description,
+                            color = c.subtext,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = area.statusLabel,
+                            color = c.subtext,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceAreaDetail(
+    area: WorkspaceAreaUi,
+    roots: List<String>,
+    currentPath: String,
+    entries: List<WorkspaceFileEntryUi>,
+    onOpenFolder: (String) -> Unit,
+    onNavigateUp: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val context = LocalContext.current
+    val locationLabel = currentPath.ifBlank { "区域根目录" }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(c.cardAlt, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = area.title,
+                    color = c.text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = area.description,
+                    color = c.subtext,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(c.cardAlt, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("当前位置", color = c.subtext, fontSize = 11.sp, maxLines = 1)
+            Text(
+                text = locationLabel,
+                color = c.text,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(area.countLabel, color = c.subtext, fontSize = 11.sp, maxLines = 1)
+            Text("·", color = c.subtext, fontSize = 11.sp)
+            Text(area.statusLabel, color = c.subtext, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+
+    WorkspaceFileList(
+        title = if (currentPath.isBlank()) "根目录" else "文件",
+        entries = entries,
+        showUp = currentPath.isNotBlank(),
+        onNavigateUp = onNavigateUp,
+        onEntryClick = { entry ->
+            if (entry.isDirectory) {
+                onOpenFolder(entry.absolutePath)
+            } else {
+                openWorkspaceFile(context, entry)
+            }
+        },
+    )
+}
+
+@Composable
+private fun WorkspaceFileList(
+    title: String,
+    entries: List<WorkspaceFileEntryUi>,
+    showUp: Boolean,
+    onNavigateUp: () -> Unit,
+    onEntryClick: (WorkspaceFileEntryUi) -> Unit,
+) {
+    val c = LocalClawColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.card, RoundedCornerShape(18.dp)),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("${entries.size} 项", color = c.subtext, fontSize = 11.sp)
+        }
+        if (showUp) {
+            WorkspaceFileRow(
+                name = "..",
+                meta = "上一级目录",
+                isDirectory = true,
+                onClick = onNavigateUp,
+            )
+            HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 58.dp))
+        }
+        if (entries.isEmpty()) {
+            Text(
+                text = "这个目录目前没有可展示的文件。",
+                color = c.subtext,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+            )
+        } else {
+            entries.forEachIndexed { index, entry ->
+                WorkspaceFileRow(
+                    name = entry.path,
+                    meta = if (entry.isDirectory) {
+                        "${entry.sizeLabel} · ${entry.updatedLabel}"
+                    } else {
+                        "${entry.sizeLabel} · ${entry.updatedLabel} · 外部打开"
+                    },
+                    isDirectory = entry.isDirectory,
+                    onClick = {
+                        onEntryClick(entry)
+                    },
+                )
+                if (index < entries.lastIndex) {
+                    HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 58.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceFileRow(
+    name: String,
+    meta: String,
+    isDirectory: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(c.cardAlt, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (isDirectory) Icons.Outlined.FolderOpen else Icons.Outlined.InsertDriveFile,
+                contentDescription = null,
+                tint = c.text,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = name,
+                color = c.text,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = meta,
+                color = c.subtext,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun openWorkspaceFile(context: android.content.Context, entry: WorkspaceFileEntryUi) {
+    val file = File(entry.absolutePath)
+    openFileAttachment(
+        context = context,
+        attachment = SkillAttachment.FileData(
+            path = entry.absolutePath,
+            name = file.name.ifBlank { entry.path },
+            mimeType = URLConnection.guessContentTypeFromName(file.name).orEmpty(),
+            sizeBytes = file.length(),
+        ),
+    )
 }
 
 @Composable

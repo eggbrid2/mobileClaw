@@ -157,7 +157,5 @@ data class McpSkillConfig(
     val endpoint: String,
     val tool: String,
     val headers: Map<String, String> = emptyMap(),
-    val modelscopeToken: String = "",
-    val modelscopeServerId: String = "",
     val defaultArguments: Map<String, String> = emptyMap(),
 )

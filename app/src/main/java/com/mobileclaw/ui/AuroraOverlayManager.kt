@@ -252,7 +252,7 @@ class AuroraOverlayManager(private val context: Context) {
 private val AURORA_PALETTE = listOf(
     Color(0xFFFFFFFF),
     Color(0xFF56D6BA),
-    Color(0xFFC7F43A),
+    Color(0xFFB7B7B7),
     Color(0xFF8A8A8A),
     Color(0xFFFFFFFF),
 )

@@ -5,7 +5,6 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.mobileclaw.mcp.McpHttpClient
 import com.mobileclaw.mcp.McpToolCallResult
-import com.mobileclaw.mcp.ModelScopeMcpClient
 import com.mobileclaw.skill.McpSkillConfig
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
@@ -27,12 +26,9 @@ class McpSkillExecutor(
             if (key.isBlank()) return@forEach
             arguments.add(key, value.toJsonElement())
         }
-        val headers = resolvedHeaders()
+        val headers = config.headers
         return runCatching {
             callConfiguredEndpoint(config.endpoint, headers, arguments)
-        }.recoverCatching {
-            val refreshedEndpoint = refreshModelScopeEndpoint() ?: throw it
-            callConfiguredEndpoint(refreshedEndpoint, headers, arguments)
         }.getOrElse { error ->
             SkillResult(false, "MCP skill failed: ${error.message}")
         }
@@ -55,23 +51,6 @@ class McpSkillExecutor(
             data = result.raw,
             imageBase64 = firstImageBase64(result),
         )
-    }
-
-    private suspend fun refreshModelScopeEndpoint(): String? {
-        val serverId = config.modelscopeServerId.trim()
-        val token = config.modelscopeToken.trim()
-        if (serverId.isBlank() || token.isBlank()) return null
-        return runCatching {
-            ModelScopeMcpClient().deployAndGetEndpoint(serverId, token).endpoint
-        }.getOrNull()
-    }
-
-    private fun resolvedHeaders(): Map<String, String> {
-        val token = config.modelscopeToken.trim()
-        if (token.isBlank() || config.headers.keys.any { it.equals("Authorization", ignoreCase = true) }) {
-            return config.headers
-        }
-        return config.headers + ("Authorization" to "Bearer $token")
     }
 
     private fun Any.toJsonElement(): JsonElement =
