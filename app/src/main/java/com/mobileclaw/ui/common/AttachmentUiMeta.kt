@@ -46,14 +46,16 @@ fun mimeTypeEmoji(mimeType: String): String = when {
 }
 
 fun SkillAttachment.stableUiSignature(): String = when (this) {
-    is SkillAttachment.ImageData -> "image:${base64.take(80).hashCode()}:${prompt.orEmpty().hashCode()}"
-    is SkillAttachment.FileData -> "file:$path:$name:$mimeType:$sizeBytes"
-    is SkillAttachment.HtmlData -> "html:$path:$title"
-    is SkillAttachment.WebPage -> "web:$url:${title.hashCode()}:${excerpt.hashCode()}"
-    is SkillAttachment.SearchResults -> "search:$query:$engine:${pages.joinToString("|") { it.url }.hashCode()}"
-    is SkillAttachment.AccessibilityRequest -> "accessibility:$skillName"
+    is SkillAttachment.ImageData -> "image:$instanceId:${base64.take(80).hashCode()}:${prompt.orEmpty().hashCode()}"
+    is SkillAttachment.FileData -> "file:$instanceId:$path:$name:$mimeType:$sizeBytes"
+    is SkillAttachment.HtmlData -> "html:$instanceId:$path:$title"
+    is SkillAttachment.WebPage -> "web:$instanceId:$url:${title.hashCode()}:${excerpt.hashCode()}"
+    is SkillAttachment.SearchResults -> "search:$instanceId:$query:$engine:${pages.joinToString("|") { it.url }.hashCode()}"
+    is SkillAttachment.AccessibilityRequest -> "accessibility:$instanceId:$skillName"
     is SkillAttachment.ActionCard -> buildString {
         append("action:")
+        append(instanceId)
+        append(':')
         append(tone)
         append(':')
         append(title.hashCode())
@@ -62,5 +64,5 @@ fun SkillAttachment.stableUiSignature(): String = when (this) {
         append(':')
         append(actions.joinToString("|") { "${it.label}:${it.message}:${it.style}" }.hashCode())
     }
-    is SkillAttachment.FileList -> "files:$directory:${files.joinToString("|") { "${it.path}:${it.sizeBytes}" }.hashCode()}"
+    is SkillAttachment.FileList -> "files:$instanceId:$directory:${files.joinToString("|") { "${it.path}:${it.sizeBytes}" }.hashCode()}"
 }

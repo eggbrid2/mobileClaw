@@ -404,7 +404,7 @@ private fun Header(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier.size(6.dp).clip(CircleShape)
-                        .background(if (isRunning) Color(0xFFC7F43A) else c.subtext.copy(alpha = 0.45f))
+                        .background(if (isRunning) c.accent else c.subtext.copy(alpha = 0.45f))
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(

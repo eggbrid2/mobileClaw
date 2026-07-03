@@ -104,6 +104,28 @@ class TaskRouter(
             Log.w(TAG, "Rejecting AI route because taskType=${decision.taskType} confidence=${decision.confidence} goal=${goal.take(160)}")
             return null
         }
+        if (decision.requiresExecution && decision.taskType == TaskType.CHAT && decision.primaryChannel == ChannelType.CHAT) {
+            Log.w(
+                TAG,
+                "AI route direct chat rejected because requires_execution=true. goal=${goal.take(160)} reason=${decision.reason.take(160)}"
+            )
+            return resolveAsAgentFallback(
+                goal = goal,
+                effectiveGoal = effectiveGoal,
+                reason = "Intent resolver marked this turn executable while route was direct chat; forcing agent execution.",
+            )
+        }
+        if (decision.requiresExecution && decision.primaryChannel == ChannelType.INFO) {
+            Log.w(
+                TAG,
+                "AI route INFO rejected because requires_execution=true. goal=${goal.take(160)} reason=${decision.reason.take(160)}"
+            )
+            return resolveAsAgentFallback(
+                goal = goal,
+                effectiveGoal = effectiveGoal,
+                reason = "Intent resolver marked this turn executable while route was INFO; forcing agent execution.",
+            )
+        }
         val normalizedGoal = decision.normalizedGoal.ifBlank { effectiveGoal }
         val executionHint = buildString {
             appendLine("AI router selected this execution path from the latest user message and recent context.")
@@ -324,6 +346,7 @@ class TaskRouter(
     ): String {
         if (taskType != TaskType.APP_BUILD) return effectiveGoal
         intent.aiPage?.let { page ->
+            val spec = page.safeSpec()
             return buildString {
                 append(effectiveGoal.trim())
                 append("\n\n[artifact_update_contract]")
@@ -333,17 +356,18 @@ class TaskRouter(
                 append("\nmode=patch_existing")
                 append("\nDo not create a new page unless the user explicitly asks.")
                 append("\nUse tool flow: ui_builder(get) -> ui_builder(analyze_change) -> ui_builder(update) -> ui_builder(validate) -> ui_builder(open if user-facing).")
-                append("\nOriginal goal: ${page.spec.goal.ifBlank { page.description.ifBlank { page.title } }}")
-                append("\nRequired features: ${renderSpecList(page.spec.requiredFeatures, fallback = "preserve all existing visible features unless explicitly removed")}")
-                append("\nConstraints: ${renderSpecList(page.spec.constraints, fallback = "keep current artifact style and platform behavior consistent")}")
-                append("\nAccepted corrections: ${renderSpecList(page.spec.acceptedCorrections, fallback = "none yet")}")
-                append("\nKnown bugs: ${renderSpecList(page.spec.knownBugs, fallback = "none recorded")}")
-                append("\nNon-goals: ${renderSpecList(page.spec.nonGoals, fallback = "none recorded")}")
+                append("\nOriginal goal: ${spec.goal.ifBlank { page.description.ifBlank { page.title } }}")
+                append("\nRequired features: ${renderSpecList(spec.requiredFeatures, fallback = "preserve all existing visible features unless explicitly removed")}")
+                append("\nConstraints: ${renderSpecList(spec.constraints, fallback = "keep current artifact style and platform behavior consistent")}")
+                append("\nAccepted corrections: ${renderSpecList(spec.acceptedCorrections, fallback = "none yet")}")
+                append("\nKnown bugs: ${renderSpecList(spec.knownBugs, fallback = "none recorded")}")
+                append("\nNon-goals: ${renderSpecList(spec.nonGoals, fallback = "none recorded")}")
                 append("\nRecent artifact history: ${renderHistory(page.history)}")
                 append("\nLatest change request: ${effectiveGoal.take(1200)}")
             }
         }
         intent.miniApp?.let { app ->
+            val spec = app.safeSpec()
             return buildString {
                 append(effectiveGoal.trim())
                 append("\n\n[artifact_update_contract]")
@@ -353,12 +377,12 @@ class TaskRouter(
                 append("\nmode=patch_existing")
                 append("\nDo not create a new app unless the user explicitly asks.")
                 append("\nUse tool flow: app_manager(analyze_change) -> app_manager(update) -> app_manager(validate) -> app_manager(open if user-facing).")
-                append("\nOriginal goal: ${app.spec.goal.ifBlank { app.description.ifBlank { app.title } }}")
-                append("\nRequired features: ${renderSpecList(app.spec.requiredFeatures, fallback = "preserve all existing user-visible features unless explicitly removed")}")
-                append("\nConstraints: ${renderSpecList(app.spec.constraints, fallback = "keep current artifact style and runtime behavior consistent")}")
-                append("\nAccepted corrections: ${renderSpecList(app.spec.acceptedCorrections, fallback = "none yet")}")
-                append("\nKnown bugs: ${renderSpecList(app.spec.knownBugs, fallback = "none recorded")}")
-                append("\nNon-goals: ${renderSpecList(app.spec.nonGoals, fallback = "none recorded")}")
+                append("\nOriginal goal: ${spec.goal.ifBlank { app.description.ifBlank { app.title } }}")
+                append("\nRequired features: ${renderSpecList(spec.requiredFeatures, fallback = "preserve all existing user-visible features unless explicitly removed")}")
+                append("\nConstraints: ${renderSpecList(spec.constraints, fallback = "keep current artifact style and runtime behavior consistent")}")
+                append("\nAccepted corrections: ${renderSpecList(spec.acceptedCorrections, fallback = "none yet")}")
+                append("\nKnown bugs: ${renderSpecList(spec.knownBugs, fallback = "none recorded")}")
+                append("\nNon-goals: ${renderSpecList(spec.nonGoals, fallback = "none recorded")}")
                 append("\nRecent artifact history: ${renderHistory(app.history)}")
                 append("\nLatest change request: ${effectiveGoal.take(1200)}")
             }
@@ -898,18 +922,20 @@ class TaskRouter(
         val active = activeAiPage ?: pages.firstOrNull()
         val lines = pages.joinToString("\n") { page ->
             val marker = if (page.id == active?.id) "active" else "recent"
-            "- [$marker] id=${page.id}, title=${page.title}, version=${page.version}, description=${page.description.take(80)}, goal=${page.spec.goal.take(80)}, features=${renderSpecList(page.spec.requiredFeatures, fallback = "unspecified")}"
+            val spec = page.safeSpec()
+            "- [$marker] id=${page.id}, title=${page.title}, version=${page.version}, description=${page.description.take(80)}, goal=${spec.goal.take(80)}, features=${renderSpecList(spec.requiredFeatures, fallback = "unspecified")}"
         }
         val activeLine = active?.let {
+            val spec = it.safeSpec()
             """
             
             Current AI Native Page target: id=${it.id}, title=${it.title}, version=${it.version}.
-            Goal: ${it.spec.goal.ifBlank { it.description.ifBlank { it.title } }}
-            Must preserve: ${renderSpecList(it.spec.requiredFeatures, fallback = "all current visible features unless explicitly removed")}
-            Current features: ${renderSpecList(it.spec.currentFeatures, fallback = "not summarized yet")}
-            Accepted corrections: ${renderSpecList(it.spec.acceptedCorrections, fallback = "none yet")}
-            Known bugs: ${renderSpecList(it.spec.knownBugs, fallback = "none recorded")}
-            Last diff: ${it.spec.lastDiffSummary.ifBlank { "none" }}
+            Goal: ${spec.goal.ifBlank { it.description.ifBlank { it.title } }}
+            Must preserve: ${renderSpecList(spec.requiredFeatures, fallback = "all current visible features unless explicitly removed")}
+            Current features: ${renderSpecList(spec.currentFeatures, fallback = "not summarized yet")}
+            Accepted corrections: ${renderSpecList(spec.acceptedCorrections, fallback = "none yet")}
+            Known bugs: ${renderSpecList(spec.knownBugs, fallback = "none recorded")}
+            Last diff: ${spec.lastDiffSummary.ifBlank { "none" }}
             Recent history: ${renderHistory(it.history)}
             For follow-up edits like “改一下/优化/继续/调整它”, patch this page instead of creating HTML or a new page.
             Required tool flow: ui_builder(action=get) -> ui_builder(action=analyze_change) -> ui_builder(action=update) -> ui_builder(action=validate) -> ui_builder(action=open if needed).
@@ -924,18 +950,20 @@ class TaskRouter(
         val active = activeMiniApp ?: apps.firstOrNull()
         val lines = apps.joinToString("\n") { mini ->
             val marker = if (mini.id == active?.id) "active" else "recent"
-            "- [$marker] id=${mini.id}, title=${mini.title}, description=${mini.description.take(80)}, goal=${mini.spec.goal.take(80)}, features=${renderSpecList(mini.spec.requiredFeatures, fallback = "unspecified")}, updatedAt=${mini.updatedAt}"
+            val spec = mini.safeSpec()
+            "- [$marker] id=${mini.id}, title=${mini.title}, description=${mini.description.take(80)}, goal=${spec.goal.take(80)}, features=${renderSpecList(spec.requiredFeatures, fallback = "unspecified")}, updatedAt=${mini.updatedAt}"
         }
         val activeLine = active?.let {
+            val spec = it.safeSpec()
             """
             
             Current MiniAPP target: id=${it.id}, title=${it.title}.
-            Goal: ${it.spec.goal.ifBlank { it.description.ifBlank { it.title } }}
-            Must preserve: ${renderSpecList(it.spec.requiredFeatures, fallback = "all current visible features unless explicitly removed")}
-            Current features: ${renderSpecList(it.spec.currentFeatures, fallback = "not summarized yet")}
-            Accepted corrections: ${renderSpecList(it.spec.acceptedCorrections, fallback = "none yet")}
-            Known bugs: ${renderSpecList(it.spec.knownBugs, fallback = "none recorded")}
-            Last diff: ${it.spec.lastDiffSummary.ifBlank { "none" }}
+            Goal: ${spec.goal.ifBlank { it.description.ifBlank { it.title } }}
+            Must preserve: ${renderSpecList(spec.requiredFeatures, fallback = "all current visible features unless explicitly removed")}
+            Current features: ${renderSpecList(spec.currentFeatures, fallback = "not summarized yet")}
+            Accepted corrections: ${renderSpecList(spec.acceptedCorrections, fallback = "none yet")}
+            Known bugs: ${renderSpecList(spec.knownBugs, fallback = "none recorded")}
+            Last diff: ${spec.lastDiffSummary.ifBlank { "none" }}
             Recent history: ${renderHistory(it.history)}
             For follow-up edits like “改一下/优化/继续/调整它”, patch this MiniAPP instead of creating a new app.
             Required tool flow: app_manager(action=analyze_change) -> app_manager(action=update) -> app_manager(action=validate) -> app_manager(action=open if needed).
@@ -1119,6 +1147,16 @@ class TaskRouter(
             "聊天", "chat", "群聊", "单聊", "对话", "上下文", "乱切", "角色", "记忆",
             "vlm", "执行链路", "工具", "模型", "本地模型", "云端模型", "bug", "闪退",
         )
+
+    private fun MiniApp.safeSpec(): ArtifactSpec {
+        val raw: ArtifactSpec? = runCatching { spec }.getOrNull()
+        return raw ?: ArtifactSpec()
+    }
+
+    private fun AiPageDef.safeSpec(): ArtifactSpec {
+        val raw: ArtifactSpec? = runCatching { spec }.getOrNull()
+        return raw ?: ArtifactSpec()
+    }
 
     private fun String.anyContainsLocal(vararg needles: String): Boolean = needles.any { contains(it) }
 

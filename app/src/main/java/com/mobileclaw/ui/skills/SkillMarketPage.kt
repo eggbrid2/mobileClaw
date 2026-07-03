@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -32,7 +33,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,7 +46,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -56,8 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.mcp.McpEndpointConfig
 import com.mobileclaw.mcp.McpHttpClient
-import com.mobileclaw.mcp.ModelScopeMcpClient
-import com.mobileclaw.mcp.ModelScopeMcpServer
 import com.mobileclaw.skill.HttpSkillConfig
 import com.mobileclaw.skill.McpSkillConfig
 import com.mobileclaw.skill.SkillDefinition
@@ -96,7 +93,7 @@ fun SkillMarketPage(
     showHeader: Boolean = true,
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf(str(R.string.skill_market_228a7d), "ModelScope MCP", "ClawHub", "SkillsMP")
+    val tabs = listOf(str(R.string.skill_market_228a7d), "接入 MCP")
 
     BackHandler { onBack() }
 
@@ -159,19 +156,7 @@ fun SkillMarketPage(
 
         when (selectedTab) {
             0 -> RecommendedTab(installedIds = installedIds, onInstall = onInstall)
-            1 -> ModelScopeMcpTab(installedIds = installedIds, onInstall = onInstall)
-            2 -> RemoteSearchTab(
-                platform = "ClawHub",
-                apiBase = "https://clawhub.ai/api/v1",
-                installedIds = installedIds,
-                onInstall = onInstall,
-            )
-            3 -> RemoteSearchTab(
-                platform = "SkillsMP",
-                apiBase = "https://skillsmp.com/api",
-                installedIds = installedIds,
-                onInstall = onInstall,
-            )
+            1 -> PublicMcpTab(installedIds = installedIds, onInstall = onInstall)
         }
     }
 }
@@ -189,11 +174,7 @@ private fun RecommendedTab(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SearchChromePlaceholder()
-            Spacer(Modifier.height(4.dp))
-        }
-        item {
-            SectionLabel(text = "热榜")
+            SectionLabel(text = "推荐")
         }
         grouped.forEach { (category, entries) ->
             item {
@@ -223,104 +204,39 @@ private fun RecommendedTab(
 }
 
 @Composable
-private fun ModelScopeMcpTab(
+private fun PublicMcpTab(
     installedIds: Set<String>,
     onInstall: (SkillDefinition) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val userConfig = remember(context) { com.mobileclaw.config.UserConfig(context) }
     var endpointInput by remember { mutableStateOf("") }
-    var query by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf("") }
+    var headersInput by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var loadingServerId by remember { mutableStateOf<String?>(null) }
     val results = remember { mutableStateListOf<RemoteSkillEntry>() }
-    val servers = remember { mutableStateListOf<ModelScopeMcpServer>() }
 
-    LaunchedEffect(Unit) {
-        token = userConfig.get("modelscope_token").orEmpty()
-    }
-
-    fun searchServers() {
-        loading = true
-        error = null
-        loadingServerId = null
-        results.clear()
-        focusManager.clearFocus()
-        scope.launch {
-            val found = withContext(Dispatchers.IO) {
-                runCatching { ModelScopeMcpClient().searchServers(query.trim()) }.getOrNull()
-            }
-            loading = false
-            when {
-                found == null -> error = "无法加载 ModelScope MCP 广场，请检查网络"
-                found.isEmpty() -> error = "没有找到匹配的 MCP Server"
-                else -> {
-                    servers.clear()
-                    servers.addAll(found)
-                }
-            }
-        }
-    }
-
-    fun discoverInput() {
-        val input = endpointInput.trim()
+    fun discoverInput(inputOverride: String? = null, headersOverride: String? = null) {
+        val input = (inputOverride ?: endpointInput).trim()
+        val headers = (headersOverride ?: headersInput).trim()
+        if (inputOverride != null) endpointInput = inputOverride
+        if (headersOverride != null) headersInput = headersOverride
         if (input.isBlank()) return
-        val modelscopeToken = token.trim()
         loading = true
         error = null
-        loadingServerId = null
         results.clear()
         focusManager.clearFocus()
         scope.launch {
             val found = withContext(Dispatchers.IO) {
-                discoverModelScopeMcpTools(input, modelscopeToken)
+                discoverPublicMcpTools(input, headers)
             }
             loading = false
             when {
-                found == null -> error = "无法连接 ModelScope MCP，请检查 SSE 地址、Token 或网络"
+                found == null -> error = "无法连接公开 MCP，请检查 SSE/HTTP 地址、配置 JSON、Headers 或网络"
                 found.isEmpty() -> error = "这个 MCP Server 没有返回可安装工具"
                 else -> results.addAll(found)
             }
         }
-    }
-
-    fun discoverServer(server: ModelScopeMcpServer) {
-        val modelscopeToken = token.trim()
-        if (modelscopeToken.isBlank()) {
-            error = "从 ModelScope MCP 广场发现工具需要先填写 ModelScope Token"
-            return
-        }
-        loadingServerId = server.id
-        error = null
-        results.clear()
-        focusManager.clearFocus()
-        scope.launch {
-            val found = withContext(Dispatchers.IO) {
-                val endpoint = runCatching {
-                    ModelScopeMcpClient().deployAndGetEndpoint(server.id, modelscopeToken).endpoint
-                }.getOrNull() ?: return@withContext null
-                discoverModelScopeMcpTools(
-                    input = endpoint,
-                    token = modelscopeToken,
-                    sourceName = server.name,
-                    modelscopeServerId = server.id,
-                )
-            }
-            loadingServerId = null
-            when {
-                found == null -> error = "无法发现 ${server.name} 的工具：请确认 Token 有效，并且该 MCP Server 支持托管 SSE 部署"
-                found.isEmpty() -> error = "${server.name} 没有返回可安装工具"
-                else -> results.addAll(found)
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        searchServers()
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -330,56 +246,26 @@ private fun ModelScopeMcpTab(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .clip(RoundedCornerShape(27.dp))
-                    .background(Color.White.copy(alpha = 0.56f))
-                    .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(27.dp))
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Search, contentDescription = null, tint = SkillMarketMuted, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                BasicTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.weight(1f),
-                    textStyle = TextStyle(fontSize = 14.sp, color = SkillMarketInk),
-                    cursorBrush = SolidColor(SkillMarketInk),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { searchServers() }),
-                    decorationBox = { inner ->
-                        if (query.isEmpty()) {
-                            Text("搜索 ModelScope MCP Server", fontSize = 14.sp, color = SkillMarketMuted)
-                        }
-                        inner()
-                    },
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(SkillMarketInk)
-                        .clickable { searchServers() }
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
-                ) {
-                    Text("搜索", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-            }
+            Text(
+                "粘贴公开 MCP 的 SSE/Streamable HTTP 地址，或包含 mcpServers 的配置 JSON。",
+                fontSize = 12.sp,
+                color = SkillMarketMuted,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
             MarketInput(
                 value = endpointInput,
                 onValueChange = { endpointInput = it },
-                placeholder = "粘贴 ModelScope MCP SSE 地址或官方配置 JSON",
+                placeholder = "https://example.com/sse 或 {\"mcpServers\":{...}}",
                 singleLine = false,
                 minHeight = 86.dp,
             )
             MarketInput(
-                value = token,
-                onValueChange = { token = it },
-                placeholder = "ModelScope Token（设置页可保存，广场发现必填）",
-                singleLine = true,
+                value = headersInput,
+                onValueChange = { headersInput = it },
+                placeholder = "可选 Headers JSON，例如 {\"Authorization\":\"Bearer ...\"}",
+                singleLine = false,
+                minHeight = 70.dp,
             )
             Box(
                 modifier = Modifier
@@ -404,7 +290,7 @@ private fun ModelScopeMcpTab(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item { SectionLabel(text = "ModelScope MCP") }
+                item { SectionLabel(text = "公开 MCP") }
                 items(results, key = { it.id }) { entry ->
                     MarketSkillRow(
                         source = entry.platform,
@@ -418,32 +304,11 @@ private fun ModelScopeMcpTab(
                 }
                 item { Spacer(Modifier.height(80.dp)) }
             }
-            servers.isNotEmpty() -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item { SectionLabel(text = "ModelScope MCP 广场") }
-                items(servers, key = { it.id }) { server ->
-                    MarketSkillRow(
-                        source = "ModelScope MCP",
-                        name = server.name,
-                        description = server.description,
-                        tags = server.tags,
-                        stars = server.views.takeIf { it > 0 },
-                        installed = false,
-                        busy = loadingServerId == server.id,
-                        actionText = "发现",
-                        onInstall = { discoverServer(server) },
-                    )
-                }
-                item { Spacer(Modifier.height(80.dp)) }
-            }
             else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("正在等待 ModelScope MCP 广场列表", fontSize = 14.sp, color = SkillMarketMuted)
+                    Text("等待公开 MCP 地址", fontSize = 14.sp, color = SkillMarketMuted)
                     Spacer(Modifier.height(4.dp))
-                    Text("也可以粘贴 SSE 地址或配置 JSON 手动发现", fontSize = 12.sp, color = SkillMarketMuted.copy(alpha = 0.6f))
+                    Text("发现后会把每个 MCP tool 安装成手机端技能", fontSize = 12.sp, color = SkillMarketMuted.copy(alpha = 0.6f))
                 }
             }
         }
@@ -715,24 +580,6 @@ private fun MarketSkillRow(
 }
 
 @Composable
-private fun SearchChromePlaceholder() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clip(RoundedCornerShape(27.dp))
-            .background(Color.White.copy(alpha = 0.56f))
-            .border(0.7.dp, Color.White.copy(alpha = 0.78f), RoundedCornerShape(27.dp))
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Default.Search, contentDescription = null, tint = SkillMarketMuted, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("搜索技能...", fontSize = 14.sp, color = SkillMarketMuted.copy(alpha = 0.72f))
-    }
-}
-
-@Composable
 private fun MarketInput(
     value: String,
     onValueChange: (String) -> Unit,
@@ -786,17 +633,17 @@ private fun SectionLabel(text: String) {
 
 private val SkillMarketInk = Color(0xFF191B1B)
 private val SkillMarketMuted = Color(0xFF76777B)
-private val SkillMarketAction = Color(0xFF02006D)
-private val SkillMarketTagInk = Color(0xFF3035AF)
-private val SkillMarketTagBg = Color(0xFFE0E0FF).copy(alpha = 0.34f)
-private val SkillMarketInstalledBg = Color(0xFFE0E0FF).copy(alpha = 0.62f)
+private val SkillMarketAction = Color(0xFF101010)
+private val SkillMarketTagInk = Color(0xFF4F4D48)
+private val SkillMarketTagBg = Color(0xFFF1EFE8).copy(alpha = 0.78f)
+private val SkillMarketInstalledBg = Color(0xFFE7F5F2).copy(alpha = 0.72f)
 
 private fun skillMarketWorkbenchBrush(): Brush =
     Brush.verticalGradient(
         listOf(
-            Color(0xFFFFF7EC),
-            Color(0xFFFAF9F9),
-            Color(0xFFEFF7F5),
+            Color(0xFFFFFEFA),
+            Color(0xFFF7F4EE),
+            Color(0xFFF8F6F0),
         ),
     )
 
@@ -872,26 +719,21 @@ private fun parseRemoteResults(platform: String, json: String): List<RemoteSkill
     return entries
 }
 
-private suspend fun discoverModelScopeMcpTools(
+private suspend fun discoverPublicMcpTools(
     input: String,
-    token: String,
-    sourceName: String = "ModelScope MCP",
-    modelscopeServerId: String = "",
+    headersJson: String = "",
 ): List<RemoteSkillEntry>? {
     val config = McpEndpointConfig.parse(input) ?: return null
-    val headers = if (token.isNotBlank() && config.headers.keys.none { it.equals("Authorization", ignoreCase = true) }) {
-        config.headers + ("Authorization" to "Bearer $token")
-    } else {
-        config.headers
-    }
+    val extraHeaders = parseHeaderObject(headersJson) ?: return null
+    val headers = config.headers + extraHeaders
     return runCatching {
         val tools = McpHttpClient().listTools(config.endpoint, headers).tools
         tools.map { tool ->
-            val idSeed = if (modelscopeServerId.isBlank()) tool.name else "${modelscopeServerId}_${tool.name}"
-            val safeId = ("modelscope_mcp_" + idSeed)
+            val idSeed = "${config.endpoint}_${tool.name}"
+            val safeId = ("public_mcp_" + idSeed)
                 .replace(Regex("[^a-zA-Z0-9_]"), "_")
                 .lowercase()
-                .take(56)
+                .takeLast(56)
             val params = tool.inputSchema?.getAsJsonObject("properties")
                 ?.entrySet()
                 ?.map { (key, value) ->
@@ -909,13 +751,13 @@ private suspend fun discoverModelScopeMcpTools(
                 id = safeId,
                 name = tool.title ?: tool.name,
                 nameZh = tool.title ?: tool.name,
-                description = tool.description ?: "ModelScope MCP tool: ${tool.name}",
-                descriptionZh = tool.description ?: "ModelScope MCP 工具：${tool.name}",
+                description = tool.description ?: "Public MCP tool: ${tool.name}",
+                descriptionZh = tool.description ?: "公开 MCP 工具：${tool.name}",
                 parameters = params,
                 type = SkillType.MCP,
                 injectionLevel = 2,
                 isBuiltin = false,
-                tags = listOf("ModelScope", "MCP"),
+                tags = listOf("MCP", "公开"),
             )
             val categorizedMeta = meta.copy(categories = SkillToolTaxonomy.categoriesFor(meta).toList())
             RemoteSkillEntry(
@@ -926,20 +768,26 @@ private suspend fun discoverModelScopeMcpTools(
                 descriptionZh = meta.descriptionZh,
                 tags = categorizedMeta.tags,
                 stars = 0,
-                platform = sourceName,
+                platform = "公开 MCP",
                 def = SkillDefinition(
                     meta = categorizedMeta,
                     mcpConfig = McpSkillConfig(
                         endpoint = config.endpoint,
                         tool = tool.name,
-                        headers = config.headers,
-                        modelscopeToken = token,
-                        modelscopeServerId = modelscopeServerId,
+                        headers = headers,
                     ),
                 ),
             )
         }
     }.getOrNull()
+}
+
+private fun parseHeaderObject(json: String): Map<String, String>? {
+    if (json.isBlank()) return emptyMap()
+    val obj = runCatching { JSONObject(json) }.getOrNull() ?: return null
+    return obj.keys().asSequence().associateWith { key -> obj.optString(key) }
+        .filterKeys { it.isNotBlank() }
+        .filterValues { it.isNotBlank() }
 }
 
 private fun buildRemoteDef(

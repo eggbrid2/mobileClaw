@@ -117,7 +117,7 @@ class TaskOrchestrator(
             ChannelType.VPN -> "If the change fails, report the state and the blocker."
             ChannelType.CODE -> "If the command fails, surface the error and choose the next corrective command."
             ChannelType.SKILL -> "If the capability already exists, reuse it instead of creating a duplicate."
-            ChannelType.SELF_EVOLUTION -> "If the self-change is too broad, narrow it to the current role or ask for confirmation."
+            ChannelType.SELF_EVOLUTION -> "If the self-change is broad, apply the smallest useful change first and continue; ask only when required information is missing."
             ChannelType.PLAN -> "If the plan is unclear, rebuild it from the latest user goal and newest relevant context."
             ChannelType.MEMORY -> "If no memory is available, answer from current context and say what was missing."
             ChannelType.CHAT -> "If the conversation is ambiguous, ask one crisp clarification instead of guessing."

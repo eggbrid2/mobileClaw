@@ -29,6 +29,17 @@ MobileClaw 目前正在翻新 UI，所以部分页面在过渡期内可能会有
 
 MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill 连接标准 Streamable HTTP 或 SSE MCP Server，执行 `initialize`、`tools/list` 和 `tools/call`。技能市场里也有 `ModelScope MCP` 入口：粘贴 ModelScope MCP 广场生成的 SSE 地址或配置 JSON，再填 Token，即可发现工具并安装成普通 MobileClaw 技能。
 
+## 最近更新
+
+- 全局 UI 统一到会话首页的简洁黑白 AI 风格：暖白背景、白色分组列表、黑色主按钮、克制的薄荷色状态点。
+- 重新整理角色列表、角色详情和角色编辑，角色头像与形象合并为一个角色形象字段，并接入角色工作区和角色包导入导出。
+- 接入角色驱动 Chat Runtime：角色现在拥有工作区文件、聊天协议、模型画像、技能习惯和记忆沉淀点，可以影响 Chat 如何理解上下文、选择工具、执行步骤和保存结果。
+- 修复本地模型使用 tools 不生效的问题：实验性本地 Agent 工具会清洗并解析本地模型返回的结构化 JSON，再真正执行工具；本地能力不足时仍可回退云端。
+- MiniAPP 增加列表导入、详情导出、长按删除和批量删除入口。
+- “我的/设置”区域拆成 AI 基础配置、通用设置、工具、记忆/历史等模块，并让用户画像配置进入 AI 上下文。
+- 补充 MiniAPP v2 技术方案：Javet 内置 Node、Vue/TS 项目构建、原生桥边界、项目级导入导出包。
+- 恢复蒲公英发布链路：启动自动检测、原生更新弹框、APK 安装器唤起、Git 版本对齐和桌面上传脚本。
+
 ## 真机能力演示
 
 以下素材来自小米真机运行的 debug build。它们不是静态展示页，而是真实 Agent 执行链路：MobileClaw 创建并打开了 WebView MiniAPP，创建了原生 AI Page，展示了多 Agent 群聊和表情包，也展示了本地模型与视觉资源包管理，以及 skill、VPN 等真实运行界面。
@@ -50,7 +61,7 @@ MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw 微信群二维码" width="260" />
 </p>
 
-该微信群二维码有效期至 **2026 年 7 月 3 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
+该微信群二维码有效期至 **2026 年 7 月 10 日**。如果过期，请查看最新 README 或联系维护者获取新的入群二维码。
 
 ## 为什么做这个
 
@@ -117,6 +128,8 @@ MobileClaw 已包含 MCP 客户端能力，可以通过内置 `mcp_client` skill
 角色不只是人设。角色可以声明适合的任务类型、关键词、调度优先级、强制注入的 skill，以及模型覆盖。用户创建的角色也会进入同一套调度器。
 
 角色 UI 现在更偏向“快速选择谁来干活”，而不是复杂的人设装饰页。角色页会先突出当前角色，再用可读的能力标签展示内置和自定义角色，例如写代码、查资料、控手机、建应用、做图片、VPN 和管技能。内置角色作为预设被保护：编辑内置角色会创建一个自定义副本；自定义角色才会直接编辑。系统提示词、模型覆盖、固定 skill 等高门槛配置被收进高级设置，普通创建流程只保留基础信息和擅长任务。
+
+角色现在会以“工作协议”的方式参与 Chat Runtime，而不只是改变说话风格。每个角色可以拥有 `core.md`、`skills.md`、`memory.md`、`model.md`、`chat_protocol.md` 和 `journal.md` 等工作区文件。Direct Chat 和 Agent Run 都会读取这些角色上下文，让当前角色影响上下文读取、工具选择、记忆写入、模型选择和结果沉淀。
 
 ### Skill 系统
 
@@ -192,7 +205,7 @@ MobileClaw 可以通过 LiteRT-LM 运行部分端侧模型：
 - 多模态 `.task` 资源包可以单独下载或导入；当前 Android LiteRT-LM 聊天路径使用 `.litertlm` 文本运行时文件。
 - 模型下载支持多个来源：Hugging Face、ModelScope，以及用户粘贴的自定义直链。
 - Hugging Face Token 只会用于官方 Hugging Face 下载，不会发送给国内镜像或自定义 URL。
-- 启用后，纯文本聊天优先走本地模型；默认情况下工具调用、图片输入、联网访问或本地模型不可用时，会在可能的情况下自动回退到已配置的云端接口。设置中可额外开启“实验性本地 Agent 工具”，让本地文本模型先尝试 JSON 工具调用，再按需回退云端。
+- 启用后，纯文本聊天优先走本地模型；设置中可额外开启“实验性本地 Agent 工具”，让本地文本模型先尝试结构化 JSON 工具决策。运行时会清洗、解析并执行这些工具调用；如果工具调用、图片输入、联网访问或本地能力不足，仍会在可能的情况下自动回退到已配置的云端接口。
 
 ### 本地和局域网 API
 
@@ -246,15 +259,35 @@ MobileClaw 内置 `pgyer_release` skill，支持：
 
 - `status`：检查蒲公英配置是否存在。
 - `check_update` / `update`：调用蒲公英检查更新接口。
-- `download`：调用 Android `DownloadManager` 下载最新 APK 到系统 Downloads。
+- `download`：下载最新 APK，并唤起 Android 系统安装器；如果接口只返回安装页，则打开蒲公英安装页。
 - `upload`：上传一个手机本地 APK 路径到蒲公英。
 
-需要在 MobileClaw 用户配置中写入：
+App 每次启动会自动检测一次更新。只有发布通道返回新版本时，才会显示黑白 AI 风格更新弹框，里面包含当前版本、发布版本、更新说明和更新按钮。Android 可能会要求用户先允许 MobileClaw 安装未知来源应用，然后才能继续打开系统安装器。
+
+手机端可以在 MobileClaw 用户配置中写入：
 
 ```text
 pgyer_api_key = 蒲公英 API Key
 pgyer_app_key = 蒲公英 App Key
+pgyer_user_key = 蒲公英 User Key，可选
 pgyer_install_password = 安装密码，可选
+```
+
+本地桌面构建可以把密钥放进 `local.properties` 或环境变量，不要提交到 Git：
+
+```text
+pgyer.api_key = 蒲公英 API Key
+pgyer.app_key = 蒲公英 App Key
+pgyer.user_key = 蒲公英 User Key
+```
+
+也可以用环境变量注入：
+
+```bash
+PGYER_API_KEY="蒲公英 API Key" \
+PGYER_APP_KEY="蒲公英 App Key" \
+PGYER_USER_KEY="蒲公英 User Key" \
+./gradlew :app:assembleDebug
 ```
 
 聊天里可以直接说：
@@ -267,11 +300,11 @@ pgyer_install_password = 安装密码，可选
 
 Agent 会调用 `pgyer_release` 完成对应动作。
 
-电脑端也提供发布脚本，适合 Codex 在桌面构建和上传：
+电脑端也提供发布脚本，适合 Codex 在桌面构建和上传。脚本默认使用蒲公英当前的 COS 上传流程：
 
 ```bash
 PGYER_API_KEY="蒲公英 API Key" \
-python3 scripts/pgyer_release.py build-upload
+python3 scripts/pgyer_release.py build-upload --gradle-task assembleDebug --notes "MobileClaw 0.5.0"
 ```
 
 如果 APK 已经构建好，可以只上传：
@@ -292,7 +325,7 @@ python3 scripts/pgyer_release.py check
 脚本默认发布说明会使用当前 Git 信息，例如：
 
 ```text
-MobileClaw v0.3.7-dirty (main/47226c4)
+MobileClaw 0.5.0-dirty (main/47226c4)
 ```
 
 ### 版本和 Git 保持统一
@@ -312,7 +345,7 @@ BuildConfig.GIT_COMMIT
 BuildConfig.GIT_BRANCH
 ```
 
-这样蒲公英更新检查、App 内状态、发布脚本和 Git 版本能保持同一个来源。工作区有未提交改动时，`versionName` 会带 `-dirty`，例如 `v0.3.7-dirty`。
+这样蒲公英更新检查、App 内状态、发布脚本和 Git 版本能保持同一个来源。工作区有未提交改动时，`versionName` 会带 `-dirty`，例如 `0.5.0-dirty`。
 
 ### 构建注意事项
 

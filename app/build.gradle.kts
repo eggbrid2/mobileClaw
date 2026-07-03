@@ -21,6 +21,12 @@ fun localBuildConfigString(key: String): String {
     return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 }
 
+fun localOrEnvBuildConfigString(localKey: String, envKey: String): String {
+    val value = localProperties.getProperty(localKey).orEmpty()
+        .ifBlank { providers.environmentVariable(envKey).orNull.orEmpty() }
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
 fun buildConfigString(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
@@ -124,6 +130,9 @@ android {
         buildConfigField("String", "GIT_VERSION", buildConfigString(gitVersionName))
         buildConfigField("String", "GIT_COMMIT", buildConfigString(gitCommit))
         buildConfigField("String", "GIT_BRANCH", buildConfigString(gitBranch))
+        buildConfigField("String", "PGYER_API_KEY", localOrEnvBuildConfigString("pgyer.api_key", "PGYER_API_KEY"))
+        buildConfigField("String", "PGYER_APP_KEY", localOrEnvBuildConfigString("pgyer.app_key", "PGYER_APP_KEY"))
+        buildConfigField("String", "PGYER_USER_KEY", localOrEnvBuildConfigString("pgyer.user_key", "PGYER_USER_KEY"))
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

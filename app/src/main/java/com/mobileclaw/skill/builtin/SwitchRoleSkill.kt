@@ -17,9 +17,9 @@ class SwitchRoleSkill(
     override val meta = SkillMeta(
         id = "switch_role",
         name = "Switch Role / Persona",
-        description = "Switches the active role/persona for the current workflow. Use only when the user explicitly asks for another role, " +
-            "or when the current role cannot responsibly complete the task with its authority/expertise. " +
-            "When switching inside an active workflow, continue the user's original task immediately after switching; do not ask the user to say continue. Available roles: general, coder, web_agent, phone_operator, creator, plus any custom roles.",
+        description = "Switches the active role/persona for the current workflow. Use whenever another role's workflow, memory, tool habits, " +
+            "or response style would make the current task run better. When switching inside an active workflow, continue the user's original task " +
+            "immediately after switching; do not ask the user to say continue. Available roles: general, coder, web_agent, phone_operator, creator, plus any custom roles.",
         parameters = listOf(
             SkillParam("role_id", "string", "Role ID to switch to. Use 'list' to see all available roles."),
         ),

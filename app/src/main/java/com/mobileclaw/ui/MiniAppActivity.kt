@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import com.mobileclaw.ClawApplication
@@ -76,6 +77,7 @@ import com.mobileclaw.app.MiniApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -291,15 +293,22 @@ fun MiniAppViewport(
                                 var bodyStyle = body ? window.getComputedStyle(body) : null;
                                 var text = body && body.innerText ? body.innerText.trim() : "";
                                 var interactive = document.querySelectorAll('button,input,select,textarea,a,[role="button"],[onclick]').length;
+                                var hasCanvas = document.querySelectorAll('canvas').length > 0;
+                                var mediaCount = document.querySelectorAll('img,svg,video').length;
                                 var bodyRect = body ? body.getBoundingClientRect() : {width:0,height:0};
+                                var doc = document.documentElement || {};
+                                var measuredWidth = Math.max(bodyRect.width || 0, body ? body.scrollWidth || 0 : 0, doc.clientWidth || 0, window.innerWidth || 0);
+                                var measuredHeight = Math.max(bodyRect.height || 0, body ? body.scrollHeight || 0 : 0, doc.clientHeight || 0, window.innerHeight || 0);
                                 return JSON.stringify({
                                   title: document.title || "",
                                   readyState: document.readyState || "",
                                   hasClaw: typeof window.Claw !== "undefined",
                                   textLength: text.length,
                                   interactiveCount: interactive,
-                                  bodyWidth: Math.round(bodyRect.width || 0),
-                                  bodyHeight: Math.round(bodyRect.height || 0),
+                                  hasCanvas: hasCanvas,
+                                  mediaCount: mediaCount,
+                                  bodyWidth: Math.round(measuredWidth || 0),
+                                  bodyHeight: Math.round(measuredHeight || 0),
                                   bodyHidden: !!(bodyStyle && (bodyStyle.display === "none" || bodyStyle.visibility === "hidden" || bodyStyle.opacity === "0"))
                                 });
                               }catch(e){
@@ -323,6 +332,8 @@ fun MiniAppViewport(
                             val bodyWidth = parsed.get("bodyWidth")?.takeIf { !it.isJsonNull }?.asInt ?: 0
                             val bodyHeight = parsed.get("bodyHeight")?.takeIf { !it.isJsonNull }?.asInt ?: 0
                             val hasClaw = parsed.get("hasClaw")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val hasCanvas = parsed.get("hasCanvas")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val mediaCount = parsed.get("mediaCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
                             if (!hasClaw) {
                                 store.appendLog(appId, "error", "runtime_probe", "Claw bridge missing after page load.")
                             }
@@ -332,7 +343,8 @@ fun MiniAppViewport(
                             if (bodyWidth <= 4 || bodyHeight <= 4) {
                                 store.appendLog(appId, "error", "runtime_probe", "Rendered body too small: ${bodyWidth}x${bodyHeight}.")
                             }
-                            if (textLength == 0 && interactiveCount == 0) {
+                            val visualSurfaceExists = hasCanvas || mediaCount > 0
+                            if (textLength == 0 && interactiveCount == 0 && !visualSurfaceExists) {
                                 store.appendLog(appId, "error", "runtime_probe", "Likely blank screen: no visible text and no interactive controls after load.")
                             }
                             runtimeIssue = buildRuntimeIssueMessage(
@@ -342,6 +354,7 @@ fun MiniAppViewport(
                                 bodyHeight = bodyHeight,
                                 textLength = textLength,
                                 interactiveCount = interactiveCount,
+                                visualSurfaceExists = visualSurfaceExists,
                             )
                         }
                     }, 220)
@@ -515,6 +528,7 @@ fun MiniAppViewport(
             MiniAppInfoPanel(
                 miniApp = miniApp,
                 onDismiss = { showMore = false },
+                onExport = { exportMiniAppPackage(context, appId) },
                 onClose = { showMore = false; onClose() },
             )
         }
@@ -528,11 +542,12 @@ private fun buildRuntimeIssueMessage(
     bodyHeight: Int,
     textLength: Int,
     interactiveCount: Int,
+    visualSurfaceExists: Boolean,
 ): String? {
     if (!hasClaw) return "The MiniAPP lost its native bridge, so its built-in capabilities cannot work."
     if (bodyHidden) return "The MiniAPP rendered its page as hidden, which usually causes a blank screen."
     if (bodyWidth <= 4 || bodyHeight <= 4) return "The MiniAPP rendered into a near-zero layout size and is effectively blank."
-    if (textLength == 0 && interactiveCount == 0) return "The MiniAPP finished loading but produced no visible content or controls."
+    if (textLength == 0 && interactiveCount == 0 && !visualSurfaceExists) return "The MiniAPP finished loading but produced no visible content or controls."
     return null
 }
 
@@ -631,6 +646,7 @@ private fun RuntimeIssueCard(
 private fun MiniAppInfoPanel(
     miniApp: MiniApp?,
     onDismiss: () -> Unit,
+    onExport: () -> Unit,
     onClose: () -> Unit,
 ) {
     val c = LocalClawColors.current
@@ -707,9 +723,52 @@ private fun MiniAppInfoPanel(
 
         // Actions
         Spacer(Modifier.height(6.dp))
+        PanelAction(label = if (LocalAppLanguage.current == "zh") "导出" else "Export", color = c.text, onClick = onExport)
         PanelAction(label = str(R.string.activity_close), color = c.red, onClick = onClose)
         PanelAction(label = str(R.string.activity_back), color = c.text, onClick = onDismiss)
         Spacer(Modifier.height(4.dp))
+    }
+}
+
+private fun exportMiniAppPackage(context: Context, appId: String) {
+    val app = ClawApplication.instance
+    val isZh = app.agentConfig.snapshot().language.startsWith("zh")
+    CoroutineScope(Dispatchers.IO).launch {
+        val result = runCatching { app.miniAppStore.exportPackage(appId) }
+        withContext(Dispatchers.Main) {
+            val file = result.getOrNull()
+            if (file == null) {
+                val message = result.exceptionOrNull()?.message.orEmpty()
+                android.widget.Toast.makeText(
+                    context,
+                    (if (isZh) "MiniAPP 导出失败：" else "MiniAPP export failed: ") + message,
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                return@withContext
+            }
+            runCatching {
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(
+                    Intent.createChooser(
+                        shareIntent,
+                        if (isZh) "导出 MiniAPP 包" else "Export MiniAPP package",
+                    ).apply {
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                )
+            }.onFailure { e ->
+                android.widget.Toast.makeText(
+                    context,
+                    (if (isZh) "打开分享失败：" else "Unable to open share sheet: ") + (e.message ?: ""),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 }
 

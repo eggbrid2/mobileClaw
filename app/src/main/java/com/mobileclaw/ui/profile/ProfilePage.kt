@@ -1,13 +1,18 @@
 package com.mobileclaw.ui.profile
 
 import android.annotation.SuppressLint
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,9 +22,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -29,17 +38,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
+import com.mobileclaw.config.ConfigEntry
 import com.mobileclaw.memory.MemoryFact
 import com.mobileclaw.memory.db.EpisodeEntity
 import com.mobileclaw.ui.chat.AiQuizQuestion
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -59,6 +75,9 @@ import com.mobileclaw.str
 // ── Section ───────────────────────────────────────────────────────────────────
 
 private enum class ProfileSection { PORTRAIT, MEMORY, HISTORY }
+private enum class MemorySettingsSection { MEMORY, HISTORY, TOOL_STRATEGY }
+
+private fun zhEn(isZh: Boolean, zh: String, en: String): String = if (isZh) zh else en
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -300,6 +319,546 @@ fun ProfilePage(
         }
     }
 }
+
+@Composable
+fun UserInfoEditPage(
+    entries: Map<String, ConfigEntry>,
+    userAvatarUri: String?,
+    facts: Map<String, String>,
+    episodes: List<EpisodeEntity>,
+    isLoading: Boolean,
+    isExtracting: Boolean,
+    conversationCount: Int,
+    onBack: () -> Unit,
+    onSet: (key: String, value: String, description: String) -> Unit,
+    onSetAvatarUri: (String) -> Unit,
+    onRefreshExtraction: () -> Unit,
+    personalitySummary: String = "",
+    personalitySummaryLoading: Boolean = false,
+    onGenerateSummary: () -> Unit = {},
+    dimensionQuizzes: Map<String, List<AiQuizQuestion>> = emptyMap(),
+    dimensionQuizLoading: String? = null,
+    onGenerateDimensionQuiz: (dimensionId: String, title: String) -> Unit = { _, _ -> },
+    onPrewarmQuizzes: (List<ProfileDimension>) -> Unit = {},
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val dimensions = remember(facts) { buildDimensions(facts) }
+    var openDimension by remember { mutableStateOf<ProfileDimension?>(null) }
+    var name by remember(entries["user.name"]?.value) { mutableStateOf(entries["user.name"]?.value.orEmpty()) }
+    var aiAddress by remember(entries["user.ai_address"]?.value) { mutableStateOf(entries["user.ai_address"]?.value.orEmpty()) }
+    var role by remember(entries["user.role"]?.value) { mutableStateOf(entries["user.role"]?.value.orEmpty()) }
+    var preference by remember(entries["user.preference"]?.value) { mutableStateOf(entries["user.preference"]?.value.orEmpty()) }
+
+    fun saveUserInfo() {
+        onSet("user.name", name.trim(), "User display name")
+        onSet("user.ai_address", aiAddress.trim(), "How AI should address the user")
+        onSet("user.role", role.trim(), "User role or identity context")
+        onSet("user.preference", preference.trim(), "General user preference")
+    }
+
+    LaunchedEffect(facts.isNotEmpty()) {
+        if (facts.isNotEmpty() && personalitySummary.isEmpty() && !personalitySummaryLoading) {
+            onGenerateSummary()
+        }
+    }
+    LaunchedEffect(facts.isNotEmpty()) {
+        if (facts.isNotEmpty()) onPrewarmQuizzes(dimensions)
+    }
+
+    openDimension?.let { dim ->
+        BackHandler { openDimension = null }
+        DimensionDetailPage(
+            dimension = dim,
+            facts = facts,
+            onBack = { openDimension = null },
+            onSetFact = { key, value -> onSet(key, value, "User profile dimension") },
+            generatedQuiz = dimensionQuizzes[dim.id],
+            isLoadingQuiz = dimensionQuizLoading == dim.id,
+            onRegenerateQuiz = { onGenerateDimensionQuiz(dim.id, dim.title) },
+        )
+        return
+    }
+
+    Column(Modifier.fillMaxSize().background(Color(0xFFF7F8F5))) {
+        ClawPageHeader(title = zhEn(isZh, "用户信息编辑", "User Info"), onBack = onBack) {
+            if (isLoading || isExtracting) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = c.accent, strokeWidth = 1.5.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            TextButton(onClick = { saveUserInfo() }) {
+                Text(str(R.string.role_save), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+            Spacer(Modifier.width(4.dp))
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            item(key = "user_info_card") {
+                UserInfoEditCard(
+                    name = name,
+                    onName = { name = it },
+                    aiAddress = aiAddress,
+                    onAiAddress = { aiAddress = it },
+                    role = role,
+                    onRole = { role = it },
+                    preference = preference,
+                    onPreference = { preference = it },
+                    userAvatarUri = userAvatarUri,
+                    onSetAvatarUri = onSetAvatarUri,
+                    onSave = { saveUserInfo() },
+                )
+            }
+            item(key = "summary") {
+                PersonalitySummaryCard(
+                    summary = personalitySummary,
+                    isLoading = personalitySummaryLoading,
+                    onRefresh = onGenerateSummary,
+                    conversationCount = conversationCount,
+                )
+            }
+            item(key = "dimensions") {
+                DimensionsListSection(
+                    dimensions = dimensions,
+                    facts = facts,
+                    onOpenDimension = { openDimension = it },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MemorySettingsPage(
+    facts: Map<String, String>,
+    semanticFacts: List<MemoryFact>,
+    memoryHasMore: Boolean,
+    memoryLoadingMore: Boolean,
+    episodes: List<EpisodeEntity>,
+    isLoading: Boolean,
+    isExtracting: Boolean,
+    entries: Map<String, ConfigEntry>,
+    onBack: () -> Unit,
+    onRefreshExtraction: () -> Unit,
+    onPinMemory: (key: String, pinned: Boolean) -> Unit,
+    onEnableMemory: (key: String, enabled: Boolean) -> Unit,
+    onDeleteMemory: (key: String) -> Unit,
+    onLoadMoreMemory: () -> Unit,
+    onSet: (key: String, value: String, description: String) -> Unit,
+    onDeleteConfig: (key: String) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    var section by remember { mutableStateOf(MemorySettingsSection.MEMORY) }
+
+    Column(Modifier.fillMaxSize().background(Color(0xFFF7F8F5))) {
+        ClawPageHeader(title = zhEn(isZh, "记忆", "Memory"), onBack = onBack) {
+            if (isLoading || isExtracting) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = c.accent, strokeWidth = 1.5.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Box(
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = !isExtracting, onClick = onRefreshExtraction),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = null,
+                    tint = if (isExtracting) c.subtext.copy(alpha = 0.3f) else c.subtext,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        MemorySettingsTabRow(section) { section = it }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+            when (section) {
+                MemorySettingsSection.MEMORY -> {
+                    item(key = "memory_browser") {
+                        MemoryBrowserCard(
+                            facts = facts,
+                            semanticFacts = semanticFacts,
+                            hasMore = memoryHasMore,
+                            isLoadingMore = memoryLoadingMore,
+                            onPin = onPinMemory,
+                            onEnable = onEnableMemory,
+                            onDelete = onDeleteMemory,
+                            onLoadMore = onLoadMoreMemory,
+                        )
+                    }
+                }
+                MemorySettingsSection.HISTORY -> {
+                    if (episodes.isEmpty()) {
+                        item(key = "history_empty") {
+                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    ClawIconTile("document", size = 54.dp, iconSize = 28.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(str(R.string.profile_873b17), color = c.subtext, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    } else {
+                        item(key = "history_spacer") { Spacer(Modifier.height(4.dp)) }
+                        items(episodes.size, key = { i -> "memory_ep_${episodes[i].id}" }) { i ->
+                            EpisodeCard(episodes[i])
+                        }
+                    }
+                }
+                MemorySettingsSection.TOOL_STRATEGY -> {
+                    item(key = "tool_strategy") {
+                        ToolStrategyEditor(
+                            entries = entries,
+                            onSet = onSet,
+                            onDelete = onDeleteConfig,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserInfoEditCard(
+    name: String,
+    onName: (String) -> Unit,
+    aiAddress: String,
+    onAiAddress: (String) -> Unit,
+    role: String,
+    onRole: (String) -> Unit,
+    preference: String,
+    onPreference: (String) -> Unit,
+    userAvatarUri: String?,
+    onSetAvatarUri: (String) -> Unit,
+    onSave: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { onSetAvatarUri(it.toString()) }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color.White.copy(alpha = 0.72f))
+            .border(0.8.dp, Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            UserAvatarPreview(uri = userAvatarUri, fallback = name)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    if (isZh) "基础资料" else "Basic Info",
+                    color = c.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+                Text(
+                    if (isZh) "存储在你的个人空间内" else "Stored in your personal space",
+                    color = c.subtext,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(onClick = { avatarPicker.launch(arrayOf("image/*")) }) {
+                Text(if (isZh) "头像" else "Avatar", color = c.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+        UserInfoTextField(
+            value = name,
+            onValueChange = onName,
+            label = if (isZh) "你的名字" else "Your Name",
+            placeholder = if (isZh) "例如：Kirito" else "e.g. Kirito",
+        )
+        UserInfoTextField(
+            value = aiAddress,
+            onValueChange = onAiAddress,
+            label = if (isZh) "AI 对你的称呼" else "AI Address",
+            placeholder = if (isZh) "例如：老板、伙伴、Kirito" else "e.g. Boss, partner, Kirito",
+        )
+        UserInfoTextField(
+            value = role,
+            onValueChange = onRole,
+            label = if (isZh) "你的身份/角色" else "Your Role",
+            placeholder = if (isZh) "例如：独立开发者" else "e.g. Indie developer",
+        )
+        UserInfoTextField(
+            value = preference,
+            onValueChange = onPreference,
+            label = if (isZh) "偏好与边界" else "Preferences",
+            placeholder = if (isZh) "希望 AI 如何配合你" else "How AI should work with you",
+            minLines = 3,
+        )
+        Button(
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+            shape = RoundedCornerShape(999.dp),
+        ) {
+            Text(str(R.string.role_save), fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun UserAvatarPreview(uri: String?, fallback: String) {
+    val context = LocalContext.current
+    var image by remember(uri) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(uri) {
+        image = null
+        val value = uri?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        image = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(value))?.use { input ->
+                    BitmapFactory.decodeStream(input)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+    Box(
+        Modifier
+            .size(68.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF171716), Color(0xFF353A35))))
+            .border(0.8.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(24.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bitmap = image
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                fallback.firstOrNull()?.uppercaseChar()?.toString() ?: "M",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun UserInfoTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    minLines: Int = 1,
+) {
+    val c = LocalClawColors.current
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, color = c.subtext, fontSize = 11.sp) },
+        placeholder = { Text(placeholder, color = c.subtext.copy(alpha = 0.42f), fontSize = 12.sp) },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = minLines,
+        singleLine = minLines == 1,
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = c.text.copy(alpha = 0.72f),
+            unfocusedBorderColor = c.border,
+            focusedTextColor = c.text,
+            unfocusedTextColor = c.text,
+            cursorColor = c.text,
+            focusedContainerColor = Color.White.copy(alpha = 0.54f),
+            unfocusedContainerColor = Color.White.copy(alpha = 0.46f),
+            focusedLabelColor = c.text,
+        ),
+    )
+}
+
+@Composable
+private fun MemorySettingsTabRow(active: MemorySettingsSection, onSelect: (MemorySettingsSection) -> Unit) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val tabs = listOf(
+        MemorySettingsSection.MEMORY to zhEn(isZh, "记忆", "Memory"),
+        MemorySettingsSection.HISTORY to zhEn(isZh, "历史", "History"),
+        MemorySettingsSection.TOOL_STRATEGY to zhEn(isZh, "工具策略", "Tool Strategy"),
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Transparent)
+            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.42f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.70f), RoundedCornerShape(18.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        tabs.forEach { (sec, label) ->
+            val isActive = sec == active
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(if (isActive) Color(0xFF171716) else Color.Transparent)
+                    .clickable { onSelect(sec) }
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    color = if (isActive) Color.White else c.text.copy(alpha = 0.48f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolStrategyEditor(
+    entries: Map<String, ConfigEntry>,
+    onSet: (key: String, value: String, description: String) -> Unit,
+    onDelete: (key: String) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val strategies = entries
+        .filterKeys { it.startsWith("tool.strategy.") }
+        .toSortedMap()
+    var strategyId by remember { mutableStateOf("") }
+    var strategyContent by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.White.copy(alpha = 0.70f))
+                .border(0.8.dp, Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ClawIconTile("tool", size = 40.dp, iconSize = 21.dp, tint = c.text, background = c.cardAlt, border = c.border)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(if (isZh) "工具策略" else "Tool Strategy", color = c.text, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        if (isZh) "记录工具选择、调用顺序和失败处理偏好" else "Edit tool choice, order, and fallback preferences",
+                        color = c.subtext,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            UserInfoTextField(
+                value = strategyId,
+                onValueChange = { strategyId = it },
+                label = if (isZh) "策略名称" else "Strategy ID",
+                placeholder = if (isZh) "例如：android_debug" else "e.g. android_debug",
+            )
+            UserInfoTextField(
+                value = strategyContent,
+                onValueChange = { strategyContent = it },
+                label = if (isZh) "策略内容" else "Strategy",
+                placeholder = if (isZh) "什么时候用什么工具、失败后怎么处理" else "When to use which tool and what to do on failure",
+                minLines = 4,
+            )
+            Button(
+                onClick = {
+                    val id = normalizeToolStrategyId(strategyId)
+                    val content = strategyContent.trim()
+                    if (id.isNotBlank() && content.isNotBlank()) {
+                        onSet("tool.strategy.$id", content, "Tool strategy")
+                        strategyId = ""
+                        strategyContent = ""
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.text, contentColor = c.bg),
+                shape = RoundedCornerShape(999.dp),
+            ) {
+                Text(if (isZh) "保存策略" else "Save Strategy", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+
+        if (strategies.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 18.dp), contentAlignment = Alignment.Center) {
+                Text(if (isZh) "暂无工具策略" else "No tool strategies yet", color = c.subtext, fontSize = 12.sp)
+            }
+        } else {
+            strategies.forEach { (key, entry) ->
+                ToolStrategyRow(
+                    keyName = key,
+                    entry = entry,
+                    onEdit = {
+                        strategyId = key.removePrefix("tool.strategy.")
+                        strategyContent = entry.value
+                    },
+                    onDelete = { onDelete(key) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolStrategyRow(
+    keyName: String,
+    entry: ConfigEntry,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.64f))
+            .border(0.7.dp, Color.White.copy(alpha = 0.76f), RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                keyName.removePrefix("tool.strategy."),
+                color = c.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TextButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text(if (isZh) "编辑" else "Edit", color = c.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+            TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text(if (isZh) "删除" else "Delete", color = c.red, fontSize = 11.sp)
+            }
+        }
+        Text(entry.value, color = c.text.copy(alpha = 0.72f), fontSize = 12.sp, lineHeight = 17.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private fun normalizeToolStrategyId(raw: String): String =
+    raw.trim()
+        .lowercase(Locale.getDefault())
+        .replace(Regex("[^a-z0-9_.-]+"), "_")
+        .trim('_')
 
 // ── Skill Exploration Card ────────────────────────────────────────────────────
 

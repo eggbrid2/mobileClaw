@@ -506,7 +506,7 @@ fun ChatScreen(
                                     AgentBubble(
                                         summary = msg.text,
                                         logLines = msg.logLines,
-                                        attachments = emptyList(),
+                                        attachments = msg.attachments,
                                         currentRole = uiState.currentRole,
                                         currentModel = uiState.currentModel,
                                         showHeader = showHeader,
@@ -2504,37 +2504,37 @@ private fun skillIconSymbol(skillId: String?): String = when (skillId) {
 }
 
 private val SkillColors = mapOf(
-    "screenshot"      to 0xFF6B8EFF,   // blue-purple
-    "bg_screenshot"   to 0xFF6B8EFF,
-    "read_screen"     to 0xFF8B7CF8,   // purple
-    "bg_read_screen"  to 0xFF8B7CF8,
-    "see_screen"      to 0xFF8B7CF8,
-    "tap"             to 0xFF4ECDC4,   // teal
-    "long_click"      to 0xFF4ECDC4,
-    "scroll"          to 0xFF4ECDC4,
-    "input_text"      to 0xFF4ECDC4,
-    "navigate"        to 0xFF56CF86,   // green
-    "list_apps"       to 0xFF56CF86,
-    "web_search"      to 0xFF64B5F6,   // light blue
-    "fetch_url"       to 0xFF64B5F6,
-    "web_browse"      to 0xFF64B5F6,
-    "web_content"     to 0xFF64B5F6,
-    "web_js"          to 0xFF64B5F6,
-    "bg_launch"       to 0xFFFF8A65,   // orange
-    "bg_stop"         to 0xFFFF8A65,
-    "vd_setup"        to 0xFFFF8A65,
-    "shell"           to 0xFF4CAF50,   // terminal green
-    "memory"          to 0xFFFFD54F,   // yellow
-    "permission"      to 0xFFFF7043,   // red-orange
-    "quick_skill"     to 0xFFCE93D8,   // lavender
-    "meta"            to 0xFFCE93D8,
-    "skill_check"     to 0xFFCE93D8,
-    "skill_market"    to 0xFFCE93D8,
-    "generate_image"  to 0xFFFF80AB,   // pink
-    "ui_builder"      to 0xFF2563EB,   // native page blue
-    "app_manager"     to 0xFFFF9F40,   // app orange
-    "create_file"     to 0xFF80DEEA,   // cyan
-    "create_html"     to 0xFFAED581,   // lime green
+    "screenshot"      to 0xFF6C6C6C,
+    "bg_screenshot"   to 0xFF6C6C6C,
+    "read_screen"     to 0xFF6C6C6C,
+    "bg_read_screen"  to 0xFF6C6C6C,
+    "see_screen"      to 0xFF6C6C6C,
+    "tap"             to 0xFF56D6BA,
+    "long_click"      to 0xFF56D6BA,
+    "scroll"          to 0xFF56D6BA,
+    "input_text"      to 0xFF56D6BA,
+    "navigate"        to 0xFF1D9B7F,
+    "list_apps"       to 0xFF1D9B7F,
+    "web_search"      to 0xFF5F5F5F,
+    "fetch_url"       to 0xFF5F5F5F,
+    "web_browse"      to 0xFF5F5F5F,
+    "web_content"     to 0xFF5F5F5F,
+    "web_js"          to 0xFF5F5F5F,
+    "bg_launch"       to 0xFF8C8A84,
+    "bg_stop"         to 0xFF8C8A84,
+    "vd_setup"        to 0xFF8C8A84,
+    "shell"           to 0xFF5F5F5F,
+    "memory"          to 0xFF8C8A84,
+    "permission"      to 0xFFCC3A3A,
+    "quick_skill"     to 0xFF6C6C6C,
+    "meta"            to 0xFF6C6C6C,
+    "skill_check"     to 0xFF6C6C6C,
+    "skill_market"    to 0xFF6C6C6C,
+    "generate_image"  to 0xFF8C8A84,
+    "ui_builder"      to 0xFF101010,
+    "app_manager"     to 0xFF6C6C6C,
+    "create_file"     to 0xFF56D6BA,
+    "create_html"     to 0xFF1D9B7F,
 )
 
 @Composable
@@ -3233,7 +3233,7 @@ private fun ActionCardAttachment(
     var selectedActionMessage by remember(actionStateKey) { mutableStateOf<String?>(null) }
     val accent = when (attachment.tone) {
         "phone" -> Color(0xFF56D6BA)
-        "role" -> Color(0xFFC7F43A)
+        "role" -> c.accent
         "warning" -> Color(0xFFFFB020)
         else -> c.accent
     }

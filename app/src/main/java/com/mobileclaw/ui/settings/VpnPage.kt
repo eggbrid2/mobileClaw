@@ -81,7 +81,7 @@ private val V_CARD = Color(0xFF151515)
 private val V_BORDER = Color(0xFF292929)
 private val V_TEXT = Color(0xFFF7F7F4)
 private val V_SUB = Color(0xFFA0A0A0)
-private val V_ACCENT = Color(0xFFC7F43A)
+private val V_ACCENT = Color(0xFF56D6BA)
 private val V_GREEN = Color(0xFF56D6BA)
 
 @Composable

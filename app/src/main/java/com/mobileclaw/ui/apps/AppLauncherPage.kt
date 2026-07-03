@@ -2,6 +2,7 @@ package com.mobileclaw.ui.apps
 
 import android.annotation.SuppressLint
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -11,6 +12,8 @@ import okhttp3.Request
 import java.io.ByteArrayInputStream
 import java.util.concurrent.TimeUnit
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -82,14 +85,23 @@ fun AppLauncherPage(
     miniApps: List<MiniApp>,
     onOpen: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onDeleteBatch: (Set<String>) -> Unit,
+    onImport: (Uri) -> Unit,
     onBack: () -> Unit,
     showHeader: Boolean = true,
 ) {
     val c = LocalClawColors.current
     val isZh = LocalAppLanguage.current == "zh"
     var isEditMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(onImport)
+    }
 
-    BackHandler(enabled = isEditMode) { isEditMode = false }
+    BackHandler(enabled = isEditMode) {
+        isEditMode = false
+        selectedIds = emptySet()
+    }
 
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // Top bar using same pattern as other pages
@@ -109,6 +121,19 @@ fun AppLauncherPage(
                     color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f).padding(start = 4.dp),
                 )
+                Row(
+                    modifier = Modifier
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.text)
+                        .clickable { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    ClawSymbolIcon("download", tint = c.bg, modifier = Modifier.size(14.dp))
+                    Text(if (isZh) "导入" else "Import", color = c.bg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
                 if (miniApps.isNotEmpty()) {
                     Text(
                         if (isEditMode) str(R.string.app_launcher_done) else if (isZh) "${miniApps.size} 个" else "${miniApps.size} apps",
@@ -117,10 +142,32 @@ fun AppLauncherPage(
                         fontWeight = if (isEditMode) FontWeight.Medium else FontWeight.Normal,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable { isEditMode = !isEditMode }
+                            .clickable {
+                                isEditMode = !isEditMode
+                                if (!isEditMode) selectedIds = emptySet()
+                            }
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
+            }
+            if (isEditMode) {
+                AppLauncherSelectionBar(
+                    selectedCount = selectedIds.size,
+                    totalCount = miniApps.size,
+                    onSelectAll = { selectedIds = miniApps.map { it.id }.toSet() },
+                    onDeleteSelected = {
+                        val ids = selectedIds
+                        if (ids.isNotEmpty()) {
+                            onDeleteBatch(ids)
+                            selectedIds = emptySet()
+                            isEditMode = false
+                        }
+                    },
+                    onDone = {
+                        selectedIds = emptySet()
+                        isEditMode = false
+                    },
+                )
             }
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
         }
@@ -137,6 +184,19 @@ fun AppLauncherPage(
                         str(R.string.app_launcher_d957e7),
                         color = c.subtext, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 17.sp,
                     )
+                    Row(
+                        modifier = Modifier
+                            .height(38.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(c.text)
+                            .clickable { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
+                            .padding(horizontal = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        ClawSymbolIcon("download", tint = c.bg, modifier = Modifier.size(15.dp))
+                        Text(if (isZh) "导入 MiniAPP" else "Import MiniAPP", color = c.bg, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
             }
         } else {
@@ -151,9 +211,19 @@ fun AppLauncherPage(
                     AppLauncherIcon(
                         app = app,
                         isEditMode = isEditMode,
+                        isSelected = app.id in selectedIds,
                         onOpen = { onOpen(app.id) },
-                        onDelete = { onDelete(app.id) },
-                        onEnterEditMode = { isEditMode = true },
+                        onDelete = {
+                            selectedIds = selectedIds - app.id
+                            onDelete(app.id)
+                        },
+                        onToggleSelected = {
+                            selectedIds = if (app.id in selectedIds) selectedIds - app.id else selectedIds + app.id
+                        },
+                        onEnterEditMode = {
+                            isEditMode = true
+                            selectedIds = selectedIds + app.id
+                        },
                     )
                 }
             }
@@ -167,8 +237,10 @@ fun AppLauncherPage(
 private fun AppLauncherIcon(
     app: MiniApp,
     isEditMode: Boolean,
+    isSelected: Boolean,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
+    onToggleSelected: () -> Unit,
     onEnterEditMode: () -> Unit,
 ) {
     val c = LocalClawColors.current
@@ -177,7 +249,7 @@ private fun AppLauncherIcon(
         modifier = Modifier
             .padding(horizontal = 4.dp, vertical = 8.dp)
             .combinedClickable(
-                onClick = { if (isEditMode) { /* tap in edit mode dismisses */ } else onOpen() },
+                onClick = { if (isEditMode) onToggleSelected() else onOpen() },
                 onLongClick = { onEnterEditMode() },
             ),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -189,7 +261,7 @@ private fun AppLauncherIcon(
                     .size(56.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(c.card)
-                    .border(0.5.dp, c.border, RoundedCornerShape(14.dp)),
+                    .border(if (isSelected) 1.4.dp else 0.5.dp, if (isSelected) c.text else c.border, RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 if (app.icon.startsWith("/")) {
@@ -247,6 +319,20 @@ private fun AppLauncherIcon(
                         modifier = Modifier.size(10.dp),
                     )
                 }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-4).dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) c.text else c.cardAlt)
+                        .border(0.5.dp, c.border, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) {
+                        ClawSymbolIcon("check", tint = c.bg, modifier = Modifier.size(11.dp))
+                    }
+                }
             }
         }
         Spacer(Modifier.height(5.dp))
@@ -260,6 +346,70 @@ private fun AppLauncherIcon(
             textAlign = TextAlign.Center,
             lineHeight = 14.sp,
             modifier = Modifier.width(64.dp),
+        )
+    }
+}
+
+@Composable
+private fun AppLauncherSelectionBar(
+    selectedCount: Int,
+    totalCount: Int,
+    onSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(c.cardAlt)
+            .border(0.5.dp, c.border, RoundedCornerShape(18.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (isZh) "已选 $selectedCount / $totalCount" else "$selectedCount / $totalCount selected",
+            color = c.text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        AppLauncherMiniPill(if (isZh) "全选" else "All", filled = false, onClick = onSelectAll)
+        AppLauncherMiniPill(if (isZh) "删除" else "Delete", filled = true, enabled = selectedCount > 0, onClick = onDeleteSelected)
+        AppLauncherMiniPill(if (isZh) "完成" else "Done", filled = false, onClick = onDone)
+    }
+}
+
+@Composable
+private fun AppLauncherMiniPill(
+    text: String,
+    filled: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val c = LocalClawColors.current
+    Box(
+        modifier = Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (filled) c.text else c.surface)
+            .border(0.5.dp, if (filled) c.text else c.border, RoundedCornerShape(999.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (!enabled) c.subtext.copy(alpha = 0.55f) else if (filled) c.bg else c.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
     }
 }

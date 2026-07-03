@@ -293,9 +293,8 @@ object TaskToolPolicy {
         TaskType.WEB_RESEARCH -> """
 ## Current Task Mode: WEB_RESEARCH
 - Primary channel: web tool channel.
-- Supporting channels: memory channel for prior facts and citations, chat channel for concise synthesis.
-- Use web/search tools only. Gather sources, then synthesize a concise answer.
-- Do not operate the phone UI unless the user explicitly asks.
+- Supporting channels: memory channel for prior facts and citations, chat channel for concise synthesis, and phone/tool channels when they are useful for opening sources, verifying app-side state, or continuing a user workflow.
+- Prefer web/search tools for source gathering, then synthesize a concise answer. You may cross into phone, file, MCP, or skill tools when the user's workflow benefits from it.
 """.trimIndent()
         TaskType.APP_BUILD -> """
 ## Current Task Mode: APP_BUILD

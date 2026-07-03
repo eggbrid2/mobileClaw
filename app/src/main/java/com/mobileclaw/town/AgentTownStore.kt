@@ -1,9 +1,6 @@
 package com.mobileclaw.town
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.mobileclaw.agent.Role
@@ -80,27 +77,6 @@ class AgentTownStore(private val context: Context) {
         save(current.copy(rooms = current.rooms + (roleId to updated), updatedAt = System.currentTimeMillis()))
         return updated
     }
-
-    fun registerSpritePack(pack: AgentSpritePack, imageDataUri: String? = null): AgentSpritePack {
-        val cleanBase = pack.normalized()
-        val storedImagePath = imageDataUri
-            ?.takeIf { it.isNotBlank() }
-            ?.let { writeSpriteSheetAsset(cleanBase, it) }
-        val clean = cleanBase.copy(
-            imagePath = storedImagePath ?: cleanBase.imagePath,
-            updatedAt = System.currentTimeMillis(),
-        )
-        val current = _state.value
-        save(current.copy(spritePacks = current.spritePacks + (clean.id to clean), updatedAt = System.currentTimeMillis()))
-        return clean
-    }
-
-    fun assignRoleSpritePack(roleId: String, spritePackId: String): AgentRoom =
-        updateRoom(roleId) { room -> room.copy(characterSpritePack = spritePackId) }
-
-    fun assignRolePortraitPack(roleId: String, spritePackId: String): AgentRoom =
-        // 肖像图单独落到 portrait 字段，避免角色详情误拿到动画 spritesheet。
-        updateRoom(roleId) { room -> room.copy(portraitSpritePack = spritePackId) }
 
     fun updateMap(transform: (TownMapDocument) -> TownMapDocument): TownMapDocument {
         val current = _state.value
@@ -325,24 +301,9 @@ class AgentTownStore(private val context: Context) {
         val safe = room.normalized()
         val legacyMotto = safe.motto == "我住在 MobileClaw Town" || safe.motto == "I live in MobileClaw Town"
         val legacyHouseName = safe.houseName == "${role.name} 的家" && role.name.isBlank()
-        // 旧版本把动态精灵和静态肖像都塞进 characterSpritePack，这里按 pack 类型拆回两个字段。
-        val legacyPack = safe.characterSpritePack
-            .takeIf { it.isNotBlank() }
-            ?.let { _state.value.spritePacks[it] }
-        val migratedPortrait = when {
-            safe.portraitSpritePack.isNotBlank() -> safe.portraitSpritePack
-            legacyPack?.isPortraitPack() == true -> legacyPack.id
-            else -> ""
-        }
-        val migratedCharacter = when {
-            legacyPack?.isCharacterPack() == true -> legacyPack.id
-            else -> ""
-        }
         return safe.copy(
             houseName = if (legacyHouseName) "${role.id} Home" else safe.houseName,
             motto = if (legacyMotto) defaultRoom(role, 0).motto else safe.motto,
-            portraitSpritePack = migratedPortrait,
-            characterSpritePack = migratedCharacter,
             furniture = safe.furniture.ifEmpty { defaultFurniture(role, safe.houseSprite) },
         ).normalized()
     }
@@ -358,10 +319,6 @@ class AgentTownStore(private val context: Context) {
             houseName = safe(houseName).ifBlank { "${safe(roleId).ifBlank { "role" }} room" }.take(40),
             style = safe(style).ifBlank { "pixel studio" }.take(60),
             houseSprite = safe(houseSprite).ifBlank { "studio" }.take(32),
-            // 统一收口 portrait 字段，防止旧 JSON 缺字段时出现 null/脏值。
-            portraitSpritePack = safe(portraitSpritePack).take(80),
-            // 动态角色精灵继续单独存放，供 Home 场景使用。
-            characterSpritePack = safe(characterSpritePack).take(80),
             accent = safe(accent).ifBlank { "#C7F43A" }.take(16),
             doorSign = safe(doorSign).take(80),
             motto = safe(motto).take(100),
@@ -492,89 +449,6 @@ class AgentTownStore(private val context: Context) {
             )
         },
         )
-    }
-
-    private fun AgentSpritePack.normalized(): AgentSpritePack {
-        fun safe(value: String?): String = value.orEmpty()
-        val cleanId = stableId("sprite", safe(id).ifBlank { safe(name).ifBlank { "agent" } }).take(80)
-        val cleanColumns = columns.coerceIn(1, 16)
-        val cleanRows = rows.coerceIn(1, 16)
-        return copy(
-            id = cleanId,
-            name = safe(name).ifBlank { cleanId }.take(60),
-            kind = safe(kind).ifBlank { "character" }.take(32),
-            imagePath = safe(imagePath).take(260),
-            frameWidth = frameWidth.coerceIn(8, 512),
-            frameHeight = frameHeight.coerceIn(8, 512),
-            columns = cleanColumns,
-            rows = cleanRows,
-            states = states.orEmpty().mapValues { (_, state) ->
-                val safeState = state ?: SpriteAnimationState()
-                safeState.copy(
-                    row = safeState.row.coerceIn(0, cleanRows - 1),
-                    startColumn = safeState.startColumn.coerceIn(0, cleanColumns - 1),
-                    frames = safeState.frames.coerceIn(1, cleanColumns),
-                    durationMs = safeState.durationMs.coerceIn(80, 6000),
-                )
-            }.ifEmpty { defaultSpriteStates() },
-            palette = palette.orEmpty().take(12).map { it.orEmpty().take(16) },
-            notes = safe(notes).take(240),
-            updatedAt = System.currentTimeMillis(),
-        )
-    }
-
-    private fun writeSpriteSheetAsset(pack: AgentSpritePack, dataUri: String): String? = runCatching {
-        val bytes = decodeDataUri(dataUri)
-        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
-        val expectedWidth = pack.frameWidth * pack.columns
-        val expectedHeight = pack.frameHeight * pack.rows
-        val normalizedRaw = if (decoded.width == expectedWidth && decoded.height == expectedHeight) {
-            decoded
-        } else {
-            Bitmap.createScaledBitmap(decoded, expectedWidth, expectedHeight, false)
-        }
-        val normalized = removeChromaKeyBackground(normalizedRaw)
-        val dir = assetDir.resolve("sprites").also { it.mkdirs() }
-        val file = dir.resolve("${pack.id.replace(Regex("[^a-zA-Z0-9._-]"), "_")}.png")
-        file.outputStream().use { out ->
-            normalized.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
-        if (normalized !== normalizedRaw) normalized.recycle()
-        if (normalizedRaw !== decoded) normalizedRaw.recycle()
-        decoded.recycle()
-        file.absolutePath
-    }.getOrNull()
-
-    private fun AgentSpritePack.isPortraitPack(): Boolean =
-        // 静态肖像必须同时满足 portrait 标记或单帧结构，避免把 character spritesheet 误判成角色图。
-        kind.orEmpty() == "portrait" || notes.orEmpty().contains("role_self_portrait_") || (columns == 1 && rows == 1)
-
-    private fun AgentSpritePack.isCharacterPack(): Boolean =
-        // 动态角色必须明确是 character 或多帧结构，避免把静态图误送进房间动画位。
-        kind.orEmpty() == "character" || notes.orEmpty().contains("role_self_sprite_") || columns > 1 || rows > 1
-
-    private fun removeChromaKeyBackground(source: Bitmap): Bitmap {
-        val output = source.copy(Bitmap.Config.ARGB_8888, true)
-        val pixels = IntArray(output.width * output.height)
-        output.getPixels(pixels, 0, output.width, 0, 0, output.width, output.height)
-        for (i in pixels.indices) {
-            val p = pixels[i]
-            val r = android.graphics.Color.red(p)
-            val g = android.graphics.Color.green(p)
-            val b = android.graphics.Color.blue(p)
-            if (g > 190 && r < 90 && b < 120) {
-                pixels[i] = android.graphics.Color.TRANSPARENT
-            }
-        }
-        output.setPixels(pixels, 0, output.width, 0, 0, output.width, output.height)
-        return output
-    }
-
-    private fun decodeDataUri(dataUri: String): ByteArray {
-        val marker = "base64,"
-        val index = dataUri.indexOf(marker)
-        val b64 = if (index >= 0) dataUri.substring(index + marker.length) else dataUri
-        return Base64.decode(b64, Base64.DEFAULT)
     }
 
     private fun stableId(prefix: String, value: String): String =

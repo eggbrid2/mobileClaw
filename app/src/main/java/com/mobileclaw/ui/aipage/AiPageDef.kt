@@ -14,8 +14,9 @@ import com.mobileclaw.artifact.ArtifactSpec
  *   All string values support ${expr} template evaluation.
  *
  * actions: map of actionName → list of steps. Button "action" field references these.
- *   Step types: set_state, http, shell, python, sql, notify, vibrate, toast,
- *               launch_app, open_url, share, clipboard_set, navigate_page
+ *   Step types: set_state, http, ai_chat, background, parallel, shell, python, sql,
+ *               notify, vibrate, toast, launch_app, open_url, share,
+ *               clipboard_set, navigate_page
  */
 data class AiPageDef(
     val id: String,

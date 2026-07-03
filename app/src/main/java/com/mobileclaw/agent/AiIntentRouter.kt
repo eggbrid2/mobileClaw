@@ -11,6 +11,7 @@ import com.mobileclaw.ui.ActiveWorkflow
 
 data class AiTaskRouteDecision(
     val taskType: TaskType?,
+    val requiresExecution: Boolean,
     val confidence: Float,
     val reason: String,
     val normalizedGoal: String,
@@ -21,6 +22,37 @@ data class AiTaskRouteDecision(
     val userVisibleSteps: List<String>,
 )
 
+data class IntentContextPack(
+    val compressedContext: String,
+    val recentContext: String,
+    val activeWorkflowSummary: String = "",
+    val roleSummary: String = "",
+) {
+    fun toPromptBlock(maxChars: Int = 5200): String = buildString {
+        appendLine("## Context Pack")
+        if (compressedContext.isNotBlank()) {
+            appendLine()
+            appendLine("### Compressed Complete Context")
+            appendLine(compressedContext.take(2200))
+        }
+        if (recentContext.isNotBlank()) {
+            appendLine()
+            appendLine("### Recent Raw Context")
+            appendLine(recentContext.take(2200))
+        }
+        if (activeWorkflowSummary.isNotBlank()) {
+            appendLine()
+            appendLine("### Active Workflow")
+            appendLine(activeWorkflowSummary.take(500))
+        }
+        if (roleSummary.isNotBlank()) {
+            appendLine()
+            appendLine("### Active Role")
+            appendLine(roleSummary.take(500))
+        }
+    }.trim().take(maxChars)
+}
+
 class AiIntentRouter(
     private val llm: LlmGateway,
 ) {
@@ -30,12 +62,12 @@ class AiIntentRouter(
 
     suspend fun decide(
         goal: String,
-        recentContext: String,
+        contextPack: IntentContextPack,
         hasImage: Boolean,
         hasFile: Boolean,
         activeWorkflow: ActiveWorkflow?,
     ): AiTaskRouteDecision? {
-        val prompt = buildPrompt(goal, recentContext, hasImage, hasFile, activeWorkflow)
+        val prompt = buildPrompt(goal, contextPack, hasImage, hasFile, activeWorkflow)
         val raw = try {
             llm.chat(
                 ChatRequest(
@@ -79,7 +111,7 @@ Invalid output:
 ${invalidOutput.take(1600)}
 
 Return only a valid JSON object with these keys:
-task_type, confidence, reason, normalized_goal, target_app, primary_channel, supporting_channels, tool_hints, user_visible_steps
+task_type, requires_execution, confidence, reason, normalized_goal, target_app, primary_channel, supporting_channels, tool_hints, user_visible_steps
 
 Enum values must be uppercase exactly as documented. Arrays must be JSON arrays of strings.
 """.trimIndent(),
@@ -98,7 +130,7 @@ Enum values must be uppercase exactly as documented. Arrays must be JSON arrays 
 
     private fun buildPrompt(
         goal: String,
-        recentContext: String,
+        contextPack: IntentContextPack,
         hasImage: Boolean,
         hasFile: Boolean,
         activeWorkflow: ActiveWorkflow?,
@@ -119,8 +151,7 @@ Input flags:
 Active workflow:
 ${activeWorkflow?.let { "type=${it.taskType}; original_goal=${it.originalGoal.take(800)}" } ?: "none"}
 
-Recent chat context, newest records included:
-${recentContext.take(2600)}
+${contextPack.toPromptBlock()}
 
 Available task_type values:
 CHAT, GENERAL, PHONE_CONTROL, WEB_RESEARCH, FILE_CREATE, APP_BUILD, IMAGE_GENERATION, VPN_CONTROL, SKILL_MANAGEMENT, CODE_EXECUTION
@@ -130,10 +161,13 @@ CHAT, INFO, MEMORY, SKILL, SELF_EVOLUTION, PLAN, ARTIFACT, PHONE, WEB, MEDIA, VP
 
 Routing principles:
 - Decide from meaning and context, not fixed keywords.
-- Treat recent context as reference, not as an automatic command to continue. The latest user message wins.
+- First infer the user's concrete goal for THIS turn from both the compressed complete context and the recent raw context. The latest user message wins when context conflicts.
+- Set requires_execution=true when the user wants MobileClaw to act beyond a normal text answer: inspect, create, change, run, operate, search, continue, retry, configure, persist memory, or select/use tools.
+- Set requires_execution=false only when a normal answer, explanation, acknowledgement, casual conversation, or pure capability-directory answer satisfies the latest turn.
 - Direct chat route: use task_type=CHAT, primary_channel=CHAT, supporting_channels=[], tool_hints=[], and user_visible_steps=[].
 - Use direct chat for greetings, small talk, thanks, emotional support, explanations, questions, ordinary conversation, and commands like "和我聊天吧 / just chat with me".
-- If the user asks what MobileClaw can do, what tools/capabilities are available, whether a kind of task is supported, or how to choose a capability, keep task_type=CHAT and use primary_channel=INFO.
+- If the user only asks what MobileClaw can do, what tools/capabilities are available, which task categories are supported, or how to choose a capability, keep task_type=CHAT and use primary_channel=INFO.
+- Do not use INFO when the message includes a concrete thing to do, create, fix, inspect, connect, run, continue, retry, revise, or operate. Examples like "能不能做个页面", "能不能帮我处理这个问题", "可以接入 MCP 吗", or "帮我看下为什么不能用" are execution requests, not capability-directory questions.
 - Do not add MEMORY, SKILL, ARTIFACT, PLAN, or tool_hints to direct chat just because those capabilities exist. Supporting channels mean the agent runtime should actually use them in this turn.
 - Agent route: use a non-chat execution path only when this latest turn asks MobileClaw to act, create, inspect, modify, operate, search, generate, run, continue, retry, or revise something beyond a normal text reply.
 - Continuation examples:
@@ -165,6 +199,7 @@ Routing principles:
 Return JSON only:
 {
   "task_type": "PHONE_CONTROL",
+  "requires_execution": true,
   "confidence": 0.92,
   "reason": "User wants MobileClaw to operate a named phone app.",
   "normalized_goal": "clear executable goal in the user's language",
@@ -201,6 +236,7 @@ Return JSON only:
         }
         return AiTaskRouteDecision(
             taskType = taskType,
+            requiresExecution = obj.boolean("requires_execution"),
             confidence = confidence,
             reason = obj.string("reason"),
             normalizedGoal = obj.string("normalized_goal"),
@@ -224,6 +260,13 @@ Return JSON only:
             get(name)?.takeIf { !it.isJsonNull }?.asFloat ?: 0f
         } catch (_: Throwable) {
             0f
+        }
+
+    private fun JsonObject.boolean(name: String): Boolean =
+        try {
+            get(name)?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+        } catch (_: Throwable) {
+            false
         }
 
     private fun JsonObject.stringList(name: String): List<String> {

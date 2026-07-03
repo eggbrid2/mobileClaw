@@ -2,6 +2,7 @@ package com.mobileclaw.ui.chat
 
 import com.mobileclaw.R
 import com.mobileclaw.skill.SkillAttachment
+import com.mobileclaw.ui.common.stableUiSignature
 import com.mobileclaw.ui.common.sanitizeUserFacingNarration
 import com.mobileclaw.str
 
@@ -26,13 +27,17 @@ internal fun buildNarrativeAgentMessages(
     var currentActionGroup = mutableListOf<LogLine>()
     var hasStartedExecution = false
 
-    fun addTextMessage(text: String, lines: List<LogLine> = emptyList()) {
+    fun addTextMessage(text: String, lines: List<LogLine> = emptyList(), inlineAttachments: List<SkillAttachment> = emptyList()) {
         val clean = sanitizeUserFacingNarration(text.trim())
-        if (clean.isBlank() && lines.isEmpty()) return
+        val lineAttachments = lines.flatMap { it.attachments }
+        val messageAttachments = (inlineAttachments + lineAttachments)
+            .distinctBy { it.stableUiSignature() }
+        if (clean.isBlank() && lines.isEmpty() && messageAttachments.isEmpty()) return
         messages += ChatMessage(
             role = MessageRole.AGENT,
             text = clean,
             logLines = lines,
+            attachments = messageAttachments,
             senderRoleId = sender.id,
             senderRoleName = sender.name,
             senderRoleAvatar = sender.avatar,
@@ -287,8 +292,15 @@ private fun String.normalizeMeaning(): String =
 private fun trimRunningMessages(messages: List<ChatMessage>): List<ChatMessage> {
     if (messages.size <= 5) return messages
     val planning = messages.takeWhile { it.attachments.isEmpty() && it.logLines.isEmpty() }
+    val attachmentMessages = messages.filter { it.attachments.isNotEmpty() }
     val tail = messages.takeLast(4)
-    return (planning.takeLast(1) + tail).distinctBy { it.text.normalizeMeaning() + "#${it.attachments.size}" }
+    return (planning.takeLast(1) + attachmentMessages + tail).distinctBy {
+        if (it.attachments.isNotEmpty()) {
+            "attachments:" + it.attachments.joinToString("|") { attachment -> attachment.stableUiSignature() }
+        } else {
+            "text:" + it.text.normalizeMeaning() + "#logs:${it.logLines.firstOrNull()?.entryId.orEmpty()}:${it.logLines.lastOrNull()?.entryId.orEmpty()}"
+        }
+    }
 }
 
 private fun isGenericProcessSentence(text: String): Boolean {

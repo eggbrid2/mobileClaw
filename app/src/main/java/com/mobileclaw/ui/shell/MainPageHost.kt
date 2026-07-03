@@ -31,16 +31,21 @@ import com.mobileclaw.ui.chat.currentRunState
 import com.mobileclaw.ui.group.GroupChatScreen
 import com.mobileclaw.ui.group.GroupsPage
 import com.mobileclaw.ui.image.ImageGeneratorPage
+import com.mobileclaw.ui.profile.MemorySettingsPage
 import com.mobileclaw.ui.profile.ProfilePage
+import com.mobileclaw.ui.profile.UserInfoEditPage
 import com.mobileclaw.ui.roles.RoleDetailPage
 import com.mobileclaw.ui.roles.RoleEditPage
-import com.mobileclaw.ui.roles.RoleHomePage
+import com.mobileclaw.ui.roles.RoleWorkspacePage
 import com.mobileclaw.ui.roles.RolesPage
 import com.mobileclaw.ui.common.HtmlAttachmentViewer
+import com.mobileclaw.ui.settings.AiBasicSettingsPage
 import com.mobileclaw.ui.settings.BrowserPage
 import com.mobileclaw.ui.settings.ConsolePage
+import com.mobileclaw.ui.settings.GeneralSettingsPage
 import com.mobileclaw.ui.settings.HelpPage
 import com.mobileclaw.ui.settings.SettingsPage
+import com.mobileclaw.ui.settings.ToolsSettingsPage
 import com.mobileclaw.ui.settings.UserConfigPage
 import com.mobileclaw.ui.settings.VpnPage
 import com.mobileclaw.ui.video.VideoGeneratorPage
@@ -143,6 +148,104 @@ fun MainPageHost(
         )
     }
     AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.AI_BASIC_SETTINGS,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        AiBasicSettingsPage(
+            config = uiState.config,
+            onSave = { vm.saveConfig(it) },
+            onBack = { vm.navigateBack() },
+            localModels = uiState.localModels,
+            onLocalModelEnabled = { vm.setLocalModelEnabled(it) },
+            onLocalNativeOnly = { vm.setLocalNativeOnly(it) },
+            onLocalToolCallingEnabled = { vm.setLocalToolCallingEnabled(it) },
+            onSelectLocalModel = { vm.selectLocalModel(it) },
+            onDownloadLocalModel = { id, token, sourceUrl -> vm.downloadLocalModel(id, token, sourceUrl) },
+            onImportLocalModel = { id, uri -> vm.importLocalModel(id, uri) },
+            onDeleteLocalModel = { vm.deleteLocalModel(it) },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.USER_INFO,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        UserInfoEditPage(
+            entries = uiState.userConfigEntries,
+            userAvatarUri = uiState.userAvatarUri,
+            facts = uiState.profileState.facts,
+            episodes = uiState.profileState.recentEpisodes,
+            isLoading = uiState.profileState.isLoading,
+            isExtracting = uiState.profileState.isExtracting,
+            conversationCount = uiState.profileState.conversationCount,
+            onBack = { vm.navigateBack() },
+            onSet = { key, value, desc -> vm.setUserConfigEntry(key, value, desc) },
+            onSetAvatarUri = { vm.setUserAvatarUri(it) },
+            onRefreshExtraction = { vm.triggerProfileExtraction() },
+            personalitySummary = uiState.profileState.personalitySummary,
+            personalitySummaryLoading = uiState.profileState.personalitySummaryLoading,
+            onGenerateSummary = { vm.generatePersonalitySummary() },
+            dimensionQuizzes = uiState.profileState.dimensionQuizzes,
+            dimensionQuizLoading = uiState.profileState.dimensionQuizLoading,
+            onGenerateDimensionQuiz = { id, title -> vm.generateDimensionQuiz(id, title) },
+            onPrewarmQuizzes = { dims -> vm.prewarmAllDimensionQuizzes(dims) },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.GENERAL_SETTINGS,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        GeneralSettingsPage(
+            config = uiState.config,
+            virtualDisplayManager = ClawApplication.instance.virtualDisplayManager,
+            vdTestResult = uiState.virtualDisplayTestResult,
+            privServerConnected = uiState.privServerConnected,
+            onSave = { vm.saveConfig(it) },
+            onBack = { vm.navigateBack() },
+            onOpenHelp = { vm.navigate(AppPage.HELP) },
+            onTestVirtualDisplay = { vm.testVirtualDisplay() },
+            onCheckPrivServer = { vm.checkPrivServer() },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.TOOLS_SETTINGS,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        ToolsSettingsPage(
+            onOpenSkillMarket = { vm.navigate(AppPage.SKILL_MARKET) },
+            onOpenConsole = { vm.navigate(AppPage.CONSOLE) },
+            onOpenVpn = { vm.navigate(AppPage.VPN) },
+            onBack = { vm.navigateBack() },
+        )
+    }
+    AnimatedVisibility(
+        visible = uiState.currentPage == AppPage.MEMORY_SETTINGS,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = slideOutHorizontally { it } + fadeOut(),
+    ) {
+        MemorySettingsPage(
+            facts = uiState.profileState.facts,
+            semanticFacts = uiState.profileState.semanticFacts,
+            memoryHasMore = uiState.profileState.memoryHasMore,
+            memoryLoadingMore = uiState.profileState.memoryLoadingMore,
+            episodes = uiState.profileState.recentEpisodes,
+            isLoading = uiState.profileState.isLoading,
+            isExtracting = uiState.profileState.isExtracting,
+            entries = uiState.userConfigEntries,
+            onBack = { vm.navigateBack() },
+            onRefreshExtraction = { vm.triggerProfileExtraction() },
+            onPinMemory = { key, pinned -> vm.setMemoryPinned(key, pinned) },
+            onEnableMemory = { key, enabled -> vm.setMemoryEnabled(key, enabled) },
+            onDeleteMemory = { key -> vm.deleteMemoryFact(key) },
+            onLoadMoreMemory = { vm.loadMoreProfileMemory() },
+            onSet = { key, value, desc -> vm.setUserConfigEntry(key, value, desc) },
+            onDeleteConfig = { key -> vm.deleteUserConfigEntry(key) },
+        )
+    }
+    AnimatedVisibility(
         visible = uiState.currentPage == AppPage.SKILLS,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
@@ -208,8 +311,10 @@ fun MainPageHost(
             onActivate = { vm.setActiveRole(it) },
             onOpenDetail = { vm.openRoleDetail(it) },
             onGeneratePortrait = { vm.generateRolePortrait(it) },
-            onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
+            onEdit = { vm.editRole(it) },
+            onCopy = { vm.duplicateRoleForEditing(it) },
             onDelete = { vm.deleteCustomRole(it) },
+            onImport = { vm.importRolePackage(it) },
             onBack = { vm.navigateBack() },
         )
     }
@@ -228,26 +333,26 @@ fun MainPageHost(
                 isGeneratingPortrait = role.id in uiState.rolePortraitGeneratingIds,
                 onActivate = { vm.setActiveRole(it) },
                 onGeneratePortrait = { vm.generateRolePortrait(it) },
-                onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
-                onOpenHome = { vm.openRoleHome(it) },
+                onEdit = { vm.editRole(it) },
+                onCopy = { vm.duplicateRoleForEditing(it) },
+                onExport = { vm.exportRolePackage(it.id) },
+                onOpenWorkspace = { vm.openRoleWorkspace(it) },
                 onBack = { vm.navigateBack() },
             )
         }
     }
     AnimatedVisibility(
-        visible = uiState.currentPage == AppPage.AI_TOWN,
+        visible = uiState.currentPage == AppPage.ROLE_WORKSPACE,
         enter = slideInHorizontally { it } + fadeIn(),
         exit = slideOutHorizontally { it } + fadeOut(),
     ) {
-        val role = uiState.detailRole ?: uiState.availableRoles.firstOrNull { it.id == uiState.openTownRoleId }
+        val role = uiState.detailRole
         if (role != null) {
-            RoleHomePage(
+            RoleWorkspacePage(
                 role = role,
-                currentRole = uiState.currentRole,
-                town = uiState.agentTown,
-                isWorking = role.id in uiState.groupState.workingAgents || role.id in uiState.groupState.typingAgents,
+                files = uiState.roleWorkspaceFiles,
                 onBack = { vm.navigateBack() },
-                onEdit = { if (it.isBuiltin) vm.copyBuiltinRoleForEditing(it) else vm.editRole(it) },
+                onRefresh = { vm.refreshRoleWorkspace() },
             )
         }
     }
@@ -261,10 +366,14 @@ fun MainPageHost(
             key(role.id) {
                 RoleEditPage(
                     initial = role,
+                    workspaceFiles = uiState.roleWorkspaceFiles,
                     availableModels = uiState.availableModels,
                     modelsLoading = uiState.modelsLoading,
                     allSkills = uiState.allSkills,
-                    onSave = { vm.saveCustomRole(it); vm.navigateBack() },
+                    onSave = { savedRole, chatProtocol ->
+                        vm.saveRoleWithChatProtocol(savedRole, chatProtocol)
+                        vm.navigateBack()
+                    },
                     onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
                     onFetchModels = { vm.fetchModels() },
                     onBack = { vm.navigateBack() },
@@ -293,6 +402,8 @@ fun MainPageHost(
             miniApps = uiState.miniApps,
             onOpen = onOpenApp,
             onDelete = { vm.deleteApp(it) },
+            onDeleteBatch = { vm.deleteApps(it) },
+            onImport = { vm.importMiniAppPackage(it) },
             onBack = { vm.navigateBack() },
         )
     }
@@ -322,8 +433,17 @@ fun MainPageHost(
         WorkspacePage(
             snapshot = uiState.workspaceState.snapshot,
             facts = uiState.workspaceState.facts,
+            areas = uiState.workspaceState.areas,
+            openArea = uiState.workspaceState.openArea,
+            openAreaRoots = uiState.workspaceState.openAreaRoots,
+            openAreaCurrentPath = uiState.workspaceState.openAreaCurrentPath,
+            openAreaEntries = uiState.workspaceState.openAreaEntries,
             onBack = { vm.navigateBack() },
             onRefresh = { vm.loadCurrentWorkspaceSnapshot() },
+            onOpenArea = { vm.openWorkspaceArea(it) },
+            onOpenFolder = { vm.openWorkspaceFolder(it) },
+            onNavigateFolderUp = { vm.navigateWorkspaceFolderUp() },
+            onCloseArea = { vm.closeWorkspaceArea() },
             onPromoteFact = { vm.promoteWorkspaceFact(it) },
             onDeleteFact = { vm.deleteWorkspaceFact(it) },
         )

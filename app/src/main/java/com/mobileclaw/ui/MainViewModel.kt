@@ -1,20 +1,20 @@
 package com.mobileclaw.ui
 
-import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
+import android.net.Uri
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
@@ -23,20 +23,30 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.ClawApplication
 import com.mobileclaw.app.MiniAppPreflightValidator
+import com.mobileclaw.app.MiniAppStore
 import com.mobileclaw.agent.AgentEvent
 import com.mobileclaw.agent.AiIntentRouter
+import com.mobileclaw.agent.AiToolSelector
+import com.mobileclaw.agent.IntentContextPack
 import com.mobileclaw.agent.AgentRuntime
 import com.mobileclaw.agent.AgentWorkspaceUpdate
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChannelType
 import com.mobileclaw.agent.ChannelPermissionPolicy
 import com.mobileclaw.agent.Role
+import com.mobileclaw.agent.RolePackageStore
+import com.mobileclaw.agent.RoleWorkspaceStore
 import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.RoleScheduler
+import com.mobileclaw.agent.RoleScheduleDecision
+import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.agent.TaskOrchestrator
+import com.mobileclaw.agent.TaskOrchestration
+import com.mobileclaw.agent.ToolSelectionInput
 import com.mobileclaw.agent.TaskClassifier
 import com.mobileclaw.agent.TaskToolPolicy
 import com.mobileclaw.agent.TaskType
+import com.mobileclaw.config.ConfigEntry
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.config.GatewayConfig
 import com.mobileclaw.config.GatewayCapabilityConfig
@@ -62,6 +72,7 @@ import com.mobileclaw.perception.ClawAccessibilityService
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.skill.SkillLoader
 import com.mobileclaw.skill.SkillMeta
+import com.mobileclaw.skill.SkillType
 import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.skill.builtin.BgLaunchSkill
 import com.mobileclaw.skill.builtin.BgReadScreenSkill
@@ -84,19 +95,21 @@ import com.mobileclaw.skill.builtin.GenerateDocumentSkill
 import com.mobileclaw.skill.builtin.GenerateIconSkill
 import com.mobileclaw.skill.builtin.GenerateImageSkill
 import com.mobileclaw.skill.builtin.GenerateVideoSkill
-import com.mobileclaw.skill.builtin.HouseArtistSkill
 import com.mobileclaw.skill.builtin.InputTextSkill
 import com.mobileclaw.skill.builtin.ListAppsSkill
 import com.mobileclaw.skill.builtin.LongClickSkill
 import com.mobileclaw.skill.builtin.MemorySkill
 import com.mobileclaw.skill.builtin.MetaSkill
 import com.mobileclaw.skill.builtin.McpClientSkill
+import com.mobileclaw.skill.builtin.McpConnectSkill
 import com.mobileclaw.skill.builtin.NavigateSkill
 import com.mobileclaw.skill.builtin.PageControlSkill
 import com.mobileclaw.skill.builtin.PermissionSkill
 import com.mobileclaw.skill.builtin.PhoneStatusSkill
 import com.mobileclaw.skill.builtin.PgyerReleaseSkill
+import com.mobileclaw.skill.builtin.PgyerUpdateInfo
 import com.mobileclaw.skill.builtin.RoleManagerSkill
+import com.mobileclaw.skill.builtin.RoleWorkspaceSkill
 import com.mobileclaw.skill.builtin.SessionManagerSkill
 import com.mobileclaw.skill.builtin.VideoGenerationTaskManager
 import com.mobileclaw.skill.builtin.VideoTaskStatuses
@@ -130,12 +143,29 @@ import com.mobileclaw.ui.chat.LogType
 import com.mobileclaw.ui.chat.MessageRole
 import com.mobileclaw.ui.chat.SessionRunState
 import com.mobileclaw.ui.chat.currentRunState
+import com.mobileclaw.ui.chat.runtime.ChatExecutionMode
+import com.mobileclaw.ui.chat.runtime.ChatRuntimeCoordinator
+import com.mobileclaw.ui.chat.runtime.ChatRuntimePlan
+import com.mobileclaw.ui.chat.runtime.ChatRuntimePlanInput
+import com.mobileclaw.ui.chat.runtime.RoleChatControlPlan
+import com.mobileclaw.ui.chat.runtime.RoleChatRuntimeBridge
+import com.mobileclaw.ui.chat.runtime.RoleMemoryCommitInput
+import com.mobileclaw.ui.chat.runtime.RoleMemoryCommitter
+import com.mobileclaw.ui.chat.runtime.RoleRunInput
+import com.mobileclaw.ui.chat.runtime.RoleRunStatus
+import com.mobileclaw.ui.chat.runtime.RoleRuntimeProfile
+import com.mobileclaw.ui.chat.runtime.RoleStep
+import com.mobileclaw.ui.chat.runtime.RoleStepVisibility
+import com.mobileclaw.ui.chat.runtime.RoleRuntimeController
+import com.mobileclaw.ui.chat.runtime.RoleRuntimeFactory
 import com.mobileclaw.ui.group.buildGroupTurnInstruction
 import com.mobileclaw.ui.group.fallbackGroupReply
 import com.mobileclaw.ui.image.ImageGenerationRequest
 import com.mobileclaw.ui.image.ImagePromptAiAction
 import com.mobileclaw.ui.video.VideoGenerationRequest
 import com.mobileclaw.ui.video.VideoPromptAiAction
+import com.mobileclaw.ui.workspace.WorkspaceAreaUi
+import com.mobileclaw.ui.workspace.WorkspaceFileEntryUi
 import com.mobileclaw.workspace.WorkspaceArtifactState
 import com.mobileclaw.workspace.WorkspaceCheckpoint
 import com.mobileclaw.workspace.WorkspaceEvent
@@ -160,7 +190,6 @@ import com.mobileclaw.skill.builtin.WebBrowseSkill
 import com.mobileclaw.skill.builtin.WebContentSkill
 import com.mobileclaw.skill.builtin.WebJsSkill
 import com.mobileclaw.skill.builtin.WebSearchSkill
-import com.mobileclaw.town.AgentSpritePack
 import com.mobileclaw.town.RoomArtifact
 import com.mobileclaw.town.RoomTool
 import com.mobileclaw.server.PrivilegedClient
@@ -194,6 +223,7 @@ import com.mobileclaw.ui.workspace.SemanticFactLike
 import com.mobileclaw.ui.workspace.WorkspaceRuntimeCoordinator
 import com.mobileclaw.ui.workspace.WorkspaceRuntimeRecorder
 import com.mobileclaw.vpn.AppHttpProxy
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -212,16 +242,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 import com.mobileclaw.R
 import com.mobileclaw.str
 
-private const val ROLE_PORTRAIT_STYLE_VERSION = "role_self_portrait_v5"
-private const val ROLE_SPRITE_STYLE_VERSION = "role_self_sprite_v1"
 private const val TAG = "MainViewModel"
 private const val MINI_APP_AUTO_REPAIR_MAX_ATTEMPTS = 2
 private const val LLM_RETRY_MAX_ATTEMPTS = 2
+private const val ROLE_RUNTIME_DRY_RUN_TRACE_KEY = "role_runtime_dry_run_trace_enabled"
+private const val ROLE_RUNTIME_DRY_RUN_MAX_STEPS = 2
 private const val VIDEO_TASK_AUTO_REFRESH_INTERVAL_MS = 12_000L
 
 // 聊天内 MiniAPP 预览如果暴露出运行问题，这里把“继续修”的意图挂起到 session 级队列里。
@@ -260,12 +293,14 @@ class MainViewModel : ViewModel() {
     private val conversationMemory = app.conversationMemory
     private val profileExtractor = app.userProfileExtractor
     private val roleManager = app.roleManager
+    private val rolePackageStore by lazy { RolePackageStore(app, roleManager, app.roleWorkspaceStore) }
     private val townStore = app.agentTownStore
     private val userConfig = app.userConfig
     private val memoryContextBuilder = MemoryContextBuilder(app.semanticMemory, userConfig)
     private val memoryWriter = MemoryWriter(app.semanticMemory, userConfig)
     private val database = app.database
     private val llm get() = app.createLlmGateway()
+    private var appUpdateCheckedThisRun = false
 
     // 只对模型异常做轻量重试，避免正常业务失败也被机械重复执行。
     private fun shouldRetryAfterAgentRun(result: com.mobileclaw.agent.AgentResult?, error: Throwable?): Boolean {
@@ -351,6 +386,33 @@ class MainViewModel : ViewModel() {
             },
         )
     }
+    private val roleChatRuntimeBridge by lazy {
+        RoleChatRuntimeBridge(app.roleWorkspaceStore)
+    }
+    private val chatRuntimeCoordinator by lazy {
+        ChatRuntimeCoordinator()
+    }
+    private val roleMemoryCommitter by lazy {
+        RoleMemoryCommitter(app.roleWorkspaceStore)
+    }
+    private fun adaptCurrentRoleForRuntime(role: Role, source: String): RoleRuntimeProfile =
+        roleChatRuntimeBridge.adaptCurrentRole(
+            role = role,
+            skills = registry.allMetasWithTaxonomy(),
+            config = config.snapshot(),
+            source = source,
+        )
+
+    private fun createReadOnlyRoleRuntimeController(maxSteps: Int = 4): RoleRuntimeController =
+        RoleRuntimeFactory.createReadOnlyController(
+            llm = app.createLlmGateway(),
+            roleWorkspaceStore = app.roleWorkspaceStore,
+            semanticMemory = app.semanticMemory,
+            workspaceStore = app.workspaceStore,
+            skillsProvider = { registry.allMetasWithTaxonomy() },
+            maxSteps = maxSteps,
+        )
+
     private val taskRouter by lazy {
         TaskRouter(
             aiPagesProvider = { app.aiPageStore.getAll() },
@@ -571,6 +633,11 @@ class MainViewModel : ViewModel() {
                 val page = when (pageName) {
                     "chat"        -> AppPage.CHAT
                     "settings"    -> AppPage.SETTINGS
+                    "ai_basic_settings", "ai_basics" -> AppPage.AI_BASIC_SETTINGS
+                    "user_info"    -> AppPage.USER_INFO
+                    "general_settings" -> AppPage.GENERAL_SETTINGS
+                    "tools_settings", "tools" -> AppPage.TOOLS_SETTINGS
+                    "memory_settings", "memory" -> AppPage.MEMORY_SETTINGS
                     "skills"      -> AppPage.SKILLS
                     "profile"     -> AppPage.PROFILE
                     "roles"       -> AppPage.ROLES
@@ -639,7 +706,20 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch {
             roleManager.rolesFlow.collect { roles ->
                 townStore.ensureRooms(roles)
-                _uiState.update { it.copy(availableRoles = roles) }
+                roles.forEach { role ->
+                    runCatching {
+                        app.roleWorkspaceStore.ensure(role, registry.allMetasWithTaxonomy())
+                        app.roleWorkspaceStore.recordModelConfig(role, config.snapshot(), source = "roles_flow")
+                    }
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        availableRoles = roles,
+                        currentRole = roles.firstOrNull { it.id == state.currentRole.id } ?: state.currentRole,
+                        detailRole = state.detailRole?.let { current -> roles.firstOrNull { it.id == current.id } ?: current },
+                        editingRole = state.editingRole?.let { current -> roles.firstOrNull { it.id == current.id } ?: current },
+                    )
+                }
                 ensureRolePortraits(roles)
             }
         }
@@ -915,6 +995,10 @@ class MainViewModel : ViewModel() {
     // ── Role Management ──────────────────────────────────────────────────────
 
     fun setActiveRole(role: Role) {
+        runCatching {
+            app.roleWorkspaceStore.ensure(role, registry.allMetasWithTaxonomy())
+            app.roleWorkspaceStore.recordModelConfig(role, config.snapshot(), source = "set_active_role")
+        }
         _uiState.update { it.copy(currentRole = role) }
         if (role.modelOverride != null) {
             viewModelScope.launch {
@@ -937,6 +1021,7 @@ class MainViewModel : ViewModel() {
     fun saveCustomRole(role: Role) {
         viewModelScope.launch(Dispatchers.IO) {
             roleManager.save(role)  // triggers rolesFlow → UI auto-updates via collector above
+            runCatching { app.roleWorkspaceStore.ensure(role, registry.allMetasWithTaxonomy()) }
             roleManager.get(role.id)?.let { savedRole ->
                 _uiState.update { state ->
                     if (state.currentRole.id == savedRole.id) state.copy(currentRole = savedRole) else state
@@ -945,16 +1030,54 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    fun saveRoleWithChatProtocol(role: Role, chatProtocolMarkdown: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            roleManager.save(role)
+            runCatching {
+                app.roleWorkspaceStore.ensure(role, registry.allMetasWithTaxonomy())
+                app.roleWorkspaceStore.write(
+                    role.id,
+                    RoleWorkspaceStore.CHAT_PROTOCOL_MD,
+                    chatProtocolMarkdown.trimEnd() + "\n",
+                )
+            }
+            roleManager.get(role.id)?.let { savedRole ->
+                _uiState.update { state ->
+                    state.copy(
+                        currentRole = if (state.currentRole.id == savedRole.id) savedRole else state.currentRole,
+                        editingRole = savedRole,
+                    )
+                }
+            }
+        }
+    }
+
     fun setUserConfigEntry(key: String, value: String, description: String = "") {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { memoryWriter.syncUserConfig(key, value, description) }
+            val result = runCatching { memoryWriter.syncUserConfig(key, value, description) }
+            if (result.isSuccess) {
+                _uiState.update { state ->
+                    val previousDescription = state.userConfigEntries[key]?.description.orEmpty()
+                    state.copy(
+                        userConfigEntries = state.userConfigEntries + (
+                            key to ConfigEntry(
+                                value = value,
+                                description = description.ifBlank { previousDescription },
+                            )
+                        ),
+                    )
+                }
+            }
             refreshProfileFacts()
         }
     }
 
     fun deleteUserConfigEntry(key: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { memoryWriter.deleteUserConfig(key) }
+            val result = runCatching { memoryWriter.deleteUserConfig(key) }
+            if (result.isSuccess) {
+                _uiState.update { state -> state.copy(userConfigEntries = state.userConfigEntries - key) }
+            }
             refreshProfileFacts()
         }
     }
@@ -1005,12 +1128,17 @@ class MainViewModel : ViewModel() {
     }
 
     fun editRole(role: Role) {
-        _uiState.update { it.copy(editingRole = role) }
+        _uiState.update { it.copy(editingRole = role, roleWorkspaceFiles = emptyList()) }
+        loadRoleWorkspace(role)
         navigate(AppPage.ROLE_EDIT)
         if (_uiState.value.availableModels.isEmpty()) fetchModels()
     }
 
     fun copyBuiltinRoleForEditing(role: Role) {
+        duplicateRoleForEditing(role)
+    }
+
+    fun duplicateRoleForEditing(role: Role) {
         val copyName = role.name.ifBlank { role.id } + str(R.string.role_copy_suffix)
         editRole(
             role.copy(
@@ -1027,10 +1155,41 @@ class MainViewModel : ViewModel() {
         navigate(AppPage.ROLE_DETAIL)
     }
 
+    fun openRoleWorkspace(role: Role) {
+        _uiState.update { it.copy(detailRole = role) }
+        loadRoleWorkspace(role)
+        navigate(AppPage.ROLE_WORKSPACE)
+    }
+
+    fun refreshRoleWorkspace() {
+        val role = _uiState.value.detailRole ?: return
+        loadRoleWorkspace(role)
+    }
+
+    private fun loadRoleWorkspace(role: Role) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val files = runCatching {
+                app.roleWorkspaceStore.ensure(role, registry.allMetasWithTaxonomy())
+                app.roleWorkspaceStore.refreshSkillIndex(role.id, registry.allMetasWithTaxonomy())
+                app.roleWorkspaceStore.recordModelConfig(role, config.snapshot(), source = "role_workspace_page")
+                app.roleWorkspaceStore.list(role.id)
+                    .filter { it.endsWith(".md") || it.endsWith(".json") }
+                    .sortedWith(compareBy<String> { roleWorkspaceFileOrder(it) }.thenBy { it })
+                    .map { name ->
+                        RoleWorkspaceFileUi(
+                            name = name,
+                            content = app.roleWorkspaceStore.read(role.id, name).orEmpty(),
+                        )
+                    }
+            }.getOrDefault(emptyList())
+            _uiState.update { it.copy(roleWorkspaceFiles = files) }
+        }
+    }
+
     fun openRoleHome(role: Role) {
         townStore.ensureRooms(roleManager.all())
-        _uiState.update { it.copy(detailRole = role, openTownRoleId = role.id) }
-        navigate(AppPage.AI_TOWN)
+        _uiState.update { it.copy(detailRole = role, openTownRoleId = null) }
+        navigate(AppPage.ROLE_DETAIL)
     }
 
     fun generateRolePortrait(role: Role) {
@@ -1038,73 +1197,81 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(rolePortraitGeneratingIds = it.rolePortraitGeneratingIds + role.id) }
             val result = runCatching {
-                val selfBrief = createRoleSelfPortraitBrief(role)
-                // 角色页的“生图”现在只生成静态肖像，彻底避免落回动态 spritesheet。
-                val basePrompt = selfBrief["portrait_prompt"]?.asString?.takeIf { it.isNotBlank() }
-                    ?: selfBrief["render_prompt"]?.asString?.takeIf { it.isNotBlank() }
-                    ?: error("role visual brief did not return a portrait prompt")
-                val prompt = """
-                    $basePrompt
+                val imageReadiness = checkRolePortraitImageReadiness()
+                var imageGenerationFailure: String? = null
+                val generatedDataUri = imageReadiness.target?.let { target ->
+                    val selfBrief = createRoleSelfPortraitBrief(role)
+                    // 角色页的“生图”只在真实图片生成链路可用时才调用。
+                    val basePrompt = selfBrief["portrait_prompt"]?.asString?.takeIf { it.isNotBlank() }
+                        ?: selfBrief["render_prompt"]?.asString?.takeIf { it.isNotBlank() }
+                        ?: error("role visual brief did not return a portrait prompt")
+                    val prompt = """
+                        $basePrompt
 
-                    Runtime constraints only:
-                    - Output one single complete role portrait image.
-                    - Keep the full body visible inside frame.
-                    - Compose the full figure with breathing room around head, hands, feet, and major props.
-                    - Do not simulate animation frames, sprite strips, repeated poses, or multi-panel sheets.
-                    - No text, UI, multi-view sheet, lineup, or poster layout.
-                """.trimIndent()
-                val pack = rolePortraitPack(
-                    role = role,
-                    notes = "$ROLE_PORTRAIT_STYLE_VERSION. Static role portrait from the role's own identity brief.",
-                )
-                val configuredModel = configuredRolePortraitImageModelOrNull()
-                val generatedDataUri = configuredModel?.let { model ->
-                    val imageGenerator = registry.get("generate_image")
-                    if (imageGenerator == null) {
-                        Log.w(TAG, "Role portrait image model is configured, but generate_image tool is unavailable.")
-                        null
-                    } else {
-                        imageGenerator.execute(
-                            mapOf(
-                                "prompt" to prompt,
-                                "model" to model,
-                                "size" to "1024x1024",
-                                "quality" to "high",
-                            )
-                        ).takeIf { it.success }?.let { image ->
-                            image.imageBase64 ?: (image.data as? SkillAttachment.ImageData)?.base64
-                        }.also { dataUri ->
-                            if (dataUri == null) {
-                                Log.w(TAG, "Role portrait image generation failed or returned empty data. model=$model")
-                            }
+                        Runtime constraints only:
+                        - Output one single complete role portrait image.
+                        - Keep the full body visible inside frame.
+                        - Compose the full figure with breathing room around head, hands, feet, and major props.
+                        - Do not simulate animation frames, sprite strips, repeated poses, or multi-panel sheets.
+                        - No text, UI, multi-view sheet, lineup, or poster layout.
+                    """.trimIndent()
+                    val generation = target.generator.execute(
+                        mapOf(
+                            "prompt" to prompt,
+                            "model" to target.model,
+                            "size" to "1024x1024",
+                            "quality" to "high",
+                        )
+                    )
+                    if (!generation.success) {
+                        imageGenerationFailure = generation.output.ifBlank { "generate_image returned failure" }
+                        Log.w(TAG, "Role portrait image generation failed. model=${target.model} reason=${imageGenerationFailure?.take(500)}")
+                    }
+                    generation.takeIf { it.success }?.let { image ->
+                        image.imageBase64 ?: (image.data as? SkillAttachment.ImageData)?.base64
+                    }.also { dataUri ->
+                        if (dataUri == null) {
+                            imageGenerationFailure = imageGenerationFailure ?: "generate_image returned empty image data"
+                            Log.w(TAG, "Role portrait image generation failed or returned empty data. model=${target.model}")
                         }
                     }
+                } ?: run {
+                    imageGenerationFailure = imageReadiness.unavailableReason
+                    null
                 }
-                val dataUri = generatedDataUri ?: createFallbackRolePortraitDataUri(role)
-                val saved = townStore.registerSpritePack(
-                    if (generatedDataUri == null) {
-                        pack.copy(notes = "$ROLE_PORTRAIT_STYLE_VERSION. Local fallback role portrait; image generation model was not configured or failed.")
-                    } else {
-                        pack
-                    },
-                    dataUri,
-                )
-                // 静态肖像单独绑定到 portrait 槽位，避免角色详情继续播放房间动画。
-                townStore.assignRolePortraitPack(role.id, saved.id)
-                applyRoleHomeLayout(role)
+                val dataUri = generatedDataUri ?: createSimpleRoleIdentityDataUri(role)
+                val imagePath = saveRoleImageAsset(role, dataUri)
+                val updatedRole = role.copy(avatar = normalizeRoleAvatar(role.id, imagePath))
+                roleManager.save(updatedRole)
+                applyRoleHomeLayout(updatedRole)
+                _uiState.update { state ->
+                    state.copy(
+                        availableRoles = state.availableRoles.map { if (it.id == updatedRole.id) updatedRole else it },
+                        currentRole = if (state.currentRole.id == updatedRole.id) updatedRole else state.currentRole,
+                        detailRole = state.detailRole?.let { if (it.id == updatedRole.id) updatedRole else it },
+                        editingRole = state.editingRole?.let { if (it.id == updatedRole.id) updatedRole else it },
+                    )
+                }
                 RolePortraitGenerationResult(
-                    pack = saved,
-                    usedFallback = generatedDataUri == null,
-                    hadConfiguredImageModel = configuredModel != null,
+                    usedLocalIdentity = generatedDataUri == null,
+                    attemptedImageGeneration = imageReadiness.target != null,
+                    failureMessage = imageGenerationFailure,
                 )
             }
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(rolePortraitGeneratingIds = it.rolePortraitGeneratingIds - role.id) }
                 result.onSuccess { portrait ->
                     val message = when {
-                        !portrait.usedFallback -> str(R.string.role_portrait_generation_done)
-                        portrait.hadConfiguredImageModel -> "图片模型生成失败，已使用本地兜底形象"
-                        else -> "未配置图片生成模型，已使用本地兜底形象"
+                        !portrait.usedLocalIdentity -> str(R.string.role_portrait_generation_done)
+                        portrait.attemptedImageGeneration -> {
+                            val reason = portrait.failureMessage?.lineSequence()?.firstOrNull()?.take(90)
+                            if (reason.isNullOrBlank()) {
+                                "图片生成失败，已使用简洁本地形象"
+                            } else {
+                                "图片生成失败，已使用简洁本地形象：$reason"
+                            }
+                        }
+                        else -> "图片生成不可用，已使用简洁本地形象"
                     }
                     Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
                 }.onFailure { e ->
@@ -1115,83 +1282,91 @@ class MainViewModel : ViewModel() {
     }
 
     private data class RolePortraitGenerationResult(
-        val pack: AgentSpritePack,
-        val usedFallback: Boolean,
-        val hadConfiguredImageModel: Boolean,
+        val usedLocalIdentity: Boolean,
+        val attemptedImageGeneration: Boolean,
+        val failureMessage: String?,
     )
 
-    private fun rolePortraitPack(role: Role, notes: String): AgentSpritePack =
-        AgentSpritePack(
-            id = "portrait_${role.id.replace(Regex("[^a-zA-Z0-9_]+"), "_")}",
-            name = "${role.name.ifBlank { role.id }} Portrait",
-            kind = "portrait",
-            frameWidth = 512,
-            frameHeight = 512,
-            columns = 1,
-            rows = 1,
-            notes = notes,
-        )
+    private fun saveRoleImageAsset(role: Role, dataUri: String): String {
+        val comma = dataUri.indexOf(',')
+        val payload = if (comma >= 0) dataUri.substring(comma + 1) else dataUri
+        val bytes = Base64.decode(payload, Base64.DEFAULT)
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: error("role image data could not be decoded")
+        val dir = File(app.filesDir, "role_images").also { it.mkdirs() }
+        val safeId = role.id.replace(Regex("[^a-zA-Z0-9._-]+"), "_").ifBlank { "role" }
+        val outFile = File(dir, "${safeId}_${System.currentTimeMillis()}.png")
+        outFile.outputStream().use { output ->
+            decoded.compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+        decoded.recycle()
+        return outFile.absolutePath
+    }
 
-    private fun createFallbackRolePortraitDataUri(role: Role): String {
+    private data class RolePortraitImageTarget(
+        val model: String,
+        val generator: com.mobileclaw.skill.Skill,
+    )
+
+    private data class RolePortraitImageReadiness(
+        val target: RolePortraitImageTarget?,
+        val unavailableReason: String?,
+    )
+
+    private suspend fun checkRolePortraitImageReadiness(): RolePortraitImageReadiness {
+        val model = configuredRolePortraitImageModelOrNull()
+            ?: return RolePortraitImageReadiness(null, "image model is not configured")
+        val generator = registry.get("generate_image")
+            ?: return RolePortraitImageReadiness(null, "generate_image tool is unavailable")
+        rolePortraitImageConfigIssue(model)?.let { issue ->
+            return RolePortraitImageReadiness(null, issue)
+        }
+        return RolePortraitImageReadiness(RolePortraitImageTarget(model, generator), null)
+    }
+
+    private suspend fun rolePortraitImageConfigIssue(model: String): String? {
+        val normalized = model.trim().lowercase()
+        if (normalized == "hf-flux-schnell" || normalized.startsWith("huggingface:")) {
+            val token = userConfig.get("huggingface_api_key")?.trim()?.takeIf { it.isNotBlank() }
+                ?: userConfig.get("image_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            return if (token == null) "Hugging Face image key is not configured" else null
+        }
+        val snap = config.snapshot()
+        val endpoint = snap.activeGateway?.capabilityEndpoint("image")?.trim()?.takeIf { it.isNotBlank() }
+            ?: userConfig.get("image_api_endpoint")?.trim()?.takeIf { it.isNotBlank() }
+            ?: snap.endpoint.trim().takeIf { it.isNotBlank() }
+        if (endpoint == null) return "image endpoint is not configured"
+        val apiKey = snap.activeGateway?.capabilityApiKey("image")?.trim()?.takeIf { it.isNotBlank() }
+            ?: userConfig.get("image_api_key")?.trim()?.takeIf { it.isNotBlank() }
+            ?: snap.apiKey.trim().takeIf { it.isNotBlank() }
+        if (apiKey == null) return "image API key is not configured"
+        return null
+    }
+
+    private fun createSimpleRoleIdentityDataUri(role: Role): String {
         val size = 512
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f,
-                0f,
-                size.toFloat(),
-                size.toFloat(),
-                intArrayOf(Color.rgb(250, 250, 247), Color.rgb(230, 232, 224), Color.rgb(252, 252, 249)),
-                floatArrayOf(0f, 0.58f, 1f),
-                Shader.TileMode.CLAMP,
-            )
+            style = Paint.Style.FILL
+            color = Color.rgb(247, 244, 238)
         }
         canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
 
-        val frame = RectF(28f, 28f, size - 28f, size - 28f)
-        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val markRect = RectF(56f, 56f, size - 56f, size - 56f)
+        val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.rgb(8, 8, 8)
+        }
+        canvas.drawRoundRect(markRect, 96f, 96f, markPaint)
+
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 8f
-            color = Color.rgb(17, 17, 17)
+            strokeWidth = 2.8f
+            color = Color.rgb(247, 244, 238)
+            alpha = 82
         }
-        canvas.drawRoundRect(frame, 42f, 42f, borderPaint)
-
-        val accent = roleAccentColor(role)
-        val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = accent
-            alpha = 42
-        }
-        canvas.drawCircle(size * 0.5f, size * 0.42f, 158f, haloPaint)
-
-        val facePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.rgb(18, 18, 18)
-        }
-        canvas.drawRoundRect(RectF(150f, 116f, 362f, 328f), 72f, 72f, facePaint)
-
-        val eyePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.WHITE
-        }
-        canvas.drawCircle(218f, 218f, 13f, eyePaint)
-        canvas.drawCircle(294f, 218f, 13f, eyePaint)
-
-        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.rgb(34, 34, 34)
-        }
-        canvas.drawRoundRect(RectF(126f, 312f, 386f, 468f), 60f, 60f, bodyPaint)
-
-        val accentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 10f
-            strokeCap = Paint.Cap.ROUND
-            color = accent
-        }
-        canvas.drawLine(178f, 362f, 334f, 362f, accentPaint)
-        canvas.drawLine(214f, 406f, 298f, 406f, accentPaint)
+        canvas.drawRoundRect(RectF(86f, 86f, size - 86f, size - 86f), 74f, 74f, ringPaint)
 
         val initial = role.name.trim().takeIf { it.isNotBlank() }
             ?.let { it.first().uppercaseChar().toString() }
@@ -1199,30 +1374,32 @@ class MainViewModel : ViewModel() {
             ?: "A"
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 92f
+            textSize = 176f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
         val textBounds = Rect()
         textPaint.getTextBounds(initial, 0, initial.length, textBounds)
-        canvas.drawText(initial, size * 0.5f, 254f - textBounds.exactCenterY(), textPaint)
+        canvas.drawText(initial, size * 0.5f, 238f - textBounds.exactCenterY(), textPaint)
+
+        val label = role.name.trim().takeIf { it.isNotBlank() } ?: role.id.trim().ifBlank { "AI" }
+        val labelText = label.take(10)
+        val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            alpha = 150
+            textSize = 34f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.04f
+        }
+        val labelBounds = Rect()
+        labelPaint.getTextBounds(labelText, 0, labelText.length, labelBounds)
+        canvas.drawText(labelText, size * 0.5f, 366f - labelBounds.exactCenterY(), labelPaint)
 
         val out = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         bitmap.recycle()
         return "data:image/png;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-    }
-
-    private fun roleAccentColor(role: Role): Int {
-        val palette = intArrayOf(
-            Color.rgb(199, 244, 58),
-            Color.rgb(86, 158, 255),
-            Color.rgb(255, 113, 91),
-            Color.rgb(164, 123, 255),
-            Color.rgb(0, 184, 148),
-        )
-        val source = (role.id.ifBlank { role.name }).fold(0) { acc, c -> acc * 31 + c.code }
-        return palette[kotlin.math.abs(source) % palette.size]
     }
 
     private suspend fun applyRoleHomeLayout(role: Role) {
@@ -1270,87 +1447,9 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    private suspend fun generateRoleSpritePack(
-        role: Role,
-        imageGenerator: com.mobileclaw.skill.Skill,
-        selfBrief: JsonObject,
-        model: String,
-    ): AgentSpritePack? {
-        val houseArtist = registry.get("house_artist") ?: return null
-        val style = selfBrief["style"]?.asString?.takeIf { it.isNotBlank() }
-            ?: "transparent RPG desktop-pet spritesheet"
-        val metadataJson = Gson().toJson(
-            AgentSpritePack(
-                id = "sprite_${role.id.replace(Regex("[^a-zA-Z0-9_]+"), "_")}",
-                name = "${role.name.ifBlank { role.id }} Sprite Sheet",
-                kind = "character",
-                frameWidth = 192,
-                frameHeight = 208,
-                columns = 8,
-                rows = 9,
-                notes = "$ROLE_SPRITE_STYLE_VERSION. Generated RPG desktop-pet spritesheet from the role's own identity.",
-            )
-        )
-        val prompt = selfBrief["sprite_prompt"]?.asString?.takeIf { it.isNotBlank() }
-            ?: selfBrief["render_prompt"]?.asString?.takeIf { it.isNotBlank() }
-            ?: return null
-        val spritePrompt = """
-            $prompt
-
-            Runtime constraints only:
-            - Output one complete 8x9 spritesheet.
-            - Keep one consistent character identity across all cells.
-            - Chroma key background must remain pure #00FF00 across empty areas.
-            - No text, labels, room background, or poster layout.
-        """.trimIndent()
-        val image = imageGenerator.execute(
-            mapOf(
-                "prompt" to spritePrompt,
-                "model" to model,
-                "size" to "1536x1872",
-                "quality" to "high",
-            )
-        ).let { primary ->
-            if (primary.success || model == "pollinations") primary
-            else imageGenerator.execute(
-                mapOf(
-                    "prompt" to spritePrompt,
-                    "model" to "pollinations",
-                    "size" to "1536x1872",
-                    "quality" to "high",
-                )
-            )
-        }
-        if (!image.success) return null
-        val dataUri = image.imageBase64
-            ?: (image.data as? SkillAttachment.ImageData)?.base64
-            ?: return null
-        val reviewed = houseArtist.execute(
-            mapOf(
-                "action" to "review_sprite_image",
-                "metadata_json" to metadataJson,
-                "image_data_uri" to dataUri,
-            )
-        )
-        if (!reviewed.success || reviewed.output.lineSequence().any { it.startsWith("ERROR") }) return null
-        val register = houseArtist.execute(
-            mapOf(
-                "action" to "register_sprite_pack",
-                "metadata_json" to metadataJson,
-                "image_data_uri" to dataUri,
-            )
-        )
-        if (!register.success) return null
-        val jsonStart = register.output.indexOf('{')
-        if (jsonStart < 0) return null
-        return runCatching {
-            Gson().fromJson(register.output.substring(jsonStart), AgentSpritePack::class.java)
-        }.getOrNull()
-    }
-
     private fun ensureRolePortraits(roles: List<Role>) {
         // 角色页首次打开不再自动生成形象。用户点击“生成形象”时再根据图片模型配置决定
-        // 调用真实生图模型或使用本地兜底头像，避免无配置时静默触发外部兜底接口。
+        // 调用真实生图模型或使用简洁本地文字头像，避免无配置时静默触发外部接口。
     }
 
     private suspend fun configuredRolePortraitImageModelOrNull(): String? {
@@ -1381,6 +1480,8 @@ class MainViewModel : ViewModel() {
         return when {
             currentModel.isConfiguredImageModel() -> currentModel
             "api.openai.com" in endpoint || "openai" in endpoint -> "gpt-image-2"
+            "agnes" in endpoint -> "agnes-image-2.0-flash"
+            "dashscope" in endpoint || "aliyuncs" in endpoint -> "wanx2.1-t2i-turbo"
             "siliconflow" in endpoint -> "black-forest-labs/FLUX.1-schnell"
             "together" in endpoint -> "black-forest-labs/FLUX.1-schnell-Free"
             userConfig.get("huggingface_api_key")?.isNotBlank() == true -> "hf-flux-schnell"
@@ -1389,7 +1490,7 @@ class MainViewModel : ViewModel() {
     }
 
     private fun decorateRoleHomeWithTool(role: Role, skillId: String, purpose: String) {
-        if (role.id.isBlank() || skillId in setOf("town_builder", "house_artist")) return
+        if (role.id.isBlank() || skillId == "town_builder") return
         val meta = registry.get(skillId)?.meta
         runCatching {
             townStore.pinSkill(
@@ -1518,9 +1619,8 @@ class MainViewModel : ViewModel() {
                             Do not choose three-view, lineup, character sheet, multiple variants, text, logo, or icon.
                             Required JSON keys:
                             self_concept, body_type, silhouette, outfit_materials, signature_object,
-                            expression, palette, role_symbolism, style, hard_no, render_prompt, portrait_prompt, sprite_prompt
+                            expression, palette, role_symbolism, style, hard_no, render_prompt, portrait_prompt
                             `portrait_prompt` must be a final image prompt for one polished full-body portrait.
-                            `sprite_prompt` must be a final image prompt for one full 8x9 spritesheet sheet of the same character.
                             The prompts should reflect your own chosen style, not generic assistant defaults.
                             """.trimIndent(),
                         ),
@@ -1561,7 +1661,6 @@ class MainViewModel : ViewModel() {
         addProperty("hard_no", "")
         addProperty("render_prompt", "Create the embodied visual identity that this AI role would choose for itself: ${role.name.ifBlank { role.id }}. Let the role's own description, system prompt, tools, and personality decide the look.")
         addProperty("portrait_prompt", "Generate one complete portrait image for the AI role ${role.name.ifBlank { role.id }} based on the role's own self-defined identity and style.")
-        addProperty("sprite_prompt", "Generate one complete 8x9 spritesheet for the AI role ${role.name.ifBlank { role.id }} based on the role's own self-defined identity and style.")
     }
 
     fun restoreBuiltinRole(id: String) {
@@ -1714,13 +1813,6 @@ class MainViewModel : ViewModel() {
         val pendingTurn = beginVisibleUserTurn(trimmed)
         if (pendingTurn == null) return
         viewModelScope.launch(Dispatchers.IO) {
-            if (!ClawAccessibilityService.isEnabled() && shouldPushAccessibilityCardForGoal(trimmed)) {
-                withContext(Dispatchers.Main) {
-                    removePendingVisibleTurn(pendingTurn)
-                    requestTaskExecutionConfirmation(trimmed, TaskType.PHONE_CONTROL)
-                }
-                return@launch
-            }
             val hasImage = pendingTurn.imageBase64 != null
             val hasFile = pendingTurn.fileAttachment != null
             val activeWorkflow = activeWorkflowForCurrentSession()
@@ -1753,6 +1845,60 @@ class MainViewModel : ViewModel() {
         val imageLocalPath: String,
         val fileAttachment: FileAttachment?,
         val runGeneration: Long,
+    )
+
+    private data class PreparedRunInput(
+        val currentSessionId: String,
+        val sessionIdAtStart: String,
+        val codexDesktopMode: Boolean,
+        val goalForRouting: String,
+        val attachedImage: String?,
+        val attachedFile: FileAttachment?,
+        val attachedImageLocalPath: String,
+        val effectiveGoal: String,
+        val userMessage: ChatMessage,
+        val runGeneration: Long,
+        val userMessageVisible: Boolean,
+        val userMessagePersistedEarly: Boolean,
+    )
+
+    private data class PreparedRunExecution(
+        val contextualIntent: ContextualTaskIntent,
+        val taskType: TaskType,
+        val resolvedWorkspaceSessionId: String,
+        val executionTaskType: TaskType,
+        val contextualGoal: String,
+        val directPriorContext: String,
+        val agentPriorContext: String,
+        val stickerAwareChat: Boolean,
+        val isPhoneControlTask: Boolean,
+        val scheduleDecision: RoleScheduleDecision,
+        val scheduledRole: Role,
+        val roleProfile: RoleRuntimeProfile,
+        val roleControlPlan: RoleChatControlPlan,
+        val orchestration: TaskOrchestration,
+        val allowedToolIds: List<String>,
+        val executionContext: String,
+        val visibleGoalLabel: String,
+    )
+
+    private data class StartedAgentRuntime(
+        val runtime: AgentRuntime,
+        val phoneAuroraOverlayShown: Boolean,
+    )
+
+    private data class AgentRunPrelude(
+        val resolvedSessionId: String,
+        val episodicContext: String,
+    )
+
+    private data class AgentRunContext(
+        val userProfileContext: String,
+        val roleWorkspaceContext: String,
+    )
+
+    private data class DirectChatContext(
+        val systemPrompt: String,
     )
 
     private fun beginVisibleUserTurn(goal: String): PendingUserTurn? {
@@ -1866,12 +2012,19 @@ class MainViewModel : ViewModel() {
                 val attachmentText = taskRouter.summarizeAttachmentsForContext(msg.attachments).ifBlank { "none" }
                 "$speaker: ${msg.text.take(500)}\nattachments: $attachmentText"
             }
-        val routerContext = listOf(workspaceContext, recentContext)
-            .filter { it.isNotBlank() }
-            .joinToString("\n\n")
+        val contextPack = IntentContextPack(
+            compressedContext = workspaceContext,
+            recentContext = recentContext,
+            activeWorkflowSummary = activeWorkflow?.let {
+                "type=${it.taskType}; role=${it.roleId}; original_goal=${it.originalGoal.take(700)}"
+            }.orEmpty(),
+            roleSummary = _uiState.value.currentRole.let { role ->
+                "id=${role.id}; name=${role.name}; addendum=${role.systemPromptAddendum.take(500)}"
+            },
+        )
         val aiDecision = AiIntentRouter(app.createLlmGateway()).decide(
             goal = goal,
-            recentContext = routerContext,
+            contextPack = contextPack,
             hasImage = hasImage,
             hasFile = hasFile,
             activeWorkflow = activeWorkflow,
@@ -1921,39 +2074,22 @@ class MainViewModel : ViewModel() {
         pendingTurn: PendingUserTurn? = null,
         showUserMessage: Boolean = true,
     ) {
-        val currentSessionId = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
-        if (goal.isBlank() || (pendingTurn == null && _uiState.value.sessionStates[currentSessionId]?.isRunning == true)) return
-        val codexDesktopMode = _uiState.value.codexDesktopMode || currentSessionId in _uiState.value.codexDesktopSessionIds
-        val goalForRouting = if (codexDesktopMode) codexDesktopExecutionGoal(goal) else goal
-
-        val attachedImage = imageOverride ?: pendingTurn?.imageBase64 ?: _uiState.value.inputImageBase64
-        val attachedFile = pendingTurn?.fileAttachment ?: _uiState.value.inputFileAttachment
-        val sessionIdAtStart = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
-        val attachedImageLocalPath = pendingTurn?.imageLocalPath
-            ?: attachedImage?.let { persistUserImageForWorkspace(sessionIdAtStart, it) }
-            ?: ""
-        // Prepend text file content directly into the LLM goal
-        val effectiveGoal = if (attachedFile != null && attachedFile.isText) {
-            "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goalForRouting"
-        } else if (attachedImageLocalPath.isNotBlank()) {
-            "[图片已保存到本地工作区]\npath: $attachedImageLocalPath\n后续需要引用这张图片时，直接把这个 path 传给相关工具，例如 generate_video.image。不要要求用户重新发送图片，也不要说只能使用 HTTP 链接；系统会自动上传本地图片。\n\n$goalForRouting"
-        } else goalForRouting
-        val userMessage = pendingTurn?.userMessage ?: ChatMessage(
-            role = MessageRole.USER,
-            text = visibleUserText,
-            imageBase64 = if (attachedImage != null) attachedImage
-                          else if (attachedFile != null && !attachedFile.isText) attachedFile.content
-                          else null,
-            attachments = if (attachedImageLocalPath.isNotBlank()) {
-                listOf(SkillAttachment.ImageData(attachedImage.orEmpty(), prompt = "user image", localPath = attachedImageLocalPath))
-            } else emptyList(),
-            imageLocalPath = attachedImageLocalPath,
-        )
-        val runGeneration = pendingTurn?.runGeneration ?: beginRunGeneration(sessionIdAtStart)
-        val userMessageVisible = pendingTurn != null || showUserMessage
-        // 用户消息在执行启动时即落库，而不是等任务结束：任务被取消/打断后重新加载会话也不会丢这条消息。
-        // 仅当会话 id 暂时为空（将由 ensureRunnableSession 新建）时退回旧的“结束时持久化”路径。
-        val userMessagePersistedEarly = userMessageVisible && sessionIdAtStart.isNotBlank()
+        val prepared = prepareRunInput(
+            goal = goal,
+            imageOverride = imageOverride,
+            visibleUserText = visibleUserText,
+            pendingTurn = pendingTurn,
+            showUserMessage = showUserMessage,
+        ) ?: return
+        val sessionIdAtStart = prepared.sessionIdAtStart
+        val codexDesktopMode = prepared.codexDesktopMode
+        val attachedImage = prepared.attachedImage
+        val attachedFile = prepared.attachedFile
+        val attachedImageLocalPath = prepared.attachedImageLocalPath
+        val userMessage = prepared.userMessage
+        val runGeneration = prepared.runGeneration
+        val userMessageVisible = prepared.userMessageVisible
+        val userMessagePersistedEarly = prepared.userMessagePersistedEarly
         if (userMessagePersistedEarly) {
             viewModelScope.launch(Dispatchers.IO) {
                 runCatching {
@@ -1980,11 +2116,786 @@ class MainViewModel : ViewModel() {
             )
             return
         }
-        val route = routeOverride ?: if (codexDesktopMode) {
+        val route = resolveRunRoute(goal, prepared, routeOverride)
+        val execution = prepareRunExecution(goal, visibleUserText, prepared, route, routeOverride)
+        val executionMode = determineChatExecutionMode(goal, prepared, route, execution)
+        val runtimePlan = createChatRuntimePlan(
+            goal = goal,
+            visibleUserText = visibleUserText,
+            prepared = prepared,
+            route = route,
+            execution = execution,
+            executionMode = executionMode,
+        )
+        val isPhoneControlTask = execution.isPhoneControlTask
+
+        startRunUiState(prepared, pendingTurn, showUserMessage)
+        appendRoleControlLogLine(
+            sessionId = prepared.sessionIdAtStart,
+            execution = execution,
+            runtimePlan = runtimePlan,
+        )
+        if (runFastPathIfHandled(goal, prepared, execution, runtimePlan)) return
+
+        val startedRuntime = startAgentRuntime(prepared, execution)
+        val rt = startedRuntime.runtime
+        val phoneAuroraOverlayShown = startedRuntime.phoneAuroraOverlayShown
+
+        val newJob = viewModelScope.launch {
+            val prelude = buildAgentRunPrelude(
+                prepared = prepared,
+                route = route,
+                execution = execution,
+                runtimePlan = runtimePlan,
+                phoneAuroraOverlayShown = phoneAuroraOverlayShown,
+            )
+            val resolvedSessionId = prelude.resolvedSessionId
+            val episodicContext = prelude.episodicContext
+            maybeStartRoleRuntimeDryRunTrace(
+                prepared = prepared,
+                execution = execution,
+                route = route,
+                resolvedSessionId = resolvedSessionId,
+                visibleUserText = visibleUserText,
+            )
+
+            val networkTraceJob = collectNetworkTraceEvents(resolvedSessionId)
+            val runtimeEventJob = collectAgentRuntimeEvents(
+                runtime = rt,
+                route = route,
+                scheduledRole = execution.scheduledRole,
+                scheduleDecision = execution.scheduleDecision,
+                contextualGoal = execution.contextualGoal,
+                resolvedSessionId = resolvedSessionId,
+                isPhoneControlTask = isPhoneControlTask,
+                visibleUserText = visibleUserText,
+                runtimePlan = runtimePlan,
+            )
+
+            val runContext = buildAgentRunContext(execution)
+
+            val result = runAgentModelWithRetry(
+                runtime = rt,
+                route = route,
+                prepared = prepared,
+                execution = execution,
+                runtimePlan = runtimePlan,
+                resolvedSessionId = resolvedSessionId,
+                episodicContext = episodicContext,
+                userProfileContext = runContext.userProfileContext,
+                roleWorkspaceContext = runContext.roleWorkspaceContext,
+            )
+            networkTraceJob.cancel()
+            runtimeEventJob.cancel()
+            if (handleAgentCancellation(result, prepared, resolvedSessionId, isPhoneControlTask)) return@launch
+
+            if (isPhoneControlTask) auroraOverlay.endTask()
+
+            persistAgentOutcome(
+                result = result,
+                goal = goal,
+                contextualGoal = execution.contextualGoal,
+                executionTaskType = execution.executionTaskType,
+                scheduledRole = execution.scheduledRole,
+                runtimePlan = runtimePlan,
+                resolvedSessionId = resolvedSessionId,
+                sessionIdAtStart = sessionIdAtStart,
+                userMessage = userMessage,
+                userMessageVisible = userMessageVisible,
+                userMessagePersistedEarly = userMessagePersistedEarly,
+            )
+        }
+        if (isPhoneControlTask) {
+            newJob.invokeOnCompletion {
+                auroraOverlay.hide()
+            }
+        }
+        taskJobs[sessionIdAtStart] = newJob
+    }
+
+    private suspend fun CoroutineScope.buildAgentRunPrelude(
+        prepared: PreparedRunInput,
+        route: TaskRoute,
+        execution: PreparedRunExecution,
+        runtimePlan: ChatRuntimePlan,
+        phoneAuroraOverlayShown: Boolean,
+    ): AgentRunPrelude {
+        val resolvedSessionId = ensureRunnableSession(prepared.sessionIdAtStart)
+        if (resolvedSessionId != prepared.sessionIdAtStart) {
+            adoptRunGeneration(resolvedSessionId, prepared.runGeneration)
+        }
+        val channelSummary = execution.orchestration.userVisibleSummary
+        rememberActiveWorkflow(
+            resolvedSessionId,
+            route.goalToRemember,
+            execution.executionTaskType,
+            execution.scheduledRole,
+        )
+        workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
+            runCatching {
+                app.workspaceStore.recordEvent(
+                    workspaceId,
+                    WorkspaceEvent(
+                        category = "task_plan",
+                        source = "main_view_model",
+                        title = "Task plan",
+                        summary = execution.contextualGoal.take(160),
+                        payload = buildString {
+                            appendLine("Role: ${execution.scheduledRole.name}")
+                            appendLine("Task type: ${execution.executionTaskType.name}")
+                            appendLine("Goal: ${execution.contextualGoal.take(2000)}")
+                            appendLine()
+                            appendLine("Channel summary:")
+                            appendLine(channelSummary)
+                            appendLine()
+                            appendLine("Runtime plan:")
+                            appendLine(runtimePlan.toWorkspaceSummary(maxChars = 1800))
+                        }.trim(),
+                    ),
+                )
+            }
+        }
+        if (resolvedSessionId.isNotBlank()) {
+            launch(Dispatchers.IO) {
+                runCatching {
+                    database.sessionDao().updateRole(resolvedSessionId, execution.scheduledRole.id)
+                    loadSessions()
+                }
+            }
+        }
+
+        val episodicContext = runCatching {
+            episodicMemory.retrieve(execution.contextualGoal)
+                .filter { it.reflexionSummary.isNotBlank() }
+                .joinToString("\n") { "- ${it.reflexionSummary}" }
+        }.getOrDefault("")
+
+        updateSession(resolvedSessionId) { s ->
+            val firstStep = route.contextualIntent.userVisibleSteps.firstOrNull()
+            val secondStep = route.contextualIntent.userVisibleSteps.drop(1).firstOrNull()
+            val overlayWarning = if (execution.isPhoneControlTask && !phoneAuroraOverlayShown) {
+                listOf(
+                    LogLine(
+                        type = LogType.INFO,
+                        text = uiText("极光悬浮框没有显示，请检查悬浮窗权限", "Aurora overlay is not visible. Check overlay permission."),
+                        details = listOf(
+                            uiDetailLine("本步结果", "Result", uiText(
+                                "系统没有允许 MobileClaw 显示悬浮窗，手机操作仍会继续，但你看不到极光边框提示。",
+                                "The system has not allowed MobileClaw to show overlays. Phone control will continue, but the Aurora border will not be visible.",
+                            )),
+                            uiDetailLine("接下来", "Next", uiText(
+                                "在系统设置里开启 MobileClaw 的悬浮窗 / Display over other apps 权限。",
+                                "Enable MobileClaw overlay / Display over other apps permission in system settings.",
+                            )),
+                        ),
+                    ).withLifecycle(running = false)
+                )
+            } else emptyList()
+            s.copy(
+                activeLogLines = s.activeLogLines.finishLatestRunningLine() + overlayWarning + LogLine(
+                    type = LogType.THINKING,
+                    text = userFacingInitialIntent(firstStep, secondStep, channelSummary),
+                    details = emptyList(),
+                ).withLifecycle(running = true),
+            )
+        }
+
+        return AgentRunPrelude(
+            resolvedSessionId = resolvedSessionId,
+            episodicContext = episodicContext,
+        )
+    }
+
+    private suspend fun buildAgentRunContext(execution: PreparedRunExecution): AgentRunContext {
+        val userProfileContext = runCatching {
+            app.semanticMemory.all()
+                .filter { it.key.startsWith("profile.") }
+                .entries
+                .joinToString("\n") { (k, v) -> "- ${k.removePrefix("profile.")}: $v" }
+                .let { if (it.isNotBlank()) "当前用户画像（请据此调整沟通风格和内容深度）：\n$it" else "" }
+        }.getOrDefault("")
+        val roleWorkspaceContext = runCatching {
+            roleChatRuntimeBridge.buildPromptContext(execution.roleControlPlan)
+        }.getOrDefault("")
+        return AgentRunContext(
+            userProfileContext = userProfileContext,
+            roleWorkspaceContext = roleWorkspaceContext,
+        )
+    }
+
+    private fun maybeStartRoleRuntimeDryRunTrace(
+        prepared: PreparedRunInput,
+        execution: PreparedRunExecution,
+        route: TaskRoute,
+        resolvedSessionId: String,
+        visibleUserText: String,
+    ): Job? {
+        if (!isRoleRuntimeDryRunTraceEnabled()) return null
+        return viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)
+                val controller = createReadOnlyRoleRuntimeController(maxSteps = ROLE_RUNTIME_DRY_RUN_MAX_STEPS)
+                var state = controller.start(
+                    RoleRunInput(
+                        sessionId = resolvedSessionId,
+                        userGoal = execution.contextualGoal,
+                        visibleUserText = visibleUserText,
+                        role = execution.roleProfile.role,
+                        taskType = execution.executionTaskType,
+                        route = route,
+                        protocol = execution.roleProfile.protocol,
+                        controlPlanSummary = execution.roleControlPlan.toPromptBlock(maxChars = 1600),
+                        preferredToolIds = execution.roleControlPlan.toolPolicy.preferredToolIds,
+                        workspaceId = workspaceId,
+                        imageBase64 = prepared.attachedImage,
+                        imageLocalPath = prepared.attachedImageLocalPath,
+                    )
+                )
+                repeat(ROLE_RUNTIME_DRY_RUN_MAX_STEPS) {
+                    if (state.status != RoleRunStatus.RUNNING) return@repeat
+                    state = controller.next(state)
+                    state.steps.lastOrNull()?.let { step ->
+                        recordRoleRuntimeDryRunStep(
+                            resolvedSessionId = resolvedSessionId,
+                            workspaceId = workspaceId,
+                            step = step,
+                            status = state.status,
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                recordRoleRuntimeDryRunFailure(resolvedSessionId, error)
+            }
+        }
+    }
+
+    private fun isRoleRuntimeDryRunTraceEnabled(): Boolean =
+        _uiState.value.userConfigEntries[ROLE_RUNTIME_DRY_RUN_TRACE_KEY]
+            ?.value
+            ?.equals("true", ignoreCase = true) == true
+
+    private fun recordRoleRuntimeDryRunStep(
+        resolvedSessionId: String,
+        workspaceId: String?,
+        step: RoleStep,
+        status: RoleRunStatus,
+    ) {
+        val summary = "[dry-run] ${step.action.id}: ${step.userSummary.ifBlank { step.outputSummary }}"
+        workspaceId?.let { id ->
+            runCatching {
+                app.workspaceStore.recordEvent(
+                    id,
+                    WorkspaceEvent(
+                        category = "role_runtime_dry_run",
+                        source = "role_runtime",
+                        title = "Role runtime dry-run step",
+                        summary = summary.take(300),
+                        payload = buildString {
+                            appendLine("status=$status")
+                            appendLine("visibility=${step.visibility}")
+                            appendLine("purpose=${step.purpose}")
+                            appendLine("input=${step.inputSummary}")
+                            appendLine("output=${step.outputSummary}")
+                            appendLine("toolId=${step.toolId}")
+                        }.trim(),
+                    ),
+                )
+            }
+        }
+        if (step.visibility == RoleStepVisibility.USER_TIMELINE || step.visibility == RoleStepVisibility.CONFIRMATION) {
+            updateSession(resolvedSessionId) { s ->
+                s.copy(
+                    activeLogLines = s.activeLogLines + LogLine(
+                        type = LogType.INFO,
+                        text = step.userSummary.ifBlank { step.purpose },
+                        details = listOf(
+                            uiDetailLine("调试", "Debug", "role-runtime dry-run: ${step.action.id}"),
+                            uiDetailLine("调试", "Debug", step.outputSummary.take(1200)),
+                        ),
+                    ).withLifecycle(running = false)
+                )
+            }
+        }
+    }
+
+    private fun recordRoleRuntimeDryRunFailure(resolvedSessionId: String, error: Throwable) {
+        workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
+            runCatching {
+                app.workspaceStore.recordEvent(
+                    workspaceId,
+                    WorkspaceEvent(
+                        category = "role_runtime_dry_run",
+                        source = "role_runtime",
+                        title = "Role runtime dry-run failed",
+                        summary = error.message.orEmpty().take(300),
+                        payload = error.stackTraceToString().take(3000),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun CoroutineScope.persistAgentOutcome(
+        result: Result<com.mobileclaw.agent.AgentResult>,
+        goal: String,
+        contextualGoal: String,
+        executionTaskType: TaskType,
+        scheduledRole: Role,
+        runtimePlan: ChatRuntimePlan,
+        resolvedSessionId: String,
+        sessionIdAtStart: String,
+        userMessage: ChatMessage,
+        userMessageVisible: Boolean,
+        userMessagePersistedEarly: Boolean,
+    ) {
+        val summary = result.getOrNull()?.summary?.let { raw ->
+            if (raw.trim().startsWith("LLM error:")) friendlyRuntimeNotice(raw) else raw
+        } ?: result.exceptionOrNull()?.message?.let(::friendlyLlmFailureMessage) ?: "Task failed."
+        consoleServer.broadcast("task_completed", summary)
+        showCompletionOverlayIfNeeded(summary)
+
+        launch {
+            val agentResult = result.getOrNull() ?: return@launch
+            runCatching { episodicMemory.record(agentResult) }
+            runCatching {
+                val replay = app.taskReplayStore.record(agentResult, executionTaskType, scheduledRole)
+                if (agentResult.success && replay.steps.any { !it.skillId.isNullOrBlank() && !it.isError }) {
+                    app.taskRecipeStore.createFromReplay(replay)
+                }
+                workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
+                    app.workspaceStore.writeJson(
+                        workspaceId,
+                        "task_replay_${replay.id}",
+                        replay,
+                    )
+                }
+            }
+            runCatching {
+                workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
+                    app.workspaceStore.recordRun(
+                        id = workspaceId,
+                        summary = summary,
+                        success = agentResult.success,
+                        taskType = executionTaskType.name,
+                    )
+                    app.workspaceStore.writeCheckpoint(
+                        workspaceId,
+                        WorkspaceCheckpoint(
+                            label = "task_complete",
+                            taskType = executionTaskType.name,
+                            summary = summary.take(300),
+                            details = buildString {
+                                appendLine("Goal: ${contextualGoal.take(1000)}")
+                                appendLine()
+                                appendLine("Success: ${agentResult.success}")
+                                appendLine()
+                                appendLine("Summary: $summary")
+                            }.trim(),
+                        ),
+                    )
+                    app.workspaceStore.recordEvent(
+                        workspaceId,
+                        WorkspaceEvent(
+                            category = "task_complete",
+                            source = "main_view_model",
+                            title = "Task complete",
+                            summary = summary.take(300),
+                            payload = "success=${agentResult.success}, taskType=${executionTaskType.name}",
+                        ),
+                    )
+                }
+            }
+        }
+        launch(Dispatchers.IO) {
+            runCatching {
+                val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)
+                conversationMemory.addUserMessage(goal, taskId = workspaceId)
+                conversationMemory.addAgentMessage(summary, taskId = workspaceId)
+                recordUserMemoryHints(goal, workspaceId)
+                profileExtractor.extractAndUpdate(goal, summary, taskId = workspaceId)
+                workspaceId?.let {
+                    memoryWriter.recordTaskSnapshot(
+                        scopeId = it,
+                        goal = goal,
+                        summary = summary,
+                        taskType = executionTaskType.name,
+                        success = result.getOrNull()?.success,
+                    )
+                }
+                commitRoleMemory(
+                    roleId = scheduledRole.id,
+                    goal = contextualGoal,
+                    summary = summary,
+                    taskType = executionTaskType.name,
+                    success = result.getOrNull()?.success,
+                    controlPlan = runtimePlan.roleControlPlan,
+                    source = "agent_outcome",
+                    workspaceSessionId = resolvedSessionId,
+                )
+                decorateRoleHomeWithTaskSummary(scheduledRole, goal, summary, result.getOrNull()?.success == true)
+            }
+        }
+
+        val currentRunState = _uiState.value.sessionStates[resolvedSessionId] ?: SessionRunState()
+        val finalAgentMessages = run {
+            val finalLogLines = buildList {
+                addAll(currentRunState.activeLogLines.finishLatestRunningLine())
+                if (currentRunState.streamingThought.isNotBlank()) {
+                    add(LogLine(type = LogType.THINKING, text = currentRunState.streamingThought).withLifecycle(running = false))
+                }
+            }
+            buildAgentMessages(summary, finalLogLines, currentRunState.activeAttachments, scheduledRole)
+        }
+        updateSession(resolvedSessionId) { s -> s.copy(
+            isRunning = false,
+            runStartedAt = 0L,
+            streamingToken = "",
+            streamingThought = "",
+            messages = s.messages + finalAgentMessages,
+            activeLogLines = emptyList(),
+            activeAttachments = emptyList(),
+        )}
+        clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
+
+        if (resolvedSessionId.isNotBlank()) {
+            launch(Dispatchers.IO) {
+                persistMessages(
+                    resolvedSessionId,
+                    userMessage.takeIf { userMessageVisible && !userMessagePersistedEarly },
+                    finalAgentMessages,
+                )
+            }
+        }
+
+        launch(Dispatchers.IO) {
+            val recent = runCatching { database.episodeDao().recent(limit = 24) }.getOrDefault(emptyList())
+            val profileFacts = runCatching { app.semanticMemory.all() }.getOrDefault(emptyMap())
+            val miniApps = runCatching { app.miniAppStore.all() }.getOrDefault(emptyList())
+            val recentUserMsgs = runCatching { database.conversationDao().recentUserMessages(limit = 20) }
+                .getOrDefault(emptyList())
+                .map { it.content }
+            val recs = buildSmartRecommendations(recent, profileFacts, miniApps, recentUserMsgs)
+            _uiState.update { it.copy(recommendations = recs) }
+        }
+
+        resumePendingMiniAppAutoRepair(resolvedSessionId)
+    }
+
+    private suspend fun commitRoleMemory(
+        roleId: String,
+        goal: String,
+        summary: String,
+        taskType: String,
+        success: Boolean?,
+        controlPlan: RoleChatControlPlan,
+        source: String,
+        workspaceSessionId: String,
+    ) {
+        val result = roleMemoryCommitter.commit(
+            RoleMemoryCommitInput(
+                roleId = roleId,
+                goal = goal,
+                summary = summary,
+                taskType = taskType,
+                success = success,
+                controlPlan = controlPlan,
+                source = source,
+            )
+        )
+        val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(workspaceSessionId)
+        if (result.decision.writeUserMemory) {
+            recordUserMemoryHints(result.decision.userMemoryCandidate.ifBlank { goal }, workspaceId)
+        }
+        if (!result.changed) return
+        workspaceId?.let { id ->
+            runCatching {
+                app.workspaceStore.recordEvent(
+                    id,
+                    WorkspaceEvent(
+                        category = "role_memory_commit",
+                        source = "role_memory_committer",
+                        title = "Role memory committed",
+                        summary = listOf(
+                            result.journalPath,
+                            result.memoryPath,
+                            "user_memory".takeIf { result.decision.writeUserMemory }.orEmpty(),
+                        )
+                            .filter { it.isNotBlank() }
+                            .joinToString(", ")
+                            .take(300),
+                        payload = buildString {
+                            appendLine("roleId=$roleId")
+                            appendLine("source=$source")
+                            appendLine("taskType=$taskType")
+                            appendLine("success=${success?.toString() ?: "unknown"}")
+                            appendLine("journalPath=${result.journalPath}")
+                            appendLine("memoryPath=${result.memoryPath}")
+                            appendLine("decision=${result.decision}")
+                            appendLine("policy=${controlPlan.persistencePolicy}")
+                        }.trim(),
+                    ),
+                )
+            }
+        }
+    }
+
+    private suspend fun runAgentModelWithRetry(
+        runtime: AgentRuntime,
+        route: TaskRoute,
+        prepared: PreparedRunInput,
+        execution: PreparedRunExecution,
+        runtimePlan: ChatRuntimePlan,
+        resolvedSessionId: String,
+        episodicContext: String,
+        userProfileContext: String,
+        roleWorkspaceContext: String,
+    ): Result<com.mobileclaw.agent.AgentResult> {
+        val selectedToolIds = selectToolsForRun(
+            route = route,
+            prepared = prepared,
+            execution = execution,
+            runtimePlan = runtimePlan,
+            resolvedSessionId = resolvedSessionId,
+        )
+        var result: Result<com.mobileclaw.agent.AgentResult> =
+            Result.failure(IllegalStateException("LLM did not start."))
+        repeat(LLM_RETRY_MAX_ATTEMPTS) { attemptIndex ->
+            result = runCatching {
+                val snap = config.snapshot()
+                runtime.run(
+                    goal = execution.contextualGoal,
+                    taskType = execution.executionTaskType,
+                    priorContext = execution.agentPriorContext,
+                    episodicContext = episodicContext,
+                    executionContext = execution.executionContext,
+                    language = config.language,
+                    imageBase64 = prepared.attachedImage,
+                    role = execution.scheduledRole,
+                    userProfileContext = userProfileContext,
+                    allowedToolIds = selectedToolIds,
+                    roleWorkspaceContext = roleWorkspaceContext,
+                    preferFastLocalVision = prepared.attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
+                    preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
+                    onToken = { token ->
+                        val clean = token.cleanLocalStreamDelta()
+                        if (clean.isNotEmpty()) {
+                            overlay.onToken(clean)
+                            updateSession(resolvedSessionId) {
+                                it.copy(streamingToken = (it.streamingToken + clean).cleanLocalStreamingText())
+                            }
+                            consoleServer.broadcast("token", clean)
+                        }
+                    },
+                    onThinkToken = { token ->
+                        overlay.onToken(token)
+                        updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + token) }
+                    },
+                    onWorkspaceUpdate = { update ->
+                        persistRuntimeWorkspaceUpdate(
+                            sessionId = resolvedSessionId,
+                            goal = execution.contextualGoal,
+                            update = update,
+                        )
+                    },
+                )
+            }
+            val shouldRetry = attemptIndex < LLM_RETRY_MAX_ATTEMPTS - 1 &&
+                shouldRetryAfterAgentRun(result.getOrNull(), result.exceptionOrNull())
+            if (!shouldRetry) return@repeat
+            appendRetryLogLine(
+                resolvedSessionId,
+                if (attemptIndex == 0) "模型这一步返回异常，我正在自动重试一次"
+                else "模型仍然不稳定，我正在再次整理请求",
+            )
+            delay(700L * (attemptIndex + 1))
+        }
+        return result
+    }
+
+    private suspend fun selectToolsForRun(
+        route: TaskRoute,
+        prepared: PreparedRunInput,
+        execution: PreparedRunExecution,
+        runtimePlan: ChatRuntimePlan,
+        resolvedSessionId: String,
+    ): List<String> {
+        val routeHints = route.contextualIntent.aiToolHints + execution.orchestration.channelDecision.toolHints
+        val preferred = (execution.roleControlPlan.toolPolicy.preferredToolIds + routeHints + execution.allowedToolIds)
+            .distinct()
+        val blocked = execution.roleControlPlan.toolPolicy.blockedToolIds
+        val fallback = preferred.filterNot { it in blocked }.distinct()
+        val skills = registry.allMetasWithTaxonomy()
+        val result = runCatching {
+            AiToolSelector(app.createLlmGateway()).select(
+                ToolSelectionInput(
+                    goal = execution.contextualGoal,
+                    taskType = execution.executionTaskType,
+                    primaryChannel = route.primaryChannelForExecution(),
+                    roleSummary = execution.roleControlPlan.toPromptBlock(maxChars = 1200),
+                    contextSummary = listOf(
+                        route.debugReason,
+                        route.contextualIntent.executionHint,
+                        execution.agentPriorContext.take(900),
+                    ).filter { it.isNotBlank() }.joinToString("\n\n"),
+                    preferredToolIds = preferred,
+                    blockedToolIds = blocked,
+                    routeToolHints = routeHints,
+                    availableSkills = skills,
+                )
+            )
+        }.getOrNull()
+        val selected = result
+            ?.selectedToolIds
+            ?.filterNot { it in blocked }
+            ?.distinct()
+            ?.ifEmpty { fallback }
+            ?: fallback
+        val userFacing = when {
+            selected.isNotEmpty() -> uiText(
+                "已为本轮选择 ${selected.size} 个工具",
+                "Selected ${selected.size} tools for this run",
+            )
+            else -> uiText(
+                "本轮不收窄工具，交给执行器按需选择",
+                "Tool set is not narrowed for this run",
+            )
+        }
+        if (runtimePlan.roleControlPlan.visibilityPolicy.showTimelineForToolCalls) {
+            updateSession(resolvedSessionId) { s ->
+                s.copy(
+                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                        type = LogType.THINKING,
+                        text = userFacing,
+                        details = buildList {
+                            add(uiDetailLine("本步目的", "Purpose", uiText("根据目标和角色选择本轮需要的工具", "Select tools for this goal and role")))
+                            result?.reason?.takeIf { it.isNotBlank() }?.let { add(uiDetailLine("本步结果", "Result", it.take(600))) }
+                            add(uiDetailLine("调试", "Debug", "runtimePlanMode=${runtimePlan.executionMode}"))
+                            if (selected.isNotEmpty()) add(uiDetailLine("调试", "Debug", selected.joinToString(", ")))
+                            result?.executionPlan?.takeIf { it.isNotEmpty() }?.let { plan ->
+                                add(uiDetailLine("调试", "Debug", plan.joinToString(" -> ").take(900)))
+                            }
+                        },
+                    ).withLifecycle(running = false)
+                )
+            }
+        }
+        workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
+            runCatching {
+                app.workspaceStore.recordEvent(
+                    workspaceId,
+                    WorkspaceEvent(
+                        category = "tool_selection",
+                        source = "ai_tool_selector",
+                        title = "Tool selection",
+                        summary = selected.joinToString(", ").ifBlank { "unrestricted" }.take(300),
+                        payload = buildString {
+                            appendLine("goal=${execution.contextualGoal.take(1000)}")
+                            appendLine("taskType=${execution.executionTaskType}")
+                            appendLine("selected=${selected.joinToString(", ")}")
+                            appendLine("reason=${result?.reason.orEmpty()}")
+                            appendLine("fallback=${fallback.joinToString(", ")}")
+                        }.trim(),
+                    ),
+                )
+            }
+        }
+        return selected
+    }
+
+    private fun handleAgentCancellation(
+        result: Result<com.mobileclaw.agent.AgentResult>,
+        prepared: PreparedRunInput,
+        resolvedSessionId: String,
+        isPhoneControlTask: Boolean,
+    ): Boolean {
+        if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) {
+            if (!isRunGenerationCurrent(resolvedSessionId, prepared.runGeneration)) return true
+            overlay.hide()
+            if (isPhoneControlTask) auroraOverlay.endTask()
+            updateSession(resolvedSessionId) { s ->
+                s.copy(
+                    isRunning = false,
+                    runStartedAt = 0L,
+                    streamingToken = "",
+                    streamingThought = "",
+                    activeLogLines = emptyList(),
+                    activeAttachments = emptyList(),
+                )
+            }
+            clearRuntimeHandles(prepared.sessionIdAtStart, resolvedSessionId)
+            return true
+        }
+        if (!isRunGenerationCurrent(resolvedSessionId, prepared.runGeneration)) {
+            Log.w(TAG, "Run superseded before completion; dropping stale UI mutations. session=$resolvedSessionId generation=${prepared.runGeneration}")
+            return true
+        }
+        return false
+    }
+
+    private fun prepareRunInput(
+        goal: String,
+        imageOverride: String?,
+        visibleUserText: String,
+        pendingTurn: PendingUserTurn?,
+        showUserMessage: Boolean,
+    ): PreparedRunInput? {
+        val currentSessionId = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
+        if (goal.isBlank() || (pendingTurn == null && _uiState.value.sessionStates[currentSessionId]?.isRunning == true)) return null
+        val codexDesktopMode = _uiState.value.codexDesktopMode || currentSessionId in _uiState.value.codexDesktopSessionIds
+        val goalForRouting = if (codexDesktopMode) codexDesktopExecutionGoal(goal) else goal
+        val attachedImage = imageOverride ?: pendingTurn?.imageBase64 ?: _uiState.value.inputImageBase64
+        val attachedFile = pendingTurn?.fileAttachment ?: _uiState.value.inputFileAttachment
+        val sessionIdAtStart = pendingTurn?.sessionId ?: _uiState.value.currentSessionId
+        val attachedImageLocalPath = pendingTurn?.imageLocalPath
+            ?: attachedImage?.let { persistUserImageForWorkspace(sessionIdAtStart, it) }
+            ?: ""
+        val effectiveGoal = when {
+            attachedFile != null && attachedFile.isText ->
+                "[附件: ${attachedFile.name}]\n```\n${attachedFile.content.take(10_000)}\n```\n\n$goalForRouting"
+            attachedImageLocalPath.isNotBlank() ->
+                "[图片已保存到本地工作区]\npath: $attachedImageLocalPath\n后续需要引用这张图片时，直接把这个 path 传给相关工具，例如 generate_video.image。不要要求用户重新发送图片，也不要说只能使用 HTTP 链接；系统会自动上传本地图片。\n\n$goalForRouting"
+            else -> goalForRouting
+        }
+        val userMessage = pendingTurn?.userMessage ?: ChatMessage(
+            role = MessageRole.USER,
+            text = visibleUserText,
+            imageBase64 = if (attachedImage != null) attachedImage
+                          else if (attachedFile != null && !attachedFile.isText) attachedFile.content
+                          else null,
+            attachments = if (attachedImageLocalPath.isNotBlank()) {
+                listOf(SkillAttachment.ImageData(attachedImage.orEmpty(), prompt = "user image", localPath = attachedImageLocalPath))
+            } else emptyList(),
+            imageLocalPath = attachedImageLocalPath,
+        )
+        val runGeneration = pendingTurn?.runGeneration ?: beginRunGeneration(sessionIdAtStart)
+        val userMessageVisible = pendingTurn != null || showUserMessage
+        return PreparedRunInput(
+            currentSessionId = currentSessionId,
+            sessionIdAtStart = sessionIdAtStart,
+            codexDesktopMode = codexDesktopMode,
+            goalForRouting = goalForRouting,
+            attachedImage = attachedImage,
+            attachedFile = attachedFile,
+            attachedImageLocalPath = attachedImageLocalPath,
+            effectiveGoal = effectiveGoal,
+            userMessage = userMessage,
+            runGeneration = runGeneration,
+            userMessageVisible = userMessageVisible,
+            userMessagePersistedEarly = userMessageVisible && sessionIdAtStart.isNotBlank(),
+        )
+    }
+
+    private fun resolveRunRoute(
+        goal: String,
+        prepared: PreparedRunInput,
+        routeOverride: TaskRoute?,
+    ): TaskRoute {
+        routeOverride?.let { return it }
+        return if (prepared.codexDesktopMode) {
             TaskRoute(
                 taskType = TaskType.CODE_EXECUTION,
                 contextualIntent = ContextualTaskIntent(
-                    classificationGoal = goalForRouting,
+                    classificationGoal = prepared.goalForRouting,
                     taskTypeOverride = TaskType.CODE_EXECUTION,
                     aiPrimaryChannel = ChannelType.CODE,
                     aiToolHints = listOf("codex_desktop"),
@@ -1994,39 +2905,48 @@ class MainViewModel : ViewModel() {
                         listOf("连接电脑 Codex", "发送任务", "返回结果")
                     },
                 ),
-                goalForExecution = effectiveGoal,
+                goalForExecution = prepared.effectiveGoal,
                 source = TaskRouteSource.CLASSIFIER,
                 goalToRemember = goal,
                 debugReason = "Codex desktop session mode enabled.",
             )
         } else {
+            val fallbackTaskType = if (prepared.attachedImage != null) TaskType.GENERAL else TaskType.CHAT
             TaskRoute(
-                taskType = if (attachedImage != null) TaskType.GENERAL else TaskType.CHAT,
+                taskType = fallbackTaskType,
                 contextualIntent = ContextualTaskIntent(
                     classificationGoal = goal,
-                    taskTypeOverride = if (attachedImage != null) TaskType.GENERAL else TaskType.CHAT,
+                    taskTypeOverride = fallbackTaskType,
                     aiPrimaryChannel = ChannelType.CHAT,
                     aiSupportingChannels = emptyList(),
                     aiToolHints = emptyList(),
                 ),
-                goalForExecution = effectiveGoal,
+                goalForExecution = prepared.effectiveGoal,
                 source = TaskRouteSource.CLASSIFIER,
                 goalToRemember = goal,
                 debugReason = "Internal direct-chat fallback because routeOverride was missing.",
             )
         }
+    }
+
+    private fun prepareRunExecution(
+        goal: String,
+        visibleUserText: String,
+        prepared: PreparedRunInput,
+        route: TaskRoute,
+        routeOverride: TaskRoute?,
+    ): PreparedRunExecution {
         val contextualIntent = route.contextualIntent
-        val inferredAiPageTarget = contextualIntent.aiPage
         val taskType = route.taskType
-        val resolvedWorkspaceSessionId = sessionIdAtStart.ifBlank { _uiState.value.currentSessionId }
+        val resolvedWorkspaceSessionId = prepared.sessionIdAtStart.ifBlank { _uiState.value.currentSessionId }
         workspaceRuntime.ensureSessionBinding(
             sessionId = resolvedWorkspaceSessionId,
             taskType = taskType,
             goal = route.goalForExecution,
             intent = contextualIntent,
         )
-        val executionGoal = if (attachedFile?.isText == true && routeOverride != null && route.source != TaskRouteSource.ACTIVE_WORKFLOW) {
-            effectiveGoal
+        val executionGoal = if (prepared.attachedFile?.isText == true && routeOverride != null && route.source != TaskRouteSource.ACTIVE_WORKFLOW) {
+            prepared.effectiveGoal
         } else {
             route.goalForExecution
         }
@@ -2035,8 +2955,8 @@ class MainViewModel : ViewModel() {
             userGoal = goal,
             executionGoal = executionGoal,
         )
-        val stickerAwareChat = attachedImage == null &&
-            attachedFile == null &&
+        val stickerAwareChat = prepared.attachedImage == null &&
+            prepared.attachedFile == null &&
             (taskType == TaskType.GENERAL || taskType == TaskType.CHAT) &&
             route.primaryChannelForExecution() == ChannelType.CHAT &&
             shouldUseStickerAwareChat(goal)
@@ -2049,8 +2969,13 @@ class MainViewModel : ViewModel() {
             includeMemory = true,
             includeRecentMessages = false,
         )
-        val agentPriorContext = buildPriorContext(goal, executionTaskType, contextualIntent, includeMemory = false)
-        val isPhoneControlTask = executionTaskType == TaskType.PHONE_CONTROL
+        val agentPriorContext = buildPriorContext(
+            goal = goal,
+            taskType = executionTaskType,
+            intent = contextualIntent,
+            includeMemory = true,
+            includeRecentMessages = false,
+        )
         val currentRole = _uiState.value.currentRole
         val schedulingContext = buildPriorContext(
             goal = goal,
@@ -2059,7 +2984,9 @@ class MainViewModel : ViewModel() {
             includeMemory = true,
             includeRecentMessages = true,
         )
-        val schedulingGoal = listOf(contextualGoal, schedulingContext.take(1200)).filter { it.isNotBlank() }.joinToString("\n\n")
+        val schedulingGoal = listOf(contextualGoal, schedulingContext.take(1200))
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
         val scheduleDecision = RoleScheduler.schedule(
             taskType = taskType,
             goal = schedulingGoal,
@@ -2072,566 +2999,622 @@ class MainViewModel : ViewModel() {
         } else {
             currentRole
         }
+        val roleProfile = adaptCurrentRoleForRuntime(scheduledRole, source = "prepare_run_execution")
+        val roleControlPlan = roleChatRuntimeBridge.buildControlPlan(roleProfile)
+        val roleDirectPriorContext = when {
+            !roleControlPlan.contextPolicy.includeUserMemory && !roleControlPlan.contextPolicy.includeRecentMessages -> ""
+            roleControlPlan.contextPolicy.includeRecentMessages -> buildPriorContext(
+                goal = goal,
+                taskType = executionTaskType,
+                intent = contextualIntent,
+                includeMemory = roleControlPlan.contextPolicy.includeUserMemory,
+                includeRecentMessages = true,
+            )
+            roleControlPlan.contextPolicy.includeUserMemory -> directPriorContext
+            else -> ""
+        }
+        val roleAgentPriorContext = when {
+            roleControlPlan.contextPolicy.includeRecentMessages -> buildPriorContext(
+                goal = goal,
+                taskType = executionTaskType,
+                intent = contextualIntent,
+                includeMemory = roleControlPlan.contextPolicy.includeUserMemory,
+                includeRecentMessages = true,
+            )
+            roleControlPlan.contextPolicy.includeUserMemory -> agentPriorContext
+            else -> buildPriorContext(
+                goal = goal,
+                taskType = executionTaskType,
+                intent = contextualIntent,
+                includeMemory = false,
+                includeRecentMessages = false,
+            )
+        }
         val orchestration = taskOrchestrator.orchestrate(
             route = route,
             goal = contextualGoal,
-            hasImage = attachedImage != null,
-            hasFile = attachedFile != null,
+            hasImage = prepared.attachedImage != null,
+            hasFile = prepared.attachedFile != null,
             role = scheduledRole,
             language = config.language,
         )
         val allowedToolIds = resolveAllowedToolIds(route, orchestration.channelDecision.toolHints, contextualGoal)
-        val executionContext = orchestration.toPromptBlock()
-        val visibleGoalLabel = visibleUserText.ifBlank {
-            if (attachedImage != null) str(R.string.sticker_button) else goal
-        }
+        return PreparedRunExecution(
+            contextualIntent = contextualIntent,
+            taskType = taskType,
+            resolvedWorkspaceSessionId = resolvedWorkspaceSessionId,
+            executionTaskType = executionTaskType,
+            contextualGoal = contextualGoal,
+            directPriorContext = roleDirectPriorContext,
+            agentPriorContext = roleAgentPriorContext,
+            stickerAwareChat = stickerAwareChat,
+            isPhoneControlTask = executionTaskType == TaskType.PHONE_CONTROL,
+            scheduleDecision = scheduleDecision,
+            scheduledRole = scheduledRole,
+            roleProfile = roleProfile,
+            roleControlPlan = roleControlPlan,
+            orchestration = orchestration,
+            allowedToolIds = allowedToolIds,
+            executionContext = orchestration.toPromptBlock(),
+            visibleGoalLabel = visibleUserText.ifBlank {
+                if (prepared.attachedImage != null) str(R.string.sticker_button) else goal
+            },
+        )
+    }
 
+    private fun startRunUiState(
+        prepared: PreparedRunInput,
+        pendingTurn: PendingUserTurn?,
+        showUserMessage: Boolean,
+    ) {
         if (pendingTurn == null) {
             _uiState.update { it.copy(inputImageBase64 = null, inputFileAttachment = null) }
-            updateSession(sessionIdAtStart) { s -> s.copy(
-                isRunning = true,
-                runStartedAt = System.currentTimeMillis(),
-                messages = if (showUserMessage) s.messages + userMessage else s.messages,
-                activeLogLines = emptyList(),
-                activeAttachments = emptyList(),
-                streamingToken = "",
-                streamingThought = "",
-            )}
+            updateSession(prepared.sessionIdAtStart) { s ->
+                s.copy(
+                    isRunning = true,
+                    runStartedAt = System.currentTimeMillis(),
+                    messages = if (showUserMessage) s.messages + prepared.userMessage else s.messages,
+                    activeLogLines = emptyList(),
+                    activeAttachments = emptyList(),
+                    streamingToken = "",
+                    streamingThought = "",
+                )
+            }
         } else {
-            updateSession(sessionIdAtStart) { s -> s.copy(streamingToken = "", streamingThought = "") }
+            updateSession(prepared.sessionIdAtStart) { s -> s.copy(streamingToken = "", streamingThought = "") }
         }
-        if (attachedImage == null &&
-            attachedFile == null &&
+    }
+
+    private fun appendRoleControlLogLine(
+        sessionId: String,
+        execution: PreparedRunExecution,
+        runtimePlan: ChatRuntimePlan,
+    ) {
+        val plan = execution.roleControlPlan
+        val role = execution.scheduledRole
+        val text = uiText(
+            "角色 ${role.name} 正在接管本轮执行",
+            "Role ${role.name} is controlling this run",
+        )
+        updateSession(sessionId) { s ->
+            s.copy(
+                activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                    type = LogType.THINKING,
+                    text = text,
+                    details = buildList {
+                        add(uiDetailLine("本步目的", "Purpose", uiText(
+                            "根据角色协议决定本轮如何理解、读取上下文、选择工具和沉淀记忆",
+                            "Apply the role protocol to intent, context, tools, and memory",
+                        )))
+                        add(uiDetailLine("本步结果", "Result", roleControlUserSummary(role, plan, runtimePlan.executionMode)))
+                        add(uiDetailLine("接下来", "Next", roleControlNextStep(runtimePlan.executionMode)))
+                        add(uiDetailLine("角色", "Role", "${role.name} (${role.id})"))
+                        add(uiDetailLine("执行模式", "Execution mode", roleExecutionModeText(runtimePlan.executionMode, plan.executionModeHint)))
+                        add(uiDetailLine("意图理解", "Intent", roleIntentPolicyText(plan)))
+                        add(uiDetailLine("回复方式", "Response", roleResponsePolicyText(plan)))
+                        add(uiDetailLine("上下文", "Context", roleContextPolicyText(plan)))
+                        add(uiDetailLine("工具", "Tools", roleToolPolicyText(plan)))
+                        add(uiDetailLine("记忆", "Memory", rolePersistencePolicyText(plan)))
+                    },
+                ).withLifecycle(running = false)
+            )
+        }
+    }
+
+    private fun determineChatExecutionMode(
+        goal: String,
+        prepared: PreparedRunInput,
+        route: TaskRoute,
+        execution: PreparedRunExecution,
+    ): ChatExecutionMode {
+        if (prepared.attachedImage == null &&
+            prepared.attachedFile == null &&
             route.primaryChannelForExecution() == ChannelType.INFO) {
-            runInfoChannelAnswer(sessionIdAtStart, userMessage, goal, scheduledRole, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
-            return
+            return ChatExecutionMode.INFO
         }
-        // Fast path: image understanding is a VLM chat, not an agentic web/search task.
-        if (attachedImage != null &&
-            attachedFile == null &&
-            executionTaskType == TaskType.GENERAL &&
+        if (prepared.attachedImage != null &&
+            prepared.attachedFile == null &&
+            execution.executionTaskType == TaskType.GENERAL &&
             shouldAnswerImageDirectly(goal)) {
-            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, attachedImage, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
-            return
+            return ChatExecutionMode.DIRECT_CHAT
         }
-
-        // Fast path: conversational message with no attachments → skip agent loop
-        if (!stickerAwareChat &&
-            attachedImage == null && attachedFile == null &&
-            shouldRunDirectChat(route)) {
-            runDirectChat(sessionIdAtStart, userMessage, goal, scheduledRole, directPriorContext, executionContext, persistUserMessage = userMessageVisible && !userMessagePersistedEarly, runGeneration = runGeneration)
-            return
+        if (!execution.stickerAwareChat &&
+            prepared.attachedImage == null &&
+            prepared.attachedFile == null &&
+            shouldRunDirectChat(route, execution.roleControlPlan, goal)) {
+            return ChatExecutionMode.DIRECT_CHAT
         }
+        return ChatExecutionMode.AGENT
+    }
 
+    private fun createChatRuntimePlan(
+        goal: String,
+        visibleUserText: String,
+        prepared: PreparedRunInput,
+        route: TaskRoute,
+        execution: PreparedRunExecution,
+        executionMode: ChatExecutionMode,
+    ): ChatRuntimePlan =
+        chatRuntimeCoordinator.createPlan(
+            ChatRuntimePlanInput(
+                sessionId = execution.resolvedWorkspaceSessionId.ifBlank { prepared.sessionIdAtStart },
+                userGoal = execution.contextualGoal.ifBlank { goal },
+                visibleUserText = visibleUserText,
+                route = route,
+                taskType = execution.executionTaskType,
+                role = execution.scheduledRole,
+                roleControlPlan = execution.roleControlPlan,
+                executionMode = executionMode,
+                directPriorContext = execution.directPriorContext,
+                agentPriorContext = execution.agentPriorContext,
+                executionContext = execution.executionContext,
+                allowedToolIds = execution.allowedToolIds,
+                hasImage = prepared.attachedImage != null,
+                hasFile = prepared.attachedFile != null,
+            )
+        )
+
+    private fun runFastPathIfHandled(
+        goal: String,
+        prepared: PreparedRunInput,
+        execution: PreparedRunExecution,
+        runtimePlan: ChatRuntimePlan,
+    ): Boolean {
+        val persistUserMessage = prepared.userMessageVisible && !prepared.userMessagePersistedEarly
+        when (runtimePlan.executionMode) {
+            ChatExecutionMode.INFO -> {
+                runInfoChannelAnswer(
+                    sessionIdAtStart = prepared.sessionIdAtStart,
+                    userMessage = prepared.userMessage,
+                    goal = goal,
+                    currentRole = execution.scheduledRole,
+                    persistUserMessage = persistUserMessage,
+                    runGeneration = prepared.runGeneration,
+                )
+                return true
+            }
+            ChatExecutionMode.DIRECT_CHAT -> {
+                runDirectChat(
+                    sessionIdAtStart = prepared.sessionIdAtStart,
+                    userMessage = prepared.userMessage,
+                    goal = goal,
+                    currentRole = execution.scheduledRole,
+                    roleControlPlan = execution.roleControlPlan,
+                    priorContext = execution.directPriorContext,
+                    executionContext = execution.executionContext,
+                    imageBase64 = prepared.attachedImage,
+                    persistUserMessage = persistUserMessage,
+                    runGeneration = prepared.runGeneration,
+                )
+                return true
+            }
+            ChatExecutionMode.AGENT,
+            ChatExecutionMode.CODEX_DESKTOP -> Unit
+        }
+        return false
+    }
+
+    private fun startAgentRuntime(
+        prepared: PreparedRunInput,
+        execution: PreparedRunExecution,
+    ): StartedAgentRuntime {
         val llm = app.createLlmGateway()
-        val rt = AgentRuntime(llm, registry, app.semanticMemory, memoryContextBuilder)
-        runtimes[sessionIdAtStart] = rt
-
-        overlay.show(visibleGoalLabel)
-        val phoneAuroraOverlayShown = if (isPhoneControlTask) {
+        val runtime = AgentRuntime(llm, registry, app.semanticMemory, memoryContextBuilder)
+        runtimes[prepared.sessionIdAtStart] = runtime
+        overlay.show(execution.visibleGoalLabel)
+        val phoneAuroraOverlayShown = if (execution.isPhoneControlTask) {
             auroraOverlay.beginTask()
         } else {
             false
         }
-        if (isPhoneControlTask) {
+        if (execution.isPhoneControlTask) {
             Log.d(TAG, "Phone aurora overlay begin requested. shown=$phoneAuroraOverlayShown")
         }
+        consoleServer.broadcast("task_started", execution.visibleGoalLabel)
+        return StartedAgentRuntime(runtime, phoneAuroraOverlayShown)
+    }
 
-        consoleServer.broadcast("task_started", visibleGoalLabel)
-
-        val newJob = viewModelScope.launch {
-            val resolvedSessionId = ensureRunnableSession(sessionIdAtStart)
-            if (resolvedSessionId != sessionIdAtStart) adoptRunGeneration(resolvedSessionId, runGeneration)
-            val channelSummary = orchestration.userVisibleSummary
-            rememberActiveWorkflow(resolvedSessionId, route.goalToRemember, executionTaskType, scheduledRole)
-            workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
-                runCatching {
-                    app.workspaceStore.recordEvent(
-                        workspaceId,
-                        WorkspaceEvent(
-                            category = "task_plan",
-                            source = "main_view_model",
-                            title = "Task plan",
-                            summary = contextualGoal.take(160),
-                            payload = buildString {
-                                appendLine("Role: ${scheduledRole.name}")
-                                appendLine("Task type: ${executionTaskType.name}")
-                                appendLine("Goal: ${contextualGoal.take(2000)}")
-                                appendLine()
-                                appendLine("Channel summary:")
-                                appendLine(channelSummary)
-                            }.trim(),
-                        ),
-                    )
-                }
-            }
-            if (resolvedSessionId.isNotBlank()) {
-                launch(Dispatchers.IO) {
-                    runCatching {
-                        database.sessionDao().updateRole(resolvedSessionId, scheduledRole.id)
-                        loadSessions()
-                    }
-                }
-            }
-
-            val episodicContext = runCatching {
-                episodicMemory.retrieve(contextualGoal)
-                    .filter { it.reflexionSummary.isNotBlank() }
-                    .joinToString("\n") { "- ${it.reflexionSummary}" }
-            }.getOrDefault("")
-
+    private fun CoroutineScope.collectNetworkTraceEvents(resolvedSessionId: String): Job = launch {
+        com.mobileclaw.agent.NetworkTracer.events.collect { msg ->
             updateSession(resolvedSessionId) { s ->
-                val firstStep = route.contextualIntent.userVisibleSteps.firstOrNull()
-                val secondStep = route.contextualIntent.userVisibleSteps.drop(1).firstOrNull()
-                val overlayWarning = if (isPhoneControlTask && !phoneAuroraOverlayShown) {
-                    listOf(
-                        LogLine(
-                            type = LogType.INFO,
-                            text = uiText("极光悬浮框没有显示，请检查悬浮窗权限", "Aurora overlay is not visible. Check overlay permission."),
-                            details = listOf(
-                                uiDetailLine("本步结果", "Result", uiText(
-                                    "系统没有允许 MobileClaw 显示悬浮窗，手机操作仍会继续，但你看不到极光边框提示。",
-                                    "The system has not allowed MobileClaw to show overlays. Phone control will continue, but the Aurora border will not be visible.",
-                                )),
-                                uiDetailLine("接下来", "Next", uiText(
-                                    "在系统设置里开启 MobileClaw 的悬浮窗 / Display over other apps 权限。",
-                                    "Enable MobileClaw overlay / Display over other apps permission in system settings.",
-                                )),
-                            ),
-                        ).withLifecycle(running = false)
-                    )
-                } else emptyList()
-                s.copy(
-                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + overlayWarning + LogLine(
-                        type = LogType.THINKING,
-                        text = userFacingInitialIntent(firstStep, secondStep, channelSummary),
-                        details = emptyList(),
-                    ).withLifecycle(running = true),
-                )
-            }
-
-            // Collect NetworkTracer events and append to the most recent active log line's details
-            val networkTraceJob = launch {
-                com.mobileclaw.agent.NetworkTracer.events.collect { msg ->
-                    updateSession(resolvedSessionId) { s ->
-                        val lines = s.activeLogLines.toMutableList()
-                        if (lines.isNotEmpty()) {
-                            val last = lines.last()
-                            lines[lines.size - 1] = last.copy(details = last.details + msg)
-                        }
-                        s.copy(activeLogLines = lines)
-                    }
+                val lines = s.activeLogLines.toMutableList()
+                if (lines.isNotEmpty()) {
+                    val last = lines.last()
+                    lines[lines.size - 1] = last.copy(details = last.details + msg)
                 }
+                s.copy(activeLogLines = lines)
             }
+        }
+    }
 
-            val runtimeEventJob = launch {
-                rt.events.collect { event ->
-                    when (event) {
-                        is AgentEvent.Started -> {
-                            if (visibleUserText.isNotBlank()) {
-                                event.toLogLine()?.let { line ->
-                                    updateSession(resolvedSessionId) {
-                                        it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
-                                    }
-                                }
-                            }
-                        }
-                        is AgentEvent.ThinkingToken -> {
-                            overlay.onToken(event.text)
-                            updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + event.text) }
-                        }
-                        is AgentEvent.SkillCalling -> {
-                            val actionIndex = _uiState.value.sessionStates[resolvedSessionId]
-                                ?.activeLogLines
-                                ?.count { it.type == LogType.ACTION }
-                                ?: 0
-                            val stageText = plannedStageForAction(route.contextualIntent.userVisibleSteps, actionIndex)
-                            val debugPurposeText = stageAwareSkillDescription(stageText, event.skillId, event.params)
-                            val purposeText = userFacingSkillStart(stageText, event.skillId, event.params)
-                            overlay.onSkillCalling(event.skillId, event.params)
-                            if (isPhoneControlTask || event.skillId in VISUAL_SKILL_IDS) {
-                                if (event.skillId == "see_screen") auroraOverlay.flashFullScreen()
-                                else auroraOverlay.flash()
-                            }
-                            // Build full details: formatted params for the detail sheet
-                            val paramDetails = event.params.entries.map { (k, v) ->
-                                "  $k: ${Gson().toJson(v).take(300)}"
-                            }
-                            val lineDetails = buildList {
-                                add(uiDetailLine("本步目的", "Purpose", purposeText))
-                                userFacingActionResult(event.skillId, stageText)
-                                    .takeIf { it.isNotBlank() }
-                                    ?.let { add(uiDetailLine("本步结果", "Result", it)) }
-                                // 这类信息用户能理解，但不该压过主要结论，所以放在二级说明位。
-                                if (stageText.isNotBlank() && stageText != debugPurposeText) add(uiDetailLine("这样安排", "Plan", stageText))
-                                // 原始参数保留在调试区，默认阅读不需要看到键值列表。
-                                add(uiDetailLine("调试", "Debug", str(R.string.vm_c96809)))
-                                add(uiDetailLine("调试", "Debug", "${uiText("意图", "intent")}=$debugPurposeText"))
-                                addAll(paramDetails.map { uiDetailLine("调试", "Debug", it) })
-                            }
-                            val line = event.toLogLine()?.copy(text = purposeText, details = lineDetails)
-                            updateSession(resolvedSessionId) { s ->
-                                s.copy(
-                                    streamingThought = "",
-                                    activeLogLines = if (line != null) {
-                                        s.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = true)
-                                    } else {
-                                        s.activeLogLines
-                                    },
-                                )
-                            }
-                            launch(Dispatchers.IO) {
-                                decorateRoleHomeWithTool(scheduledRole, event.skillId, purposeText)
-                            }
-                            consoleServer.broadcast("skill_called", purposeText)
-                        }
-                        is AgentEvent.Observation -> {
-                            val previousSkill = _uiState.value.sessionStates[resolvedSessionId]
-                                ?.activeLogLines
-                                ?.lastOrNull { it.type == LogType.ACTION }
-                                ?.skillId
-                            val purposeText = friendlyObservationDescription(previousSkill, event.text, event.imageBase64 != null)
-                            val actionStage = _uiState.value.sessionStates[resolvedSessionId]
-                                ?.activeLogLines
-                                ?.lastOrNull { it.type == LogType.ACTION }
-                                ?.details
-                                ?.firstOrNull {
-                                    it.startsWith(uiDetailPrefix("这样安排", "Plan")) ||
-                                        it.startsWith(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
-                                }
-                                ?.let { detail ->
-                                    detail.removePrefix(uiDetailPrefix("这样安排", "Plan"))
-                                        .removePrefix(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
-                                }
-                                ?.trim()
-                            overlay.onObservation(purposeText)
-                            if (event.attachment is SkillAttachment.ActionCard && event.attachment.tone == "role") {
-                                pendingRoleSwitchTaskGoal = contextualGoal
-                            }
-                            val attachment = when (event.attachment) {
-                                is SkillAttachment.AccessibilityRequest -> {
-                                    pendingAccessibilityTaskGoal = contextualGoal
-                                    ConfirmationFlow.accessibilityActionCard(
-                                        goal = contextualGoal,
-                                        confirmAccessibilityTaskPrefix = CONFIRM_ACCESSIBILITY_TASK_PREFIX,
-                                        openAccessibilityPrefix = OPEN_ACCESSIBILITY_PREFIX,
-                                        cancelText = CANCEL_CONFIRMATION_TEXT,
-                                        skillName = event.attachment.skillName,
-                                    )
-                                }
-                                else -> event.attachment
-                            }
-                            val lineDetails = buildList {
-                                actionStage?.takeIf { it.isNotBlank() }?.let { add(uiDetailLine("本步目的", "Purpose", it)) }
-                                add(uiDetailLine("本步结果", "Result", purposeText))
-                                userFacingActionNext(actionStage.orEmpty(), previousSkill.orEmpty(), event.text)
-                                    ?.let { add(uiDetailLine("接下来", "Next", it)) }
-                                if (event.text.isNotBlank()) {
-                                    summarizeTechnicalResultForUser(previousSkill, event.text)?.let { add(uiDetailLine("补充判断", "Note", it)) }
-                                    add(uiDetailLine("调试", "Debug", uiText("完整结果 (${event.text.length} 字符)", "Full result (${event.text.length} chars)")))
-                                    add(uiDetailLine("调试", "Debug", event.text.take(2000)))
-                                }
-                            }
-                            val line = LogLine(
-                                type = LogType.OBSERVATION,
-                                text = purposeText,
-                                imageBase64 = event.imageBase64,
-                                details = lineDetails,
-                            ).withLifecycle(running = false)
-                            updateSession(resolvedSessionId) { s ->
-                                s.copy(
-                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + line,
-                                    activeAttachments = if (attachment != null)
-                                        s.activeAttachments + attachment
-                                    else s.activeAttachments,
-                                )
-                            }
-                            if (attachment != null) {
-                                launch(Dispatchers.IO) {
-                                    decorateRoleHomeWithAttachment(scheduledRole, previousSkill, purposeText, attachment)
-                                }
-                            }
-                            runCatching {
-                                persistWorkspaceObservation(
-                                    sessionId = resolvedSessionId,
-                                    skillId = previousSkill,
-                                    rawOutput = event.text,
-                                )
-                            }
-                        }
-                        is AgentEvent.Error -> {
-                            overlay.onError(event.message)
-                            event.toLogLine()?.let { line ->
-                                updateSession(resolvedSessionId) {
-                                    it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
-                                }
-                            }
-                        }
-                        is AgentEvent.Warning -> {
-                            overlay.onWarning(event.message)
-                            event.toLogLine()?.let { line ->
-                                updateSession(resolvedSessionId) {
-                                    it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
-                                }
-                            }
-                        }
-                        is AgentEvent.ThinkingComplete -> {
-                            overlay.onThinkingComplete()
-                            val friendlyThought = friendlyThinkingUpdate(event.thought, route.contextualIntent.userVisibleSteps)
-                            val userFacingThought = userFacingThinkingResult(event.thought, route.contextualIntent.userVisibleSteps)
-                            updateSession(resolvedSessionId) { s ->
-                                s.copy(
-                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
-                                        type = LogType.THINKING,
-                                        text = userFacingThought,
-                                        details = listOf(
-                                            uiDetailLine("本步目的", "Purpose", userFacingThought),
-                                            uiDetailLine("本步结果", "Result", friendlyThought),
-                                            uiDetailLine("调试", "Debug", event.thought.take(1200)),
-                                        ),
-                                    ).withLifecycle(running = false),
-                                    streamingToken = "",
-                                    streamingThought = "",
-                                )
-                            }
-                        }
-                        is AgentEvent.PlanCreated -> {
-                            val steps = route.contextualIntent.userVisibleSteps.ifEmpty { event.plan.steps }
-                            val text = steps.firstOrNull() ?: event.plan.summary
-                            val secondStep = steps.drop(1).firstOrNull { it.isNotBlank() }
-                            updateSession(resolvedSessionId) { s ->
-                                s.copy(
-                                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
-                                        type = LogType.THINKING,
-                                        text = text,
-                                        details = buildList {
-                                            add(uiDetailLine("本步目的", "Purpose", text))
-                                            add(uiDetailLine("本步结果", "Result", userFacingPlanResult(steps, event.plan.summary)))
-                                            if (!secondStep.isNullOrBlank()) add(uiDetailLine("接下来", "Next", secondStep.trim()))
-                                            add(uiDetailLine("调试", "Debug", "${uiText("角色", "role")}=${scheduledRole.name} (${scheduledRole.id})"))
-                                            add(uiDetailLine("调试", "Debug", scheduleDecision.reason))
-                                            add(uiDetailLine("调试", "Debug", event.plan.toPrompt().take(1600)))
-                                        },
-                                    ).withLifecycle(running = true)
-                                )
-                            }
-                        }
-                        else -> event.toLogLine()?.let { line ->
+    private fun CoroutineScope.collectAgentRuntimeEvents(
+        runtime: AgentRuntime,
+        route: TaskRoute,
+        scheduledRole: Role,
+        scheduleDecision: RoleScheduleDecision,
+        contextualGoal: String,
+        resolvedSessionId: String,
+        isPhoneControlTask: Boolean,
+        visibleUserText: String,
+        runtimePlan: ChatRuntimePlan,
+    ): Job = launch {
+        runtime.events.collect { event ->
+            when (event) {
+                is AgentEvent.Started -> {
+                    if (visibleUserText.isNotBlank()) {
+                        event.toLogLine()?.let { line ->
                             updateSession(resolvedSessionId) {
                                 it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
                             }
                         }
                     }
                 }
-            }
-
-            val userProfileContext = runCatching {
-                app.semanticMemory.all()
-                    .filter { it.key.startsWith("profile.") }
-                    .entries
-                    .joinToString("\n") { (k, v) -> "- ${k.removePrefix("profile.")}: $v" }
-                    .let { if (it.isNotBlank()) "当前用户画像（请据此调整沟通风格和内容深度）：\n$it" else "" }
-            }.getOrDefault("")
-
-            var result: Result<com.mobileclaw.agent.AgentResult> = Result.failure(IllegalStateException("LLM did not start."))
-            repeat(LLM_RETRY_MAX_ATTEMPTS) { attemptIndex ->
-                result = runCatching {
-                    val snap = config.snapshot()
-                    rt.run(
-                        goal             = contextualGoal,
-                        taskType         = executionTaskType,
-                        priorContext     = agentPriorContext,
-                        episodicContext  = episodicContext,
-                        executionContext = executionContext,
-                        language         = config.language,
-                        imageBase64      = attachedImage,
-                        role             = scheduledRole,
-                        userProfileContext = userProfileContext,
-                        allowedToolIds = allowedToolIds,
-                        preferFastLocalVision = attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
-                        preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
-                        onToken       = { token ->
-                            val clean = token.cleanLocalStreamDelta()
-                            if (clean.isNotEmpty()) {
-                                overlay.onToken(clean)
-                                updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalStreamingText()) }
-                                consoleServer.broadcast("token", clean)
-                            }
-                        },
-                        onThinkToken  = { token ->
-                            overlay.onToken(token)
-                            updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + token) }
-                        },
-                        onWorkspaceUpdate = { update ->
-                            persistRuntimeWorkspaceUpdate(
-                                sessionId = resolvedSessionId,
-                                goal = contextualGoal,
-                                update = update,
-                            )
-                        },
-                    )
+                is AgentEvent.ThinkingToken -> {
+                    overlay.onToken(event.text)
+                    updateSession(resolvedSessionId) { it.copy(streamingThought = it.streamingThought + event.text) }
                 }
-                val shouldRetry = attemptIndex < LLM_RETRY_MAX_ATTEMPTS - 1 &&
-                    shouldRetryAfterAgentRun(result.getOrNull(), result.exceptionOrNull())
-                if (!shouldRetry) return@repeat
-                appendRetryLogLine(
-                    resolvedSessionId,
-                    if (attemptIndex == 0) "模型这一步返回异常，我正在自动重试一次"
-                    else "模型仍然不稳定，我正在再次整理请求",
+                is AgentEvent.SkillCalling -> {
+                    handleRuntimeSkillCallingEvent(event, route, scheduledRole, resolvedSessionId, isPhoneControlTask, runtimePlan)
+                }
+                is AgentEvent.Observation -> {
+                    handleRuntimeObservationEvent(event, scheduledRole, contextualGoal, resolvedSessionId, runtimePlan)
+                }
+                is AgentEvent.Error -> {
+                    overlay.onError(event.message)
+                    event.toLogLine()?.let { line ->
+                        updateSession(resolvedSessionId) {
+                            it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                        }
+                    }
+                }
+                is AgentEvent.Warning -> {
+                    overlay.onWarning(event.message)
+                    event.toLogLine()?.let { line ->
+                        updateSession(resolvedSessionId) {
+                            it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                        }
+                    }
+                }
+                is AgentEvent.ThinkingComplete -> {
+                    overlay.onThinkingComplete()
+                    val friendlyThought = friendlyThinkingUpdate(event.thought, route.contextualIntent.userVisibleSteps)
+                    val userFacingThought = userFacingThinkingResult(event.thought, route.contextualIntent.userVisibleSteps)
+                    updateSession(resolvedSessionId) { s ->
+                        s.copy(
+                            activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                                type = LogType.THINKING,
+                                text = userFacingThought,
+                                details = listOf(
+                                    uiDetailLine("本步目的", "Purpose", userFacingThought),
+                                    uiDetailLine("本步结果", "Result", friendlyThought),
+                                    uiDetailLine("调试", "Debug", event.thought.take(1200)),
+                                ),
+                            ).withLifecycle(running = false),
+                            streamingToken = "",
+                            streamingThought = "",
+                        )
+                    }
+                }
+                is AgentEvent.PlanCreated -> {
+                    handleRuntimePlanCreatedEvent(event, route, scheduledRole, scheduleDecision, resolvedSessionId, runtimePlan)
+                }
+                else -> event.toLogLine()?.let { line ->
+                    updateSession(resolvedSessionId) {
+                        it.copy(activeLogLines = it.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = false))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun CoroutineScope.handleRuntimeSkillCallingEvent(
+        event: AgentEvent.SkillCalling,
+        route: TaskRoute,
+        scheduledRole: Role,
+        resolvedSessionId: String,
+        isPhoneControlTask: Boolean,
+        runtimePlan: ChatRuntimePlan,
+    ) {
+        val actionIndex = _uiState.value.sessionStates[resolvedSessionId]
+            ?.activeLogLines
+            ?.count { it.type == LogType.ACTION }
+            ?: 0
+        val stageText = plannedStageForAction(route.contextualIntent.userVisibleSteps, actionIndex)
+        val debugPurposeText = stageAwareSkillDescription(stageText, event.skillId, event.params)
+        val purposeText = userFacingSkillStart(stageText, event.skillId, event.params)
+        overlay.onSkillCalling(event.skillId, event.params)
+        if (isPhoneControlTask || event.skillId in VISUAL_SKILL_IDS) {
+            if (event.skillId == "see_screen") auroraOverlay.flashFullScreen()
+            else auroraOverlay.flash()
+        }
+        val paramDetails = event.params.entries.map { (k, v) ->
+            "  $k: ${Gson().toJson(v).take(300)}"
+        }
+        val lineDetails = buildList {
+            add(uiDetailLine("本步目的", "Purpose", purposeText))
+            userFacingActionResult(event.skillId, stageText)
+                .takeIf { it.isNotBlank() }
+                ?.let { add(uiDetailLine("本步结果", "Result", it)) }
+            if (stageText.isNotBlank() && stageText != debugPurposeText) add(uiDetailLine("这样安排", "Plan", stageText))
+            add(uiDetailLine("调试", "Debug", str(R.string.vm_c96809)))
+            add(uiDetailLine("调试", "Debug", "${uiText("意图", "intent")}=$debugPurposeText"))
+            addAll(paramDetails.map { uiDetailLine("调试", "Debug", it) })
+        }
+        val line = event.toLogLine()?.copy(text = purposeText, details = lineDetails)
+        if (runtimePlan.shouldShowToolTimeline(event.skillId)) {
+            updateSession(resolvedSessionId) { s ->
+                s.copy(
+                    streamingThought = "",
+                    activeLogLines = if (line != null) {
+                        s.activeLogLines.finishLatestRunningLine() + line.withLifecycle(running = true)
+                    } else {
+                        s.activeLogLines
+                    },
                 )
-                delay(700L * (attemptIndex + 1))
             }
-            networkTraceJob.cancel()
-            runtimeEventJob.cancel()
-            if (result.exceptionOrNull() is kotlinx.coroutines.CancellationException) {
-                // 新一轮任务已接管本会话：过期回调不得清 isRunning/日志/句柄，否则会击穿 loadSession 的防覆盖守卫，
-                // 并把新任务刚注册的 runtime 摘掉。
-                if (!isRunGenerationCurrent(resolvedSessionId, runGeneration)) return@launch
-                overlay.hide()
-                if (isPhoneControlTask) auroraOverlay.endTask()
-                updateSession(resolvedSessionId) { s ->
-                    s.copy(
-                        isRunning = false,
-                        runStartedAt = 0L,
-                        streamingToken = "",
-                        streamingThought = "",
-                        activeLogLines = emptyList(),
-                        activeAttachments = emptyList(),
-                    )
-                }
-                clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
-                return@launch
-            }
-            if (!isRunGenerationCurrent(resolvedSessionId, runGeneration)) {
-                Log.w(TAG, "Run superseded before completion; dropping stale UI mutations. session=$resolvedSessionId generation=$runGeneration")
-                return@launch
-            }
-
-            if (isPhoneControlTask) auroraOverlay.endTask()
-
-            val summary = result.getOrNull()?.summary?.let { raw ->
-                if (raw.trim().startsWith("LLM error:")) friendlyRuntimeNotice(raw) else raw
-            } ?: result.exceptionOrNull()?.message?.let(::friendlyLlmFailureMessage) ?: "Task failed."
-            consoleServer.broadcast("task_completed", summary)
-            showCompletionOverlayIfNeeded(summary)
-
-            launch {
-                val agentResult = result.getOrNull() ?: return@launch
-                runCatching { episodicMemory.record(agentResult) }
-                runCatching {
-                    val replay = app.taskReplayStore.record(agentResult, executionTaskType, scheduledRole)
-                    if (agentResult.success && replay.steps.any { !it.skillId.isNullOrBlank() && !it.isError }) {
-                        app.taskRecipeStore.createFromReplay(replay)
-                    }
-                    workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
-                        app.workspaceStore.writeJson(
-                            workspaceId,
-                            "task_replay_${replay.id}",
-                            replay,
-                        )
-                    }
-                }
-                runCatching {
-                    workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)?.let { workspaceId ->
-                        app.workspaceStore.recordRun(
-                            id = workspaceId,
-                            summary = summary,
-                            success = agentResult.success,
-                            taskType = executionTaskType.name,
-                        )
-                        app.workspaceStore.writeCheckpoint(
-                            workspaceId,
-                            WorkspaceCheckpoint(
-                                label = "task_complete",
-                                taskType = executionTaskType.name,
-                                summary = summary.take(300),
-                                details = buildString {
-                                    appendLine("Goal: ${contextualGoal.take(1000)}")
-                                    appendLine()
-                                    appendLine("Success: ${agentResult.success}")
-                                    appendLine()
-                                    appendLine("Summary: $summary")
-                                }.trim(),
-                            ),
-                        )
-                        app.workspaceStore.recordEvent(
-                            workspaceId,
-                            WorkspaceEvent(
-                                category = "task_complete",
-                                source = "main_view_model",
-                                title = "Task complete",
-                                summary = summary.take(300),
-                                payload = "success=${agentResult.success}, taskType=${executionTaskType.name}",
-                            ),
-                        )
-                    }
-                }
-            }
-            launch(Dispatchers.IO) {
-                runCatching {
-                    val workspaceId = workspaceRuntime.resolveSessionWorkspaceId(resolvedSessionId)
-                    conversationMemory.addUserMessage(goal, taskId = workspaceId)
-                    conversationMemory.addAgentMessage(summary, taskId = workspaceId)
-                    recordUserMemoryHints(goal, workspaceId)
-                    profileExtractor.extractAndUpdate(goal, summary, taskId = workspaceId)
-                    workspaceId?.let {
-                        memoryWriter.recordTaskSnapshot(
-                            scopeId = it,
-                            goal = goal,
-                            summary = summary,
-                            taskType = executionTaskType.name,
-                            success = result.getOrNull()?.success,
-                        )
-                    }
-                    decorateRoleHomeWithTaskSummary(scheduledRole, goal, summary, result.getOrNull()?.success == true)
-                }
-            }
-
-            val currentRunState = _uiState.value.sessionStates[resolvedSessionId] ?: SessionRunState()
-            val finalAgentMessages = run {
-                val finalLogLines = buildList {
-                    addAll(currentRunState.activeLogLines.finishLatestRunningLine())
-                    if (currentRunState.streamingThought.isNotBlank()) {
-                        add(LogLine(type = LogType.THINKING, text = currentRunState.streamingThought).withLifecycle(running = false))
-                    }
-                }
-                buildAgentMessages(summary, finalLogLines, currentRunState.activeAttachments, scheduledRole)
-            }
-            updateSession(resolvedSessionId) { s -> s.copy(
-                isRunning = false,
-                runStartedAt = 0L,
-                streamingToken = "",
-                streamingThought = "",
-                messages = s.messages + finalAgentMessages,
-                activeLogLines = emptyList(),
-                activeAttachments = emptyList(),
-            )}
-            clearRuntimeHandles(sessionIdAtStart, resolvedSessionId)
-
-            // Persist the exchange to the session DB（用户消息若已在启动时落库，这里只补 agent 消息）
-            if (resolvedSessionId.isNotBlank()) {
-                launch(Dispatchers.IO) { persistMessages(resolvedSessionId, userMessage.takeIf { userMessageVisible && !userMessagePersistedEarly }, finalAgentMessages) }
-            }
-
-            // Refresh recommendations after task completes
-            launch(Dispatchers.IO) {
-                val recent = runCatching { database.episodeDao().recent(limit = 24) }.getOrDefault(emptyList())
-                val profileFacts = runCatching { app.semanticMemory.all() }.getOrDefault(emptyMap())
-                val miniApps = runCatching { app.miniAppStore.all() }.getOrDefault(emptyList())
-                val recentUserMsgs = runCatching { database.conversationDao().recentUserMessages(limit = 20) }.getOrDefault(emptyList()).map { it.content }
-                val recs = buildSmartRecommendations(recent, profileFacts, miniApps, recentUserMsgs)
-                _uiState.update { it.copy(recommendations = recs) }
-            }
-
-            // 如果聊天内预览在上一轮暴露了真实运行问题，这里直接续跑自动修复，不等用户补一句“继续”。
-            resumePendingMiniAppAutoRepair(resolvedSessionId)
+        } else {
+            updateSession(resolvedSessionId) { it.copy(streamingThought = "") }
         }
-        if (isPhoneControlTask) {
-            newJob.invokeOnCompletion {
-                auroraOverlay.hide()
+        launch(Dispatchers.IO) {
+            decorateRoleHomeWithTool(scheduledRole, event.skillId, purposeText)
+        }
+        consoleServer.broadcast("skill_called", purposeText)
+    }
+
+    private fun CoroutineScope.handleRuntimeObservationEvent(
+        event: AgentEvent.Observation,
+        scheduledRole: Role,
+        contextualGoal: String,
+        resolvedSessionId: String,
+        runtimePlan: ChatRuntimePlan,
+    ) {
+        val previousSkill = _uiState.value.sessionStates[resolvedSessionId]
+            ?.activeLogLines
+            ?.lastOrNull { it.type == LogType.ACTION }
+            ?.skillId
+        val purposeText = friendlyObservationDescription(previousSkill, event.text, event.imageBase64 != null)
+        val actionStage = _uiState.value.sessionStates[resolvedSessionId]
+            ?.activeLogLines
+            ?.lastOrNull { it.type == LogType.ACTION }
+            ?.details
+            ?.firstOrNull {
+                it.startsWith(uiDetailPrefix("这样安排", "Plan")) ||
+                    it.startsWith(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
+            }
+            ?.let { detail ->
+                detail.removePrefix(uiDetailPrefix("这样安排", "Plan"))
+                    .removePrefix(uiDetailPrefix("这样安排", "Plan", englishOverride = false))
+            }
+            ?.trim()
+        overlay.onObservation(purposeText)
+        if (event.attachment is SkillAttachment.ActionCard && event.attachment.tone == "role") {
+            pendingRoleSwitchTaskGoal = contextualGoal
+        }
+        val attachment = when (event.attachment) {
+            is SkillAttachment.AccessibilityRequest -> {
+                pendingAccessibilityTaskGoal = contextualGoal
+                ConfirmationFlow.accessibilityActionCard(
+                    goal = contextualGoal,
+                    confirmAccessibilityTaskPrefix = CONFIRM_ACCESSIBILITY_TASK_PREFIX,
+                    openAccessibilityPrefix = OPEN_ACCESSIBILITY_PREFIX,
+                    cancelText = CANCEL_CONFIRMATION_TEXT,
+                    skillName = event.attachment.skillName,
+                )
+            }
+            else -> event.attachment
+        }
+        val inlineProcessAttachment = attachment?.takeIf { it.shouldShowInlineInProcess() }
+        val shouldShowTimeline = runtimePlan.shouldShowObservationTimeline(previousSkill, attachment)
+        val lineDetails = buildList {
+            actionStage?.takeIf { it.isNotBlank() }?.let { add(uiDetailLine("本步目的", "Purpose", it)) }
+            add(uiDetailLine("本步结果", "Result", purposeText))
+            userFacingActionNext(actionStage.orEmpty(), previousSkill.orEmpty(), event.text)
+                ?.let { add(uiDetailLine("接下来", "Next", it)) }
+            if (event.text.isNotBlank()) {
+                summarizeTechnicalResultForUser(previousSkill, event.text)?.let { add(uiDetailLine("补充判断", "Note", it)) }
+                add(uiDetailLine("调试", "Debug", uiText("完整结果 (${event.text.length} 字符)", "Full result (${event.text.length} chars)")))
+                add(uiDetailLine("调试", "Debug", event.text.take(2000)))
             }
         }
-        taskJobs[sessionIdAtStart] = newJob
+        val line = LogLine(
+            type = LogType.OBSERVATION,
+            text = purposeText,
+            imageBase64 = event.imageBase64,
+            attachments = inlineProcessAttachment?.let { listOf(it) }.orEmpty(),
+            details = lineDetails,
+        ).withLifecycle(running = false)
+        if (shouldShowTimeline) {
+            updateSession(resolvedSessionId) { s ->
+                s.copy(
+                    activeLogLines = s.activeLogLines.finishLatestRunningLine() + line,
+                    activeAttachments = if (attachment != null && inlineProcessAttachment == null)
+                        s.activeAttachments + attachment
+                    else s.activeAttachments,
+                )
+            }
+        }
+        if (attachment != null) {
+            launch(Dispatchers.IO) {
+                decorateRoleHomeWithAttachment(scheduledRole, previousSkill, purposeText, attachment)
+            }
+        }
+        runCatching {
+            persistWorkspaceObservation(
+                sessionId = resolvedSessionId,
+                skillId = previousSkill,
+                rawOutput = event.text,
+            )
+        }
+    }
+
+    private fun SkillAttachment.shouldShowInlineInProcess(): Boolean =
+        this is SkillAttachment.SearchResults || this is SkillAttachment.WebPage
+
+    private fun ChatRuntimePlan.shouldShowToolTimeline(skillId: String): Boolean {
+        if (skillId in VISUAL_SKILL_IDS) return true
+        return if (skillId.isMemoryTimelineSkill()) {
+            roleControlPlan.visibilityPolicy.showTimelineForMemoryWrites
+        } else {
+            roleControlPlan.visibilityPolicy.showTimelineForToolCalls
+        }
+    }
+
+    private fun ChatRuntimePlan.shouldShowObservationTimeline(
+        previousSkillId: String?,
+        attachment: SkillAttachment?,
+    ): Boolean {
+        if (attachment != null) return true
+        val skillId = previousSkillId.orEmpty()
+        return if (skillId.isMemoryTimelineSkill()) {
+            roleControlPlan.visibilityPolicy.showTimelineForMemoryWrites
+        } else {
+            roleControlPlan.visibilityPolicy.showTimelineForToolCalls
+        }
+    }
+
+    private fun String.isMemoryTimelineSkill(): Boolean =
+        this in setOf("memory", "user_profile", "user_config", "role_workspace")
+
+    private fun handleRuntimePlanCreatedEvent(
+        event: AgentEvent.PlanCreated,
+        route: TaskRoute,
+        scheduledRole: Role,
+        scheduleDecision: RoleScheduleDecision,
+        resolvedSessionId: String,
+        runtimePlan: ChatRuntimePlan,
+    ) {
+        if (!runtimePlan.roleControlPlan.visibilityPolicy.showTimelineForToolCalls &&
+            !runtimePlan.roleControlPlan.visibilityPolicy.exposeTraceByDefault) {
+            return
+        }
+        val steps = route.contextualIntent.userVisibleSteps.ifEmpty { event.plan.steps }
+        val text = steps.firstOrNull() ?: event.plan.summary
+        val secondStep = steps.drop(1).firstOrNull { it.isNotBlank() }
+        updateSession(resolvedSessionId) { s ->
+            s.copy(
+                activeLogLines = s.activeLogLines.finishLatestRunningLine() + LogLine(
+                    type = LogType.THINKING,
+                    text = text,
+                    details = buildList {
+                        add(uiDetailLine("本步目的", "Purpose", text))
+                        add(uiDetailLine("本步结果", "Result", userFacingPlanResult(steps, event.plan.summary)))
+                        if (!secondStep.isNullOrBlank()) add(uiDetailLine("接下来", "Next", secondStep.trim()))
+                        add(uiDetailLine("调试", "Debug", "${uiText("角色", "role")}=${scheduledRole.name} (${scheduledRole.id})"))
+                        add(uiDetailLine("调试", "Debug", scheduleDecision.reason))
+                        add(uiDetailLine("调试", "Debug", event.plan.toPrompt().take(1600)))
+                    },
+                ).withLifecycle(running = true)
+            )
+        }
+    }
+
+    private fun buildDirectChatContext(
+        currentRole: Role,
+        roleControlPlan: RoleChatControlPlan,
+        priorContext: String,
+        executionContext: String,
+        imageBase64: String?,
+    ): DirectChatContext {
+        val langSection = when (config.language) {
+            "zh" -> str(R.string.vm_00cf2c)
+            "en" -> "\nYou MUST respond in English.\n"
+            else -> ""
+        }
+        val roleSection = if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
+            "\n## Your Persona\n${currentRole.systemPromptAddendum.trim()}\n"
+        } else ""
+        val roleWorkspaceSection = roleChatRuntimeBridge.buildDirectChatPromptContext(roleControlPlan)
+            .takeIf { it.isNotBlank() }
+            ?.let { "\n$it\n" }
+            .orEmpty()
+        val contextSection = if (priorContext.isNotBlank()) "\n## Stable Memory And Active Artifacts\n$priorContext\n" else ""
+        val configSnapshot = config.snapshot()
+        val localChatMode = configSnapshot.localNativeOnly || configSnapshot.localModelEnabled
+        val imageInstruction = if (imageBase64 != null) {
+            if (config.language == "en") {
+                "\nThe user attached an image. Answer from the image itself. Do not search the web, do not call tools, and do not say you need external lookup unless the user explicitly asks for web research.\n"
+            } else {
+                "\n用户附带了一张图片。请直接根据图片本身回答。不要网页搜索，不要调用工具；除非用户明确要求联网查询，否则不要说需要外部检索。\n"
+            }
+        } else ""
+        val directExecutionContext = if (imageBase64 != null) executionContext else ""
+        val capabilityInfoInstruction = if (config.language == "en") {
+            "If the user asks what MobileClaw can do or which tools are available, do not guess from memory; that request is handled by the INFO capability directory."
+        } else {
+            "如果用户询问 MobileClaw 能做什么、有哪些工具或某类任务是否支持，不要凭记忆展开能力清单；这类请求由 INFO 能力目录处理。"
+        }
+        val roleUiInstruction = buildRoleUiInstruction(roleControlPlan)
+        val systemPrompt = if (localChatMode) {
+            buildString {
+                appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
+                append(langSection)
+                appendLine(capabilityInfoInstruction)
+                appendLine(roleUiInstruction)
+                if (directExecutionContext.isNotBlank()) {
+                    appendLine(directExecutionContext.trim())
+                }
+                appendLine("Execution channels are separate: chat for conversation, memory for stable facts, skill/self-evolution for capability changes, and artifact/tool routes for actions. Do not merge them into one blob.")
+                append(imageInstruction)
+                if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
+                    appendLine("Persona: ${currentRole.systemPromptAddendum.trim().take(180)}")
+                }
+                if (roleWorkspaceSection.isNotBlank()) {
+                    appendLine(roleWorkspaceSection.take(roleControlPlan.contextPolicy.maxRoleContextChars))
+                }
+                if (priorContext.isNotBlank()) {
+                    appendLine("Stable memory and active artifacts:")
+                    appendLine(priorContext.take(1200))
+                }
+                appendLine("Answer directly when the user only needs conversation. Short follow-ups refer to the recent context.")
+                appendLine("If the latest user message clearly requires memory, skills, artifacts, files, web, or phone execution, do not behave as if chat is the only available path.")
+            }.trim()
+        } else {
+            """You are ${currentRole.name}, a helpful AI assistant inside MobileClaw.$langSection$imageInstruction$roleSection$roleWorkspaceSection$contextSection
+$capabilityInfoInstruction
+$roleUiInstruction
+${if (directExecutionContext.isNotBlank()) directExecutionContext + "\n" else ""}
+## Execution Channels
+Chat, memory, skills, and self-evolution are separate channels. Use the right channel for the user's request instead of mixing everything into one response.
+
+## Context Rules
+Use the current user message as the source of truth. Treat recent conversation as supporting context only.
+Short follow-ups like “继续/改一下/不是这个/换个方式” refer to the most relevant recent message or artifact.
+Do not start building pages, HTML, MiniAPPs, or UI artifacts unless the user clearly asks to create or modify one.
+If the latest user message clearly requires memory, skills, artifacts, files, web, or phone execution, do not behave as if chat is the only available path.
+
+${if (roleControlPlan.responsePolicy.allowUiBlocks) "## Optional Interactive UI" else "## Interactive UI Policy"}
+For normal conversation, reply in plain text.
+${if (roleControlPlan.responsePolicy.allowUiBlocks) "Only embed a ${"```"}ui block when the user explicitly asks for interactive choices, forms, tables, comparisons, dashboards, or says they want buttons/cards." else "Do not embed a ${"```"}ui block in this role unless the user explicitly asks for an interactive UI."}
+If you use the UI DSL, it MUST be wrapped exactly as:
+${"```"}ui
+{"type":"column","children":[...]}
+${"```"}
+Never output raw UI JSON, `+ ui`, string concatenation, or Kotlin/JavaScript snippets in a chat answer.
+Types: column/row(gap,padding,children) | card(title,children) | text(content,size,bold,color,align) | button(label,action,style) | input(key,placeholder) | select(key,options:[]) | table(headers:[],rows:[[]]) | chart_bar/chart_line(data:[],labels:[],title) | progress(value,label) | badge(text,color) | divider | spacer(size)
+Actions: "send:message" | "submit:text with {key}" | "copy:text"
+For pure conversational replies, greetings, explanations, and simple factual answers, do not output a ui block.""".trimIndent()
+        }
+        return DirectChatContext(systemPrompt = systemPrompt)
     }
 
     private fun runDirectChat(
@@ -2639,6 +3622,7 @@ class MainViewModel : ViewModel() {
         userMessage: ChatMessage,
         goal: String,
         currentRole: Role,
+        roleControlPlan: RoleChatControlPlan,
         priorContext: String,
         executionContext: String = "",
         imageBase64: String? = null,
@@ -2680,79 +3664,18 @@ class MainViewModel : ViewModel() {
                 }
             }
 
-            val langSection = when (config.language) {
-                "zh" -> str(R.string.vm_00cf2c)
-                "en" -> "\nYou MUST respond in English.\n"
-                else -> ""
-            }
-            val roleSection = if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
-                "\n## Your Persona\n${currentRole.systemPromptAddendum.trim()}\n"
-            } else ""
-            val contextSection = if (priorContext.isNotBlank()) "\n## Stable Memory And Active Artifacts\n$priorContext\n" else ""
-            val localChatMode = config.snapshot().localNativeOnly || config.snapshot().localModelEnabled
-            val imageInstruction = if (imageBase64 != null) {
-                if (config.language == "en") {
-                    "\nThe user attached an image. Answer from the image itself. Do not search the web, do not call tools, and do not say you need external lookup unless the user explicitly asks for web research.\n"
-                } else {
-                    "\n用户附带了一张图片。请直接根据图片本身回答。不要网页搜索，不要调用工具；除非用户明确要求联网查询，否则不要说需要外部检索。\n"
-                }
-            } else ""
-            val directExecutionContext = if (imageBase64 != null) executionContext else ""
-            val capabilityInfoInstruction = if (config.language == "en") {
-                "If the user asks what MobileClaw can do or which tools are available, do not guess from memory; that request is handled by the INFO capability directory."
-            } else {
-                "如果用户询问 MobileClaw 能做什么、有哪些工具或某类任务是否支持，不要凭记忆展开能力清单；这类请求由 INFO 能力目录处理。"
-            }
-            val systemPrompt = if (localChatMode) {
-                buildString {
-                    appendLine("You are ${currentRole.name}, MobileClaw's on-device assistant.")
-                    append(langSection)
-                    appendLine(capabilityInfoInstruction)
-                    if (directExecutionContext.isNotBlank()) {
-                        appendLine(directExecutionContext.trim())
-                    }
-                    appendLine("Execution channels are separate: chat for conversation, memory for stable facts, skill/self-evolution for capability changes, and artifact/tool routes for actions. Do not merge them into one blob.")
-                    append(imageInstruction)
-                    if (currentRole.id != "general" && currentRole.systemPromptAddendum.isNotBlank()) {
-                        appendLine("Persona: ${currentRole.systemPromptAddendum.trim().take(180)}")
-                    }
-                    if (priorContext.isNotBlank()) {
-                        appendLine("Stable memory and active artifacts:")
-                        appendLine(priorContext.take(1200))
-                    }
-                    appendLine("Answer directly when the user only needs conversation. Short follow-ups refer to the recent context.")
-                    appendLine("If the latest user message clearly requires memory, skills, artifacts, files, web, or phone execution, do not behave as if chat is the only available path.")
-                }.trim()
-            } else {
-                """You are ${currentRole.name}, a helpful AI assistant inside MobileClaw.$langSection$imageInstruction$roleSection$contextSection
-$capabilityInfoInstruction
-${if (directExecutionContext.isNotBlank()) directExecutionContext + "\n" else ""}
-## Execution Channels
-Chat, memory, skills, and self-evolution are separate channels. Use the right channel for the user's request instead of mixing everything into one response.
-
-## Context Rules
-Use the current user message as the source of truth. Treat recent conversation as supporting context only.
-Short follow-ups like “继续/改一下/不是这个/换个方式” refer to the most relevant recent message or artifact.
-Do not start building pages, HTML, MiniAPPs, or UI artifacts unless the user clearly asks to create or modify one.
-If the latest user message clearly requires memory, skills, artifacts, files, web, or phone execution, do not behave as if chat is the only available path.
-
-## Optional Interactive UI
-For normal conversation, reply in plain text.
-Only embed a ${"```"}ui block when the user explicitly asks for interactive choices, forms, tables, comparisons, dashboards, or says they want buttons/cards.
-If you use the UI DSL, it MUST be wrapped exactly as:
-${"```"}ui
-{"type":"column","children":[...]}
-${"```"}
-Never output raw UI JSON, `+ ui`, string concatenation, or Kotlin/JavaScript snippets in a chat answer.
-Types: column/row(gap,padding,children) | card(title,children) | text(content,size,bold,color,align) | button(label,action,style) | input(key,placeholder) | select(key,options:[]) | table(headers:[],rows:[[]]) | chart_bar/chart_line(data:[],labels:[],title) | progress(value,label) | badge(text,color) | divider | spacer(size)
-Actions: "send:message" | "submit:text with {key}" | "copy:text"
-For pure conversational replies, greetings, explanations, and simple factual answers, do not output a ui block.""".trimIndent()
-            }
+            val directChatContext = buildDirectChatContext(
+                currentRole = currentRole,
+                roleControlPlan = roleControlPlan,
+                priorContext = priorContext,
+                executionContext = executionContext,
+                imageBase64 = imageBase64,
+            )
 
             val llm = app.createLlmGateway()
             val chatMessages = buildStructuredDirectChatMessages(
                 sessionId = resolvedSessionId,
-                systemPrompt = systemPrompt,
+                systemPrompt = directChatContext.systemPrompt,
                 currentGoal = goal,
                 imageBase64 = imageBase64,
             )
@@ -2845,6 +3768,16 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                             success = result.isSuccess,
                         )
                     }
+                    commitRoleMemory(
+                        roleId = currentRole.id,
+                        goal = goal,
+                        summary = summary,
+                        taskType = if (imageBase64 != null) TaskType.GENERAL.name else TaskType.CHAT.name,
+                        success = result.isSuccess,
+                        controlPlan = roleControlPlan,
+                        source = "direct_chat",
+                        workspaceSessionId = resolvedSessionId,
+                    )
                 }
             }
             showCompletionOverlayIfNeeded(summary)
@@ -3408,8 +4341,8 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     fun navigate(page: AppPage) {
         val targetPage = page
         if (targetPage == AppPage.SKILLS) refreshPromotableSkills()
-        if (targetPage == AppPage.PROFILE) loadProfileData()
-        if (targetPage == AppPage.SETTINGS) {
+        if (targetPage == AppPage.PROFILE || targetPage == AppPage.USER_INFO || targetPage == AppPage.MEMORY_SETTINGS) loadProfileData()
+        if (targetPage == AppPage.SETTINGS || targetPage == AppPage.AI_BASIC_SETTINGS || targetPage == AppPage.GENERAL_SETTINGS || targetPage == AppPage.TOOLS_SETTINGS) {
             checkPrivServer()
             loadVideoTasks()
         }
@@ -3463,9 +4396,13 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     fun loadMiniApps() {
         viewModelScope.launch(Dispatchers.IO) {
-            val apps = runCatching { app.miniAppStore.all() }.getOrDefault(emptyList())
-            _uiState.update { it.copy(miniApps = apps) }
+            refreshMiniAppsSnapshot()
         }
+    }
+
+    private fun refreshMiniAppsSnapshot() {
+        val apps = runCatching { app.miniAppStore.all() }.getOrDefault(emptyList())
+        _uiState.update { it.copy(miniApps = apps) }
     }
 
     fun clearPendingAppOpen() {
@@ -3491,7 +4428,6 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
         val snapshot = _uiState.value
         if (snapshot.chatMiniAppPreviewId != appId) return
-        val isValidationPreview = snapshot.chatMiniAppPreviewMode == "validation" || snapshot.chatMiniAppPreviewMode == "overlay_validation"
         val previewSessionId = snapshot.chatMiniAppPreviewSessionId ?: snapshot.currentSessionId
         val changed = snapshot.chatMiniAppPreviewStatus != normalized || snapshot.chatMiniAppPreviewHealthy != healthy
         _uiState.update {
@@ -3501,7 +4437,21 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 chatMiniAppPreviewHealthy = healthy,
             )
         }
-        if (!changed || healthy) return
+        if (healthy) {
+            if (changed) {
+                viewModelScope.launch {
+                    delay(900)
+                    val latest = _uiState.value
+                    if (latest.chatMiniAppPreviewId == appId &&
+                        latest.chatMiniAppPreviewHealthy &&
+                        latest.chatMiniAppPreviewStatus == normalized) {
+                        clearChatMiniAppPreview()
+                    }
+                }
+            }
+            return
+        }
+        if (!changed) return
         updateSession(previewSessionId) { state ->
             if (!state.isRunning) return@updateSession state
             val line = LogLine(
@@ -3522,19 +4472,8 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             if (state.activeLogLines.lastOrNull()?.text == line.text) state
             else state.copy(activeLogLines = state.activeLogLines + line)
         }
-        if (isValidationPreview) {
-            miniAppValidationOverlay.hide(notifyDismissed = false)
-            _uiState.update {
-                if (it.chatMiniAppPreviewId != appId) it
-                else it.copy(
-                    chatMiniAppPreviewId = null,
-                    chatMiniAppPreviewMode = "",
-                    chatMiniAppPreviewSessionId = null,
-                    chatMiniAppPreviewStatus = "",
-                    chatMiniAppPreviewHealthy = true,
-                )
-            }
-        }
+        // Keep the preview visible even when it reports a runtime issue. The user needs
+        // to see the failing surface while the agent inspects logs and repairs it.
         enqueueMiniAppAutoRepair(sessionId = previewSessionId, appId = appId, previewStatus = normalized)
     }
 
@@ -4209,8 +5148,132 @@ For pure conversational replies, greetings, explanations, and simple factual ans
     fun deleteApp(appId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { app.miniAppStore.delete(appId) }
-            loadMiniApps()
+            refreshMiniAppsSnapshot()
         }
+    }
+
+    fun deleteApps(appIds: Collection<String>) {
+        val ids = appIds.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            ids.forEach { id -> runCatching { app.miniAppStore.delete(id) } }
+            refreshMiniAppsSnapshot()
+            val message = localizedUiText("已删除 ${ids.size} 个 MiniAPP", "Deleted ${ids.size} MiniAPPs")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun exportRolePackage(roleId: String) {
+        if (roleId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { rolePackageStore.exportPackage(roleId) }
+            val file = result.getOrNull()
+            if (file != null) {
+                shareExportedPackage(
+                    file = file,
+                    chooserTitle = localizedUiText("导出角色包", "Export role package"),
+                    successMessage = localizedUiText("角色包已生成", "Role package is ready"),
+                )
+            } else {
+                val e = result.exceptionOrNull()
+                showPackageToast(localizedUiText("角色导出失败：", "Role export failed: ") + (e?.message ?: ""))
+            }
+        }
+    }
+
+    fun importRolePackage(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val tempFile = copyImportUriToCache(uri, "role", RolePackageStore.ROLE_PACKAGE_EXTENSION)
+                rolePackageStore.importPackage(tempFile)
+            }.onSuccess { result ->
+                townStore.ensureRooms(roleManager.all())
+                showPackageToast(localizedUiText("已导入角色：", "Imported role: ") + result.role.name.ifBlank { result.importedId })
+            }.onFailure { e ->
+                showPackageToast(localizedUiText("角色导入失败：", "Role import failed: ") + (e.message ?: ""))
+            }
+        }
+    }
+
+    fun exportMiniAppPackage(appId: String) {
+        if (appId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { app.miniAppStore.exportPackage(appId) }
+            val file = result.getOrNull()
+            if (file != null) {
+                shareExportedPackage(
+                    file = file,
+                    chooserTitle = localizedUiText("导出 MiniAPP 包", "Export MiniAPP package"),
+                    successMessage = localizedUiText("MiniAPP 包已生成", "MiniAPP package is ready"),
+                )
+            } else {
+                val e = result.exceptionOrNull()
+                showPackageToast(localizedUiText("MiniAPP 导出失败：", "MiniAPP export failed: ") + (e?.message ?: ""))
+            }
+        }
+    }
+
+    fun importMiniAppPackage(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val tempFile = copyImportUriToCache(uri, "miniapp", MiniAppStore.MINI_APP_PACKAGE_EXTENSION)
+                app.miniAppStore.importPackage(tempFile)
+            }.onSuccess { result ->
+                refreshMiniAppsSnapshot()
+                showPackageToast(localizedUiText("已导入 MiniAPP：", "Imported MiniAPP: ") + result.app.title.ifBlank { result.importedId })
+            }.onFailure { e ->
+                showPackageToast(localizedUiText("MiniAPP 导入失败：", "MiniAPP import failed: ") + (e.message ?: ""))
+            }
+        }
+    }
+
+    private fun copyImportUriToCache(uri: Uri, prefix: String, extension: String): File {
+        val importDir = File(app.cacheDir, "workspace_imports").also { it.mkdirs() }
+        val outFile = File(importDir, "${prefix}_${System.currentTimeMillis()}.$extension")
+        val input = app.contentResolver.openInputStream(uri)
+            ?: error(localizedUiText("无法读取选择的文件", "Unable to read the selected file"))
+        input.use { source ->
+            outFile.outputStream().use { target -> source.copyTo(target) }
+        }
+        return outFile
+    }
+
+    private suspend fun shareExportedPackage(file: File, chooserTitle: String, successMessage: String) {
+        withContext(Dispatchers.Main) {
+            runCatching {
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/octet-stream"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                app.startActivity(
+                    Intent.createChooser(shareIntent, chooserTitle).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                )
+                Toast.makeText(app, successMessage, Toast.LENGTH_SHORT).show()
+            }.onFailure { e ->
+                Toast.makeText(
+                    app,
+                    localizedUiText("打开分享失败：", "Unable to open share sheet: ") + (e.message ?: ""),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    private suspend fun showPackageToast(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(app, message.take(180), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun localizedUiText(zh: String, en: String): String {
+        return if (config.snapshot().language.startsWith("zh")) zh else en
     }
 
     fun checkPrivServer() {
@@ -4481,8 +5544,252 @@ $foundationalMemory
                 .filter { fact -> fact.key.startsWith("session.$id.") }
                 .sortedByDescending { fact -> fact.updatedAt }
         }.orEmpty()
-        _uiState.update { it.copy(workspaceState = it.workspaceState.copy(snapshot = snapshot, facts = facts)) }
+        val areas = buildWorkspaceAreas(_uiState.value)
+        val openArea = _uiState.value.workspaceState.openArea?.let { selected ->
+            areas.firstOrNull { it.id == selected.id } ?: selected
+        }
+        val detail = openArea?.let { buildWorkspaceAreaDetail(it.id, _uiState.value.workspaceState.openAreaCurrentPath) }
+        _uiState.update {
+            it.copy(
+                workspaceState = it.workspaceState.copy(
+                    snapshot = snapshot,
+                    facts = facts,
+                    areas = areas,
+                    openArea = openArea,
+                    openAreaRoots = detail?.first.orEmpty(),
+                    openAreaCurrentPath = detail?.second.orEmpty(),
+                    openAreaEntries = detail?.third.orEmpty(),
+                )
+            )
+        }
     }
+
+    fun openWorkspaceArea(areaId: String) {
+        val state = _uiState.value
+        val areas = state.workspaceState.areas.ifEmpty { buildWorkspaceAreas(state) }
+        val area = areas.firstOrNull { it.id == areaId } ?: return
+        val (roots, currentPath, entries) = buildWorkspaceAreaDetail(area.id, "")
+        _uiState.update {
+            it.copy(
+                workspaceState = it.workspaceState.copy(
+                    areas = areas,
+                    openArea = area,
+                    openAreaRoots = roots,
+                    openAreaCurrentPath = currentPath,
+                    openAreaEntries = entries,
+                )
+            )
+        }
+    }
+
+    fun openWorkspaceFolder(path: String) {
+        val area = _uiState.value.workspaceState.openArea ?: return
+        val dir = File(path)
+        if (!dir.isDirectory || !isWorkspaceAreaPathAllowed(area.id, dir)) return
+        val (roots, currentPath, entries) = buildWorkspaceAreaDetail(area.id, dir.absolutePath)
+        _uiState.update {
+            it.copy(
+                workspaceState = it.workspaceState.copy(
+                    openAreaRoots = roots,
+                    openAreaCurrentPath = currentPath,
+                    openAreaEntries = entries,
+                )
+            )
+        }
+    }
+
+    fun navigateWorkspaceFolderUp() {
+        val workspaceState = _uiState.value.workspaceState
+        val area = workspaceState.openArea ?: return
+        val current = workspaceState.openAreaCurrentPath.takeIf { it.isNotBlank() }?.let(::File) ?: return
+        val roots = workspaceAreaRoots(area.id)
+        val parentPath = current.parentFile
+            ?.takeIf { parent -> roots.any { root -> parent.absolutePath.startsWith(root.absolutePath) } }
+            ?.absolutePath
+            .orEmpty()
+        val (rootLabels, currentPath, entries) = buildWorkspaceAreaDetail(area.id, parentPath)
+        _uiState.update {
+            it.copy(
+                workspaceState = it.workspaceState.copy(
+                    openAreaRoots = rootLabels,
+                    openAreaCurrentPath = currentPath,
+                    openAreaEntries = entries,
+                )
+            )
+        }
+    }
+
+    fun closeWorkspaceArea() {
+        _uiState.update {
+            it.copy(
+                workspaceState = it.workspaceState.copy(
+                    openArea = null,
+                    openAreaRoots = emptyList(),
+                    openAreaCurrentPath = "",
+                    openAreaEntries = emptyList(),
+                )
+            )
+        }
+    }
+
+    private fun buildWorkspaceAreas(state: MainUiState): List<WorkspaceAreaUi> {
+        val taskWorkspaces = runCatching { app.workspaceStore.list(limit = 200) }.getOrDefault(emptyList())
+        val semanticFacts = state.profileState.semanticFacts
+        val configSnapshot = config.snapshot()
+        val mcpSkills = state.allSkills.filter { it.type == SkillType.MCP || it.id.contains("mcp", ignoreCase = true) }
+        val installedLocalModels = state.localModels.count { it.installed }
+        val portablePackageCount = workspacePortablePackageCount()
+        val configuredModelCount = listOfNotNull(
+            configSnapshot.chatModel.takeIf { it.isNotBlank() },
+            configSnapshot.imageModel,
+            configSnapshot.videoModel,
+            configSnapshot.embeddingModel.takeIf { it.isNotBlank() },
+        ).distinct().size
+        val mediaCount = state.miniApps.size + state.aiPages.size + state.videoTasks.size
+        val taskCount = state.videoTasks.size + state.sessionStates.size + taskWorkspaces.count { it.status == "active" }
+
+        return listOf(
+            workspaceArea("roles", "角色区域", "角色核心、技能、记忆与切换沉淀", state.availableRoles.size, "已接入角色列表"),
+            workspaceArea("user_memory", "用户角色沉淀区域", "用户自己的长期记忆、画像和偏好", semanticFacts.size, "已接入语义记忆"),
+            workspaceArea("work", "工作区域", "AI 生成文件、任务产物和工作集", taskWorkspaces.size, "复用现有任务工作空间"),
+            workspaceArea("sessions", "会话区域", "聊天会话、上下文和运行记录", state.sessions.size, "已接入最近会话"),
+            workspaceArea("groups", "群聊区域", "群身份、群消息和协作内容沉淀", state.groupState.groups.size, "玩法区后续扩展"),
+            workspaceArea("skills", "技能区域", "内置技能、用户技能和技能备注", state.allSkills.size, "技能市场可见能力"),
+            workspaceArea("mcp", "MCP 区域", "公开 MCP 接入后安装出的工具能力", mcpSkills.size, "通过技能化方式接入"),
+            workspaceArea("models", "模型与网关区域", "角色使用的模型、网关和本地模型配置", configuredModelCount + installedLocalModels, modelWorkspaceStatus(configSnapshot, installedLocalModels)),
+            workspaceArea("media", "媒体资源区域", "图片、视频、MiniAPP 与 AI 页面产物", mediaCount, "聚合可见媒体产物"),
+            workspaceArea("system", "系统工作区域", "权限、控制台、VPN、缓存与运行配置", configSnapshot.gateways.size, "网关与系统配置可管理"),
+            workspaceArea("tasks", "任务运行区域", "视频任务、活跃运行态和任务 workspace", taskCount, "汇总当前运行线索"),
+            workspaceArea("play", "玩法区域", "AI 小镇、角色互动和未来玩法状态", state.agentTown.rooms.size, "AI 小镇入口暂隐藏"),
+            workspaceArea("backup", "导入导出区域", "角色、MiniAPP、AI 页面等可迁移资源包", portablePackageCount, if (portablePackageCount > 0) "已接入资源包目录" else "等待导出资源包"),
+        )
+    }
+
+    private fun workspaceArea(
+        id: String,
+        title: String,
+        description: String,
+        count: Int,
+        status: String,
+    ): WorkspaceAreaUi =
+        WorkspaceAreaUi(
+            id = id,
+            title = title,
+            description = description,
+            countLabel = "${count} 项",
+            statusLabel = status,
+        )
+
+    private fun modelWorkspaceStatus(snapshot: ConfigSnapshot, installedLocalModels: Int): String = when {
+        snapshot.localNativeOnly -> "本地原生优先，已安装 $installedLocalModels 个本地模型"
+        snapshot.localModelEnabled -> "本地模型启用，已安装 $installedLocalModels 个本地模型"
+        snapshot.gateways.isNotEmpty() -> "当前网关：${snapshot.activeGateway?.name ?: snapshot.activeGatewayId ?: "默认"}"
+        else -> "未配置网关"
+    }
+
+    private fun workspacePortablePackageCount(): Int {
+        val filesDir = app.filesDir
+        return listOf(File(filesDir, "workspace_exports"), File(filesDir, "workspace_imports"))
+            .sumOf { root ->
+                if (!root.exists()) 0 else root.walkTopDown().count { file -> file.isFile && file.extension.startsWith("mobileclaw") }
+            }
+    }
+
+    private fun buildWorkspaceAreaDetail(areaId: String, requestedPath: String): Triple<List<String>, String, List<WorkspaceFileEntryUi>> {
+        val roots = workspaceAreaRoots(areaId)
+        val currentDir = requestedPath
+            .takeIf { it.isNotBlank() }
+            ?.let(::File)
+            ?.takeIf { it.isDirectory && roots.any { root -> it.absolutePath.startsWith(root.absolutePath) } }
+        val entries = if (currentDir == null) {
+            roots.map { root ->
+                WorkspaceFileEntryUi(
+                    path = root.name.ifBlank { root.absolutePath },
+                    absolutePath = root.absolutePath,
+                    isDirectory = true,
+                    sizeLabel = "目录",
+                    updatedLabel = formatWorkspaceFileTime(root.lastModified()),
+                    preview = root.absolutePath,
+                )
+            }
+        } else {
+            workspaceEntriesForDirectory(currentDir)
+        }
+        return Triple(roots.map { it.absolutePath }, currentDir?.absolutePath.orEmpty(), entries)
+    }
+
+    private fun isWorkspaceAreaPathAllowed(areaId: String, file: File): Boolean =
+        workspaceAreaRoots(areaId).any { root -> file.absolutePath.startsWith(root.absolutePath) }
+
+    private fun workspaceAreaRoots(areaId: String): List<File> {
+        val filesDir = app.filesDir
+        val dataDir = File(app.applicationInfo.dataDir)
+        val databasesDir = File(dataDir, "databases")
+        val datastoreDir = File(filesDir, "datastore")
+        return when (areaId) {
+            "roles" -> listOf(File(filesDir, "role_workspaces"), File(filesDir, "agent_town"))
+            "user_memory" -> listOf(databasesDir, datastoreDir)
+            "work" -> listOf(File(filesDir, "workspaces"), File(filesDir, "created_files"), File(filesDir, "documents"))
+            "sessions" -> listOf(databasesDir, File(filesDir, "workspaces"))
+            "groups" -> listOf(File(filesDir, "groups"), File(filesDir, "group_history"), File(filesDir, "role_workspaces"))
+            "skills" -> listOf(File(filesDir, "skills"), datastoreDir)
+            "mcp" -> listOf(File(filesDir, "skills"))
+            "models" -> listOf(File(filesDir, "models"), datastoreDir)
+            "media" -> listOf(
+                File(filesDir, "apps"),
+                File(filesDir, "ai_pages"),
+                File(filesDir, "chat_images"),
+                File(filesDir, "workspace_image_inputs"),
+                File(filesDir, "icons"),
+                File(filesDir, "stickers"),
+                File(filesDir, "videos"),
+                File(filesDir, "documents"),
+                File(filesDir, "html_pages"),
+            )
+            "system" -> listOf(File(filesDir, "console_web"), File(filesDir, "pip_packages"), datastoreDir)
+            "tasks" -> listOf(File(filesDir, "task_replays"), File(filesDir, "task_recipes"), File(filesDir, "workspaces"))
+            "play" -> listOf(File(filesDir, "agent_town"), File(filesDir, "groups"), File(filesDir, "group_history"))
+            "backup" -> listOf(File(filesDir, "workspace_exports"), File(filesDir, "workspace_imports"))
+            else -> emptyList()
+        }.filter { it.exists() }
+    }
+
+    private fun workspaceEntriesForDirectory(dir: File): List<WorkspaceFileEntryUi> =
+        dir.listFiles()
+            ?.asSequence()
+            ?.take(200)
+            ?.map { file ->
+                WorkspaceFileEntryUi(
+                    path = file.name + if (file.isDirectory) "/" else "",
+                    absolutePath = file.absolutePath,
+                    isDirectory = file.isDirectory,
+                    sizeLabel = if (file.isDirectory) "目录" else formatWorkspaceFileSize(file.length()),
+                    updatedLabel = formatWorkspaceFileTime(file.lastModified()),
+                    preview = if (file.isFile) workspaceFilePreview(file) else file.absolutePath,
+                )
+            }
+            ?.sortedWith(compareBy<WorkspaceFileEntryUi> { !it.isDirectory }.thenBy { it.path.lowercase(Locale.getDefault()) })
+            ?.toList()
+            .orEmpty()
+
+    private fun workspaceFilePreview(file: File): String {
+        if (file.length() > 256_000L) return "文件较大，仅展示元信息。"
+        val name = file.name.lowercase(Locale.getDefault())
+        val textLike = listOf(".md", ".txt", ".json", ".jsonl", ".html", ".css", ".js", ".xml", ".yml", ".yaml", ".csv", ".log")
+            .any { name.endsWith(it) }
+        if (!textLike) return "二进制或媒体文件，仅展示元信息。"
+        return runCatching { file.readText().take(1600).ifBlank { "(empty)" } }
+            .getOrDefault("无法读取该文件内容。")
+    }
+
+    private fun formatWorkspaceFileSize(bytes: Long): String = when {
+        bytes < 1024L -> "$bytes B"
+        bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
+        else -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1024f / 1024f)
+    }
+
+    private fun formatWorkspaceFileTime(timestamp: Long): String =
+        if (timestamp <= 0L) "未知时间" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
 
     fun promoteWorkspaceFact(memoryKey: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -4709,25 +6016,11 @@ $foundationalMemory
         currentRole: Role,
         scheduledRole: Role,
     ): Boolean {
-        if (scheduledRole.id == currentRole.id) return true
-        val text = goal.lowercase()
-        val explicitRoleMention = text.contains(scheduledRole.id.lowercase()) ||
-            scheduledRole.name.isNotBlank() && text.contains(scheduledRole.name.lowercase())
-        if (explicitRoleMention) return true
-        if (taskType !in listOf(TaskType.CHAT, TaskType.GENERAL)) {
-            val currentRoleCanHandle = taskType in currentRole.preferredTaskTypes ||
-                (currentRole.id != Role.DEFAULT.id && currentRole.forcedSkillIds.isNotEmpty())
-            return !currentRoleCanHandle
-        }
-        return false
+        return true
     }
 
     private fun requiresUserExecutionConfirmation(route: TaskRoute): Boolean {
-        if (route.goalForExecution.startsWith(CONFIRM_TASK_PREFIX)) return false
-        return ChannelPermissionPolicy.evaluate(
-            route = route,
-            accessibilityEnabled = ClawAccessibilityService.isEnabled(),
-        ).requiresConfirmation
+        return false
     }
 
     private fun shouldPushAccessibilityCardForGoal(goal: String): Boolean {
@@ -4747,9 +6040,21 @@ $foundationalMemory
         return actionHit && appHit
     }
 
-    private fun shouldRunDirectChat(route: TaskRoute): Boolean {
+    private fun shouldRunDirectChat(
+        route: TaskRoute,
+        roleControlPlan: RoleChatControlPlan,
+        goal: String,
+    ): Boolean {
+        if (roleControlPlan.executionModeHint == ChatExecutionMode.AGENT) return false
+        if (roleControlPlan.executionModeHint == ChatExecutionMode.DIRECT_CHAT &&
+            route.taskType in setOf(TaskType.CHAT, TaskType.GENERAL) &&
+            route.contextualIntent.aiToolHints.isEmpty() &&
+            route.contextualIntent.aiSupportingChannels.isEmpty()) {
+            return true
+        }
         if (route.contextualIntent.disableToolNarrowing) return false
         if (route.contextualIntent.aiPrimaryChannel == ChannelType.INFO) return true
+        if (roleControlPlanPrefersAgent(goal, roleControlPlan)) return false
         if (route.taskType == TaskType.CHAT) {
             return route.contextualIntent.aiSupportingChannels.isEmpty() &&
                 route.contextualIntent.aiToolHints.isEmpty()
@@ -4761,6 +6066,22 @@ $foundationalMemory
                 route.contextualIntent.aiToolHints.isEmpty()
         }
         return false
+    }
+
+    private fun roleControlPlanPrefersAgent(goal: String, roleControlPlan: RoleChatControlPlan): Boolean {
+        val text = goal.lowercase()
+        val memoryIntent = listOf(
+            "记住", "记录", "以后", "下次", "我的偏好", "我的习惯", "沉淀", "写入记忆",
+            "remember", "save this", "from now on", "next time", "my preference",
+        ).any { text.contains(it) }
+        if (memoryIntent && (roleControlPlan.persistencePolicy.allowRoleMemoryWrite || roleControlPlan.persistencePolicy.allowUserMemoryWrite)) {
+            return true
+        }
+        val actionIntent = listOf(
+            "帮我处理", "帮我生成", "帮我创建", "帮我修改", "继续处理", "执行", "打开", "搜索", "修复", "接入",
+            "create", "generate", "update", "fix", "run", "open", "search", "install", "connect",
+        ).any { text.contains(it) }
+        return actionIntent && roleControlPlan.toolPolicy.preferredToolIds.isNotEmpty()
     }
 
     private fun TaskRoute.primaryChannelForExecution(): ChannelType =
@@ -4782,10 +6103,13 @@ $foundationalMemory
         val capabilityNeedles = listOf(
             "你能做什么", "你可以做什么", "你会什么", "你有什么能力", "有哪些能力", "有什么能力",
             "有哪些工具", "有什么工具", "能力列表", "工具列表", "能干什么", "能帮我干嘛",
-            "mobileclaw能做什么", "mobileclaw 可以做什么", "支持什么", "能不能做",
+            "mobileclaw能做什么", "mobileclaw 可以做什么", "支持什么",
             "what can you do", "what are your capabilities", "available tools", "capability list",
         )
-        return capabilityNeedles.any { text.contains(it) }
+        if (capabilityNeedles.any { text.contains(it) }) return true
+        val pureSupportQuestion = listOf("支持做什么", "支持哪些", "能做哪些", "可以做哪些", "哪些能做")
+            .any { text.contains(it) }
+        return pureSupportQuestion
     }
 
     private suspend fun buildMobileClawCapabilityDirectory(goal: String): String {
@@ -4849,24 +6173,7 @@ $foundationalMemory
         hintedToolIds: List<String>,
         goal: String,
     ): List<String> {
-        if (route.contextualIntent.disableToolNarrowing) return emptyList()
-        if (route.taskType == TaskType.APP_BUILD) {
-            // APP_BUILD is already narrowed by TaskToolPolicy. Do not add a second channel-level
-            // whitelist here, or the model can know the correct artifact tool but still be unable
-            // to call it in follow-up patch flows.
-            return emptyList()
-        }
-        if (route.taskType == TaskType.GENERAL &&
-            route.source in setOf(TaskRouteSource.RECENT_CONTEXT, TaskRouteSource.ACTIVE_WORKFLOW, TaskRouteSource.AI_ROUTER)
-        ) {
-            if (route.contextualIntent.miniApp != null || goal.contains("artifact_type=miniapp", ignoreCase = true)) {
-                return listOf("app_manager", "read_file", "create_file", "list_files", "create_html", "ui_builder")
-            }
-            if (route.contextualIntent.aiPage != null || goal.contains("artifact_type=ai_native_page", ignoreCase = true)) {
-                return listOf("ui_builder", "app_manager", "create_html", "read_file", "create_file", "list_files")
-            }
-        }
-        return hintedToolIds
+        return emptyList()
     }
 
     private fun requestTaskExecutionConfirmation(goal: String, taskType: TaskType, confirmedRoute: TaskRoute? = null) {
@@ -4935,18 +6242,125 @@ $foundationalMemory
         }
     }
 
-    fun checkAppUpdate() {
+    fun checkAppUpdateOnLaunch() {
+        if (appUpdateCheckedThisRun) return
+        appUpdateCheckedThisRun = true
+        checkAppUpdate(showResultInChat = false, showNoUpdateDialog = false)
+    }
+
+    fun checkAppUpdate(
+        showResultInChat: Boolean = false,
+        showNoUpdateDialog: Boolean = true,
+    ) {
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    PgyerReleaseSkill(app, userConfig).execute(mapOf("action" to "check_update"))
-                }.getOrElse {
-                    com.mobileclaw.skill.SkillResult(false, "request failed: ${it.message.orEmpty()}")
-                }
+            _uiState.update { state ->
+                state.copy(
+                    appUpdate = state.appUpdate.copy(
+                        checking = true,
+                        installing = false,
+                        showDialog = showNoUpdateDialog,
+                        errorMessage = "",
+                    )
+                )
             }
-            appendConfirmationResolution(formatAppUpdateResult(result.success, result.output))
+            val result = withContext(Dispatchers.IO) {
+                PgyerReleaseSkill(app, userConfig).checkUpdateInfo()
+            }
+            result.fold(
+                onSuccess = { info ->
+                    _uiState.update { state ->
+                        state.copy(
+                            appUpdate = AppUpdateUiState(
+                                checking = false,
+                                installing = false,
+                                showDialog = info.hasNewVersion || showNoUpdateDialog,
+                                hasNewVersion = info.hasNewVersion,
+                                currentVersion = info.currentVersion,
+                                currentVersionCode = info.currentVersionCode,
+                                remoteVersion = info.remoteVersion,
+                                remoteVersionCode = info.remoteVersionCode,
+                                releaseNotes = info.releaseNotes,
+                                downloadUrl = info.downloadUrl,
+                                installUrl = info.installUrl,
+                                checkedAt = System.currentTimeMillis(),
+                            )
+                        )
+                    }
+                    if (showResultInChat) {
+                        appendConfirmationResolution(formatAppUpdateInfoResult(info))
+                    }
+                },
+                onFailure = { error ->
+                    val message = error.message.orEmpty().ifBlank { "网络或配置异常" }
+                    _uiState.update { state ->
+                        state.copy(
+                            appUpdate = state.appUpdate.copy(
+                                checking = false,
+                                installing = false,
+                                showDialog = showNoUpdateDialog,
+                                errorMessage = message,
+                                checkedAt = System.currentTimeMillis(),
+                            )
+                        )
+                    }
+                    if (showResultInChat) {
+                        appendConfirmationResolution("检测更新失败：${message.releaseMessageForUser()}")
+                    }
+                }
+            )
         }
     }
+
+    fun dismissAppUpdateDialog() {
+        _uiState.update { state -> state.copy(appUpdate = state.appUpdate.copy(showDialog = false)) }
+    }
+
+    fun installAppUpdate() {
+        val state = _uiState.value.appUpdate
+        if (state.downloadUrl.isBlank() && state.installUrl.isBlank()) {
+            _uiState.update {
+                it.copy(appUpdate = it.appUpdate.copy(showDialog = true, errorMessage = "更新服务没有返回可下载地址"))
+            }
+            return
+        }
+        val info = PgyerUpdateInfo(
+            hasNewVersion = state.hasNewVersion,
+            currentVersion = state.currentVersion,
+            currentVersionCode = state.currentVersionCode,
+            remoteVersion = state.remoteVersion,
+            remoteVersionCode = state.remoteVersionCode,
+            downloadUrl = state.downloadUrl,
+            installUrl = state.installUrl,
+            releaseNotes = state.releaseNotes,
+        )
+        viewModelScope.launch {
+            _uiState.update { it.copy(appUpdate = it.appUpdate.copy(installing = true, errorMessage = "")) }
+            val result = withContext(Dispatchers.IO) {
+                PgyerReleaseSkill(app, userConfig).downloadAndOpenInstaller(info)
+            }
+            _uiState.update { current ->
+                current.copy(
+                    appUpdate = current.appUpdate.copy(
+                        installing = false,
+                        showDialog = !result.success,
+                        errorMessage = if (result.success) "" else result.output.releaseMessageForUser(),
+                    )
+                )
+            }
+            Toast.makeText(
+                app,
+                if (result.success) "已打开更新安装流程" else "更新失败：${result.output.releaseMessageForUser()}",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    private fun formatAppUpdateInfoResult(info: PgyerUpdateInfo): String = buildString {
+        appendLine(if (info.hasNewVersion) "发现新版本。" else "当前已经是最新版本。")
+        appendLine("当前版本：${info.currentVersion} (${info.currentVersionCode})")
+        info.remoteVersion.takeIf { it.isNotBlank() }?.let { appendLine("最新版本：$it") }
+        info.releaseNotes.takeIf { it.isNotBlank() }?.let { appendLine("更新内容：$it") }
+    }.trim()
 
     private fun formatAppUpdateResult(success: Boolean, rawOutput: String): String {
         val lines = rawOutput
@@ -4990,6 +6404,12 @@ $foundationalMemory
             notes?.takeIf { it.isNotBlank() }?.let { appendLine("更新内容：$it") }
         }.trim()
     }
+
+    private fun String.releaseMessageForUser(): String =
+        replace(Regex("(?i)pgyer"), "更新服务")
+            .replace("蒲公英", "更新服务")
+            .replace("Configure release channel api_key and app_key first.", "还没有配置更新通道")
+            .replace("Configure release channel", "还没有配置更新通道")
 
     private fun appendConfirmationResolution(text: String) {
         viewModelScope.launch {
@@ -5175,12 +6595,13 @@ $foundationalMemory
             QuickSkillSkill(llm, loader),
             SkillMarketSkill(loader),
             McpClientSkill(),
+            McpConnectSkill(loader),
             // Dynamic config, model & role
             SwitchModelSkill(config),
             UserConfigSkill(userConfig, app.semanticMemory),
             switchRoleSkill,
-            RoleManagerSkill(roleManager, roleRequests),
-            HouseArtistSkill(townStore, roleManager),
+            RoleManagerSkill(roleManager, roleRequests, RolePackageStore(app, roleManager, app.roleWorkspaceStore)),
+            RoleWorkspaceSkill(roleManager, app.roleWorkspaceStore, config) { registry.allMetasWithTaxonomy() },
             AiHomeAssetSkill(townStore, roleManager),
             TownBuilderSkill(townStore, roleManager),
             // Session management
@@ -5622,22 +7043,26 @@ $foundationalMemory
                         base64 = o["base64"]?.asString ?: "",
                         prompt = o["prompt"]?.asString?.ifBlank { null },
                         localPath = o["localPath"]?.asString ?: "",
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                     )
                     "file" -> SkillAttachment.FileData(
                         path = o["path"]?.asString ?: "",
                         name = o["name"]?.asString ?: "",
                         mimeType = o["mimeType"]?.asString ?: "",
                         sizeBytes = o["sizeBytes"]?.asString?.toLongOrNull() ?: 0L,
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                     )
                     "html" -> SkillAttachment.HtmlData(
                         path = o["path"]?.asString ?: "",
                         title = o["title"]?.asString ?: "",
                         htmlContent = o["htmlContent"]?.asString ?: "",
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                     )
                     "webpage" -> SkillAttachment.WebPage(
                         url = o["url"]?.asString ?: "",
                         title = o["title"]?.asString ?: "",
                         excerpt = o["excerpt"]?.asString ?: "",
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                     )
                     "search_results" -> {
                         val pages = o["pages"]?.asJsonArray?.mapNotNull { pe ->
@@ -5648,7 +7073,12 @@ $foundationalMemory
                                 excerpt = p["excerpt"]?.asString ?: "",
                             )
                         } ?: emptyList()
-                        SkillAttachment.SearchResults(o["query"]?.asString ?: "", o["engine"]?.asString ?: "", pages)
+                        SkillAttachment.SearchResults(
+                            o["query"]?.asString ?: "",
+                            o["engine"]?.asString ?: "",
+                            pages,
+                            instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
+                        )
                     }
                     "file_list" -> {
                         val files = o["files"]?.asJsonArray?.mapNotNull { fe ->
@@ -5660,7 +7090,11 @@ $foundationalMemory
                                 sizeBytes = f["sizeBytes"]?.asString?.toLongOrNull() ?: 0L,
                             )
                         } ?: emptyList()
-                        SkillAttachment.FileList(files, o["directory"]?.asString ?: "")
+                        SkillAttachment.FileList(
+                            files,
+                            o["directory"]?.asString ?: "",
+                            instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
+                        )
                     }
                     "action_card" -> {
                         val actions = o["actions"]?.asJsonArray?.mapNotNull { ae ->
@@ -5676,6 +7110,7 @@ $foundationalMemory
                             body = o["body"]?.asString ?: "",
                             actions = actions,
                             tone = o["tone"]?.asString ?: "default",
+                            instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                         )
                     }
                     else -> null
@@ -5688,14 +7123,15 @@ $foundationalMemory
         val list = attachments.map { att ->
             when (att) {
                 is SkillAttachment.ImageData -> serializeImageAttachment(att)
-                is SkillAttachment.FileData  -> mapOf("type" to "file", "path" to att.path, "name" to att.name, "mimeType" to att.mimeType, "sizeBytes" to att.sizeBytes.toString())
-                is SkillAttachment.HtmlData  -> mapOf("type" to "html", "path" to att.path, "title" to att.title)
-                is SkillAttachment.WebPage   -> mapOf("type" to "webpage", "url" to att.url, "title" to att.title, "excerpt" to att.excerpt)
+                is SkillAttachment.FileData  -> mapOf("type" to "file", "path" to att.path, "name" to att.name, "mimeType" to att.mimeType, "sizeBytes" to att.sizeBytes.toString(), "instanceId" to att.instanceId)
+                is SkillAttachment.HtmlData  -> mapOf("type" to "html", "path" to att.path, "title" to att.title, "instanceId" to att.instanceId)
+                is SkillAttachment.WebPage   -> mapOf("type" to "webpage", "url" to att.url, "title" to att.title, "excerpt" to att.excerpt, "instanceId" to att.instanceId)
                 is SkillAttachment.SearchResults -> mapOf(
                     "type" to "search_results",
                     "query" to att.query,
                     "engine" to att.engine,
                     "pages" to att.pages.map { p -> mapOf("url" to p.url, "title" to p.title, "excerpt" to p.excerpt) },
+                    "instanceId" to att.instanceId,
                 )
                 is SkillAttachment.AccessibilityRequest -> null
                 is SkillAttachment.ActionCard -> mapOf(
@@ -5703,6 +7139,7 @@ $foundationalMemory
                     "title" to att.title,
                     "body" to att.body,
                     "tone" to att.tone,
+                    "instanceId" to att.instanceId,
                     "actions" to att.actions.map { action ->
                         mapOf("label" to action.label, "message" to action.message, "style" to action.style)
                     },
@@ -5710,6 +7147,7 @@ $foundationalMemory
                 is SkillAttachment.FileList -> mapOf(
                     "type" to "file_list",
                     "directory" to att.directory,
+                    "instanceId" to att.instanceId,
                     "files" to att.files.map { f -> mapOf("path" to f.path, "name" to f.name, "mimeType" to f.mimeType, "sizeBytes" to f.sizeBytes.toString()) },
                 )
             }
@@ -5724,10 +7162,11 @@ $foundationalMemory
                 "base64" to att.base64,
                 "prompt" to (att.prompt ?: ""),
                 "localPath" to att.localPath,
+                "instanceId" to att.instanceId,
             )
         }
         if (att.base64.length <= 500_000) {
-            return mapOf("type" to "image", "base64" to att.base64, "prompt" to (att.prompt ?: ""))
+            return mapOf("type" to "image", "base64" to att.base64, "prompt" to (att.prompt ?: ""), "instanceId" to att.instanceId)
         }
         val file = persistImageDataUri(att.base64)
         return if (file != null) {
@@ -5816,22 +7255,26 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                     base64 = o["base64"]?.asString ?: "",
                     prompt = o["prompt"]?.asString?.ifBlank { null },
                     localPath = o["localPath"]?.asString ?: "",
+                    instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                 )
                 "file" -> SkillAttachment.FileData(
                     path = o["path"]?.asString ?: "",
                     name = o["name"]?.asString ?: "",
                     mimeType = o["mimeType"]?.asString ?: "",
                     sizeBytes = o["sizeBytes"]?.asString?.toLongOrNull() ?: 0L,
+                    instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                 )
                 "html" -> SkillAttachment.HtmlData(
                     path = o["path"]?.asString ?: "",
                     title = o["title"]?.asString ?: "",
                     htmlContent = o["htmlContent"]?.asString ?: "",
+                    instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                 )
                 "webpage" -> SkillAttachment.WebPage(
                     url = o["url"]?.asString ?: "",
                     title = o["title"]?.asString ?: "",
                     excerpt = o["excerpt"]?.asString ?: "",
+                    instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                 )
                 "search_results" -> {
                     val pages = runCatching {
@@ -5848,6 +7291,7 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                         query = o["query"]?.asString ?: "",
                         engine = o["engine"]?.asString ?: "",
                         pages = pages,
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
                     )
                 }
                 "file_list" -> {
@@ -5862,7 +7306,30 @@ private fun SessionMessageEntity.toChatMessage(): ChatMessage {
                             )
                         } ?: emptyList()
                     }.getOrDefault(emptyList())
-                    SkillAttachment.FileList(files, o["directory"]?.asString ?: "")
+                    SkillAttachment.FileList(
+                        files,
+                        o["directory"]?.asString ?: "",
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
+                    )
+                }
+                "action_card" -> {
+                    val actions = runCatching {
+                        o["actions"]?.asJsonArray?.mapNotNull { ae ->
+                            val a = ae.asJsonObject
+                            SkillAttachment.ActionCard.Action(
+                                label = a["label"]?.asString ?: return@mapNotNull null,
+                                message = a["message"]?.asString ?: return@mapNotNull null,
+                                style = a["style"]?.asString ?: "secondary",
+                            )
+                        }.orEmpty()
+                    }.getOrDefault(emptyList())
+                    SkillAttachment.ActionCard(
+                        title = o["title"]?.asString ?: "",
+                        body = o["body"]?.asString ?: "",
+                        actions = actions,
+                        tone = o["tone"]?.asString ?: "default",
+                        instanceId = o["instanceId"]?.asString?.ifBlank { null } ?: java.util.UUID.randomUUID().toString(),
+                    )
                 }
                 else -> null
             }
@@ -5911,6 +7378,83 @@ private fun uiDetailPrefix(zh: String, en: String, englishOverride: Boolean = is
 private fun uiDetailLine(zh: String, en: String, value: String): String =
     uiDetailPrefix(zh, en) + value
 
+private fun buildRoleUiInstruction(plan: RoleChatControlPlan): String =
+    if (plan.responsePolicy.allowUiBlocks) {
+        uiText(
+            "角色允许在用户明确需要交互时输出 UI block；普通聊天仍然使用纯文本。",
+            "This role may output UI blocks when the user explicitly needs interaction; normal chat remains plain text.",
+        )
+    } else {
+        uiText(
+            "当前角色默认不输出 UI block；除非用户明确要求交互界面，否则只用纯文本回复。",
+            "This role does not output UI blocks by default; use plain text unless the user explicitly asks for an interactive interface.",
+        )
+    }
+
+private fun roleControlUserSummary(
+    role: Role,
+    plan: RoleChatControlPlan,
+    mode: ChatExecutionMode,
+): String {
+    val files = plan.contextPolicy.readRoleFiles.joinToString(", ").ifBlank { "none" }
+    val tools = plan.toolPolicy.preferredToolIds.joinToString(", ").ifBlank {
+        uiText("按任务由 AI 选择", "AI selects by task")
+    }
+    return uiText(
+        "本轮使用 ${role.name} 的协议，模式 $mode，读取 $files，工具策略：$tools。",
+        "This run uses ${role.name}'s protocol, mode $mode, reads $files, tools: $tools.",
+    )
+}
+
+private fun roleControlNextStep(mode: ChatExecutionMode): String = when (mode) {
+    ChatExecutionMode.DIRECT_CHAT,
+    ChatExecutionMode.INFO -> uiText("直接组织回复，并遵守角色的回复方式。", "Compose the answer directly using the role response policy.")
+    ChatExecutionMode.AGENT,
+    ChatExecutionMode.CODEX_DESKTOP -> uiText("进入执行流程，按角色策略选择工具并记录必要过程。", "Enter execution, select tools by role policy, and keep useful trace.")
+}
+
+private fun roleExecutionModeText(mode: ChatExecutionMode, hint: ChatExecutionMode?): String =
+    if (hint != null) {
+        uiText("最终 $mode，角色倾向 $hint", "final $mode, role hint $hint")
+    } else {
+        uiText("最终 $mode，角色未强制模式", "final $mode, no forced role mode")
+    }
+
+private fun roleIntentPolicyText(plan: RoleChatControlPlan): String =
+    uiText(
+        "短句=${plan.intentPolicy.shortFollowUpMode}；当前消息优先=${plan.intentPolicy.currentMessagePriority}；产物引用=${plan.intentPolicy.artifactReferenceMode}",
+        "short=${plan.intentPolicy.shortFollowUpMode}; latest=${plan.intentPolicy.currentMessagePriority}; artifact=${plan.intentPolicy.artifactReferenceMode}",
+    )
+
+private fun roleResponsePolicyText(plan: RoleChatControlPlan): String =
+    uiText(
+        "风格=${plan.responsePolicy.style}；完成汇报=${plan.responsePolicy.completionSummaryMode}；少列能力=${plan.responsePolicy.avoidCapabilityListing}；UI=${plan.responsePolicy.allowUiBlocks}",
+        "style=${plan.responsePolicy.style}; summary=${plan.responsePolicy.completionSummaryMode}; avoid capabilities=${plan.responsePolicy.avoidCapabilityListing}; UI=${plan.responsePolicy.allowUiBlocks}",
+    )
+
+private fun roleContextPolicyText(plan: RoleChatControlPlan): String {
+    val files = plan.contextPolicy.readRoleFiles.joinToString(", ").ifBlank { "none" }
+    return uiText(
+        "读取 $files；用户记忆 ${if (plan.contextPolicy.includeUserMemory) "开启" else "关闭"}；最近对话 ${if (plan.contextPolicy.includeRecentMessages) "开启" else "按需"}",
+        "reads $files; user memory ${if (plan.contextPolicy.includeUserMemory) "on" else "off"}; recent messages ${if (plan.contextPolicy.includeRecentMessages) "on" else "on demand"}",
+    )
+}
+
+private fun roleToolPolicyText(plan: RoleChatControlPlan): String {
+    val preferred = plan.toolPolicy.preferredToolIds.joinToString(", ").ifBlank { uiText("无固定偏好", "no fixed preference") }
+    val blocked = plan.toolPolicy.blockedToolIds.joinToString(", ").ifBlank { uiText("无", "none") }
+    return uiText(
+        "偏好：$preferred；禁用：$blocked；MCP ${if (plan.toolPolicy.allowMcp) "允许" else "禁用"}",
+        "preferred: $preferred; blocked: $blocked; MCP ${if (plan.toolPolicy.allowMcp) "allowed" else "disabled"}",
+    )
+}
+
+private fun rolePersistencePolicyText(plan: RoleChatControlPlan): String =
+    uiText(
+        "角色记忆 ${if (plan.persistencePolicy.allowRoleMemoryWrite) "允许" else "不主动"}；用户记忆 ${if (plan.persistencePolicy.allowUserMemoryWrite) "允许" else "禁用"}；阈值 ${plan.persistencePolicy.memoryImportanceThreshold}",
+        "role memory ${if (plan.persistencePolicy.allowRoleMemoryWrite) "allowed" else "passive"}; user memory ${if (plan.persistencePolicy.allowUserMemoryWrite) "allowed" else "disabled"}; threshold ${plan.persistencePolicy.memoryImportanceThreshold}",
+    )
+
 private fun LogLine.withLifecycle(
     running: Boolean,
     now: Long = System.currentTimeMillis(),
@@ -5943,8 +7487,6 @@ private fun List<LogLine>.finishLatestRunningLine(now: Long = System.currentTime
 private fun friendlyRuntimeNotice(message: String): String {
     val normalized = message.trim()
     return when {
-        normalized.startsWith("Guard blocked ") ->
-            uiText("这一步当前不适合直接执行，正在换一种更合适的处理方式", "This step is not suitable to run directly, so switching to a better approach")
         normalized.startsWith("LLM error:") ->
             friendlyLlmFailureMessage(normalized.removePrefix("LLM error:").trim())
         normalized.contains("skill '", ignoreCase = true) && normalized.contains("not found", ignoreCase = true) ->
@@ -6100,12 +7642,28 @@ private fun String.isSupportedImageModel(): Boolean {
         value.startsWith("huggingface:") ||
         value.startsWith("gpt-image-") ||
         value.startsWith("dall-e-") ||
+        value.startsWith("agnes-image-") ||
+        value.startsWith("wanx") ||
+        value == "flux-dev" ||
+        value.startsWith("flux-") ||
         value.startsWith("black-forest-labs/FLUX.1")
 }
 
 private fun String.isConfiguredImageModel(): Boolean {
     val value = trim()
     return value.isNotBlank() && value.isSupportedImageModel() && value != "pollinations" && value != "pollinations-flux"
+}
+
+private fun roleWorkspaceFileOrder(name: String): Int = when (name) {
+    "core.md" -> 0
+    "chat_protocol.md" -> 1
+    "memory.md" -> 2
+    "skills.md" -> 3
+    "model.md" -> 4
+    "journal.md" -> 5
+    "skill_index.md" -> 6
+    "model_config.json" -> 7
+    else -> 20
 }
 
 private fun JsonObject.intOrNull(name: String): Int? =

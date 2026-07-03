@@ -46,7 +46,7 @@ class GenerateImageSkill(
         name = "Generate Image",
         description = "Generates an image using an AI image generation API and displays it in the chat. " +
             "Supported providers (set via user_config key 'image_api_endpoint'): " +
-            "Hugging Face Inference API, SiliconFlow (https://api.siliconflow.cn), Together.ai (https://api.together.xyz), OpenAI (https://api.openai.com). " +
+            "Hugging Face Inference API, Agnes APIHub, DashScope/Wanx, SiliconFlow (https://api.siliconflow.cn), Together.ai (https://api.together.xyz), OpenAI (https://api.openai.com). " +
             "Use model='pollinations' for a free no-key-needed option (Pollinations.ai). " +
             "Set 'image_api_key' in user_config if the image provider uses a different key from the LLM.",
         parameters = listOf(
@@ -57,6 +57,8 @@ class GenerateImageSkill(
                 "model", "string",
                 "Model to use. " +
                     "OpenAI: 'gpt-image-2' (recommended, high quality), 'dall-e-3', or 'dall-e-2'. " +
+                    "Agnes: 'agnes-image-2.0-flash' or 'agnes-image-2.1-flash'. " +
+                    "DashScope/Wanx: 'wanx2.1-t2i-turbo'. " +
                     "Hugging Face: 'hf-flux-schnell' or 'huggingface:black-forest-labs/FLUX.1-schnell'. " +
                     "SiliconFlow: 'black-forest-labs/FLUX.1-schnell' (free) or 'black-forest-labs/FLUX.1-dev'. " +
                     "Together.ai: 'black-forest-labs/FLUX.1-schnell-Free'. " +
@@ -320,6 +322,8 @@ class GenerateImageSkill(
         val lowerEndpoint = endpoint.lowercase()
         return when {
             "api.openai.com" in lowerEndpoint || "openai" in lowerEndpoint -> "gpt-image-2"
+            "agnes" in lowerEndpoint -> "agnes-image-2.0-flash"
+            "dashscope" in lowerEndpoint || "aliyuncs" in lowerEndpoint -> "wanx2.1-t2i-turbo"
             "siliconflow" in lowerEndpoint -> "black-forest-labs/FLUX.1-schnell"
             "together" in lowerEndpoint -> "black-forest-labs/FLUX.1-schnell-Free"
             hasHfToken -> "hf-flux-schnell"
@@ -335,6 +339,10 @@ class GenerateImageSkill(
             value.startsWith("huggingface:") ||
             value.startsWith("gpt-image-") ||
             value.startsWith("dall-e-") ||
+            value.startsWith("agnes-image-") ||
+            value.startsWith("wanx") ||
+            value == "flux-dev" ||
+            value.startsWith("flux-") ||
             value.startsWith("black-forest-labs/FLUX.1")
     }
 
@@ -342,6 +350,7 @@ class GenerateImageSkill(
         val lowerEndpoint = endpoint.lowercase()
         val lowerModel = model.lowercase()
         if ("agnes" in lowerEndpoint || lowerModel.startsWith("agnes-")) return false
+        if ("dashscope" in lowerEndpoint || "aliyuncs" in lowerEndpoint || lowerModel.startsWith("wanx")) return false
         return true
     }
 

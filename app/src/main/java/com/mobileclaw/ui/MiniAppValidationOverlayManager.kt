@@ -33,8 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontWeight
@@ -123,24 +121,17 @@ class MiniAppValidationOverlayManager(private val context: Context) {
                     val baseWidth = when {
                         state.minimized -> 220.dp
                         state.expanded -> 360.dp
-                        else -> 280.dp
+                        else -> 320.dp
                     }
                     val baseHeight = when {
                         state.minimized -> 56.dp
-                        state.expanded -> 720.dp
-                        else -> 520.dp
+                        state.expanded -> 620.dp
+                        else -> 420.dp
                     }
-                    val overlayScale = when {
-                        state.minimized -> 0.82f
-                        state.expanded -> 0.56f
-                        else -> 0.56f
-                    }
-                    val cardWidth = baseWidth * overlayScale
-                    val cardHeight = baseHeight * overlayScale
                     Box(
                         modifier = Modifier
-                            .width(cardWidth)
-                            .height(cardHeight)
+                            .width(baseWidth)
+                            .height(baseHeight)
                             .clip(RoundedCornerShape(24.dp))
                             .background(LocalClawColors.current.surface)
                             .border(1.dp, LocalClawColors.current.border, RoundedCornerShape(24.dp)),
@@ -148,12 +139,7 @@ class MiniAppValidationOverlayManager(private val context: Context) {
                         Box(
                             modifier = Modifier
                                 .width(baseWidth)
-                                .height(baseHeight)
-                                .graphicsLayer(
-                                    scaleX = overlayScale,
-                                    scaleY = overlayScale,
-                                    transformOrigin = TransformOrigin(0f, 0f),
-                                ),
+                                .height(baseHeight),
                         ) {
                             if (state.minimized) {
                                 OverlayMiniAppPreviewPill(
@@ -236,14 +222,14 @@ class MiniAppValidationOverlayManager(private val context: Context) {
         frame.post {
             val bounds = screenBounds()
             val widthPx = when {
-                state.minimized -> dpToPx(220f * 0.82f)
-                state.expanded -> dpToPx(360f * 0.56f)
-                else -> dpToPx(280f * 0.56f)
+                state.minimized -> dpToPx(220f)
+                state.expanded -> dpToPx(360f)
+                else -> dpToPx(320f)
             }
             val heightPx = when {
-                state.minimized -> dpToPx(56f * 0.82f)
-                state.expanded -> dpToPx(720f * 0.56f)
-                else -> dpToPx(520f * 0.56f)
+                state.minimized -> dpToPx(56f)
+                state.expanded -> dpToPx(620f)
+                else -> dpToPx(420f)
             }
             val margin = dpToPx(12f)
             params.gravity = Gravity.TOP or Gravity.START

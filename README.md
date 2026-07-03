@@ -29,6 +29,17 @@ MobileClaw is currently going through a UI refresh, so some screens may feel vis
 
 MobileClaw includes an MCP client skill. The built-in `mcp_client` tool can connect to standard Streamable HTTP or SSE MCP servers and run `initialize`, `tools/list`, and `tools/call`. The skill market also has a `ModelScope MCP` tab: paste a ModelScope MCP SSE endpoint or copied config JSON, add a token, discover server tools, and install them as normal MobileClaw skills.
 
+## Recent Updates
+
+- Unified the app around the minimal black-white AI visual style from the chat home: warm off-white backgrounds, white grouped lists, black primary pills, and restrained mint status accents.
+- Rebuilt role list, role detail, and role edit flows around one role identity image field, role workspace entry, and role package import/export.
+- Added role-driven Chat Runtime wiring: roles now carry workspace files, chat protocols, model hints, skill habits, and memory hooks so a role can shape how chat understands context, selects tools, runs steps, and persists outcomes.
+- Fixed the local-model tool path so experimental local Agent tools are parsed and executed instead of being rendered as plain text or ignored, with cloud fallback still available when tool use exceeds local capability.
+- Added MiniAPP import/export entry points, detail export, long-press delete, and batch delete support.
+- Reworked the Me/settings area into AI base config, general settings, tools, memory/history, and profile-aware AI context.
+- Added a MiniAPP v2 technical plan for a Javet-backed Node runtime, Vue/TS project builds, native bridge boundaries, and portable project packages.
+- Restored Pgyer release integration with automatic update checks, a native update dialog, APK installer handoff, Git-derived versions, and a desktop release script.
+
 ## Real Device Demo
 
 Captured from a Xiaomi device running the debug build. These are real agent runs, not mockups: MobileClaw created and opened a WebView MiniAPP, created a native AI Page, kept a multi-agent group chat with stickers, manages on-device models with vision packs, and exposes its skill/VPN/runtime surfaces.
@@ -50,7 +61,7 @@ Join the WeChat group to discuss MobileClaw usage, Android agent development, lo
   <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="260" />
 </p>
 
-This WeChat group QR code is valid until **July 3, 2026**. If it expires, open the latest README or ask for an updated invite.
+This WeChat group QR code is valid until **July 10, 2026**. If it expires, open the latest README or ask for an updated invite.
 
 ## Why This Exists
 
@@ -117,6 +128,8 @@ Built-in roles include:
 Roles are not just personas. They can declare preferred task types, keywords, scheduler priority, forced skills, and model overrides. User-created roles participate in the same scheduler.
 
 The role UI is designed around quick task assignment rather than decorative persona editing. The Roles page highlights the current role first, then lists built-in and custom roles with readable capability labels such as code, research, phone control, apps, images, VPN, and skills. Built-in roles are protected as presets: editing them creates a custom copy, while custom roles can be edited directly. Advanced fields such as system prompt addenda, model override, and pinned skills are kept behind an advanced section so normal role creation stays approachable.
+
+Roles now participate in the chat runtime as working protocols, not just speaking styles. Each role can own workspace files such as `core.md`, `skills.md`, `memory.md`, `model.md`, `chat_protocol.md`, and `journal.md`. These files are loaded into direct chat and agent runs so the active role can influence context reading, tool selection, memory writes, model choice, and result persistence.
 
 ### Skills
 
@@ -194,13 +207,86 @@ MobileClaw can run selected on-device models through LiteRT-LM:
 - Multimodal `.task` resource packages can be downloaded or imported separately while the current Android LiteRT-LM chat path uses `.litertlm` text runtime files.
 - Model downloads support multiple sources: Hugging Face, ModelScope, and a user-provided custom direct URL.
 - Hugging Face tokens are supported for official Hugging Face downloads, but are not sent to domestic mirrors or custom URLs.
-- Local chat is used for text-only requests when enabled. Tool calls, image input, web access, or unavailable local models automatically fall back to the configured cloud endpoint when possible.
+- Local chat is used for text-only requests when enabled. Experimental local Agent tools can ask the local text model for structured JSON tool decisions; the runtime now cleans and parses those decisions before executing tools, and falls back to the configured cloud endpoint when local capability is not enough.
 
 ### Local And LAN APIs
 
 - A loopback API server exposes skills, dynamic skill install/delete, memory, and config to local HTTP skills.
 - A LAN console server exposes a browser UI, SSE task events, session/message APIs, skill export/import APIs, memory/config APIs, and a downloadable OpenClaw CLI script.
 - The console page can be edited by the agent through `console_editor`.
+
+## Codex Bridge, Pgyer Releases, And Versioning
+
+This group of features connects MobileClaw on the phone to desktop Codex, and lets the app check and install Pgyer-published APK updates.
+
+### Pgyer Release And Auto Update
+
+MobileClaw includes a native `pgyer_release` skill:
+
+- `status`: checks whether release-channel credentials are configured.
+- `check_update` / `update`: calls the Pgyer update-check API.
+- `download`: downloads the latest APK and opens Android's package installer, or falls back to the Pgyer install page.
+- `upload`: uploads a local APK path from the phone when explicitly requested.
+
+The app checks for updates once per launch. If Pgyer reports a newer build, MobileClaw shows a compact black-white update dialog with current version, release version, release notes, and an update button. Android may still ask the user to allow installs from MobileClaw before opening the system installer.
+
+For local desktop builds, keep secrets in `local.properties` or environment variables; do not commit them:
+
+```text
+pgyer.api_key = Pgyer API Key
+pgyer.app_key = Pgyer App Key
+pgyer.user_key = Pgyer User Key, optional for current API calls
+```
+
+The same values can be injected with:
+
+```bash
+PGYER_API_KEY="Pgyer API Key" \
+PGYER_APP_KEY="Pgyer App Key" \
+PGYER_USER_KEY="Pgyer User Key" \
+./gradlew :app:assembleDebug
+```
+
+The desktop release helper uses Pgyer's current COS upload flow:
+
+```bash
+PGYER_API_KEY="Pgyer API Key" \
+python3 scripts/pgyer_release.py build-upload --gradle-task assembleDebug --notes "MobileClaw 0.5.0"
+```
+
+If an APK already exists:
+
+```bash
+PGYER_API_KEY="Pgyer API Key" \
+python3 scripts/pgyer_release.py upload --apk app/build/outputs/apk/debug/app-debug.apk
+```
+
+To check the published version:
+
+```bash
+PGYER_API_KEY="Pgyer API Key" \
+PGYER_APP_KEY="Pgyer App Key" \
+python3 scripts/pgyer_release.py check
+```
+
+### Git Version Source
+
+Android versions are generated from Git:
+
+```text
+versionName = git describe --tags --always --dirty
+versionCode = git rev-list --count HEAD
+```
+
+The same values are also exposed through:
+
+```text
+BuildConfig.GIT_VERSION
+BuildConfig.GIT_COMMIT
+BuildConfig.GIT_BRANCH
+```
+
+This keeps the in-app update check, Pgyer release script, GitHub tags, and visible app version aligned. A dirty workspace adds `-dirty` to `versionName`, so release APKs should be built after committing and tagging.
 
 ## Architecture
 
