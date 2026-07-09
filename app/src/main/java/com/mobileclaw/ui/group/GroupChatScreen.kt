@@ -234,6 +234,7 @@ private fun String.systemFlowChatLabel(isZh: Boolean): String = when (this) {
     GAME_RUNTIME_FLOW_EVENT_ACTORS -> if (isZh) "阵营行动" else "Faction actions"
     GAME_RUNTIME_FLOW_EVENT_RESULT -> if (isZh) "公开结果" else "Results"
     GAME_RUNTIME_FLOW_SETTLEMENT -> if (isZh) "本轮结算" else "Round settlement"
+    GAME_RUNTIME_FLOW_VICTORY_CHECK -> if (isZh) "胜利检查" else "Victory check"
     GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> if (isZh) "终局判定" else "Final verdict"
     else -> ""
 }
@@ -259,6 +260,7 @@ private fun Group.userGameInputStatusText(
         isUserCalled && step == GAME_RUNTIME_FLOW_VOTE -> if (isZh) "轮到你投票，请使用行动按钮" else "Your vote: use the action button"
         isUserCalled && step == GAME_RUNTIME_FLOW_EVENT_ACTORS -> if (isZh) "轮到你行动，请使用身份按钮" else "Your action: use the role button"
         step in setOf(GAME_RUNTIME_FLOW_EVENT_ENTER, GAME_RUNTIME_FLOW_EVENT_ACTORS) -> if (isZh) "阵营行动中" else "Faction actions in progress"
+        step == GAME_RUNTIME_FLOW_VICTORY_CHECK -> if (isZh) "法官正在检查胜利条件" else "Host is checking victory"
         step == GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> if (isZh) "终局判定中" else "Final verdict in progress"
         hasActions -> if (isZh) "请先完成当前行动" else "Complete the current action first"
         else -> listOf(

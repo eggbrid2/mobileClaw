@@ -77,6 +77,9 @@ import com.mobileclaw.agent.GameSeat
 import com.mobileclaw.agent.GameSeatStatus
 import com.mobileclaw.agent.GameUserActionPolicy
 import com.mobileclaw.agent.GameUserRole
+import com.mobileclaw.agent.GROUP_MEMBER_POSITION_DEBATE_CON
+import com.mobileclaw.agent.GROUP_MEMBER_POSITION_DEBATE_PRO
+import com.mobileclaw.agent.GROUP_MEMBER_POSITION_FREE
 import com.mobileclaw.agent.Group
 import com.mobileclaw.agent.GroupKind
 import com.mobileclaw.agent.GroupMode
@@ -365,6 +368,7 @@ private fun CreateGroupPage(
     var gameIdentityDrafts by remember { mutableStateOf(gameTemplates.first().identities.toGameIdentityDrafts()) }
     val selectedIds = remember { mutableStateListOf<String>() }
     val manualIdentityByActorId = remember { mutableStateMapOf<String, String>() }
+    val debatePositionByRoleId = remember { mutableStateMapOf<String, String>() }
     val templates = remember(isZh) { groupModeTemplates(isZh) }
     val gameTemplate = remember(selectedGameTemplateId, isZh) {
         gameTemplates.firstOrNull { it.id == selectedGameTemplateId } ?: gameTemplates.first()
@@ -388,6 +392,26 @@ private fun CreateGroupPage(
         (gameJudgeRoleId.isBlank() && userGameRole != GameUserRole.HOST)
     val hasGamePlayers = groupKind != GroupKind.GAME || gamePlayerSeatCount > 0
     val hasGameIdentities = groupKind != GroupKind.GAME || gameIdentityDrafts.isNotEmpty()
+    fun currentDebateParticipantIds(): List<String> =
+        if (groupKind == GroupKind.CHAT && mode == GroupMode.DEBATE) {
+            selectedIds.filter { it != judgeRoleId }
+        } else {
+            emptyList()
+        }
+    val debateParticipantIds = currentDebateParticipantIds()
+    fun debatePositionFor(roleId: String): String {
+        val existing = debatePositionByRoleId[roleId]
+            ?.takeIf { it in setOf(GROUP_MEMBER_POSITION_DEBATE_PRO, GROUP_MEMBER_POSITION_DEBATE_CON, GROUP_MEMBER_POSITION_FREE) }
+        if (existing != null) return existing
+        val participantIndex = currentDebateParticipantIds().indexOf(roleId).coerceAtLeast(0)
+        return if (participantIndex % 2 == 0) GROUP_MEMBER_POSITION_DEBATE_PRO else GROUP_MEMBER_POSITION_DEBATE_CON
+    }
+    val hasDebateSides = groupKind != GroupKind.CHAT ||
+        mode != GroupMode.DEBATE ||
+        (
+            debateParticipantIds.any { debatePositionFor(it) == GROUP_MEMBER_POSITION_DEBATE_PRO } &&
+                debateParticipantIds.any { debatePositionFor(it) == GROUP_MEMBER_POSITION_DEBATE_CON }
+            )
     val effectiveOpeningPrompt = remember(groupKind, mode, selectedGameTemplateId, topic, openingPrompt, userGameRole, isZh) {
         openingPrompt.trim().ifBlank {
             if (groupKind == GroupKind.GAME) {
@@ -402,7 +426,8 @@ private fun CreateGroupPage(
         (!needsTopic || topic.isNotBlank()) &&
         hasGameJudge &&
         hasGamePlayers &&
-        hasGameIdentities
+        hasGameIdentities &&
+        hasDebateSides
 
     fun applyGameTemplate(template: GameTemplateDraft) {
         val currentTemplate = gameTemplates.firstOrNull { it.id == selectedGameTemplateId }
@@ -454,6 +479,7 @@ private fun CreateGroupPage(
             groupKind = GroupKind.CHAT
             identityAssignment = GameIdentityAssignment.RANDOM
             userGameRole = GameUserRole.HOST
+            manualIdentityByActorId.clear()
             applyTemplate(GroupMode.FREE_CHAT)
         }
     }
@@ -607,8 +633,12 @@ private fun CreateGroupPage(
                                 if (selected) {
                                     selectedIds.remove(role.id)
                                     if (judgeRoleId == role.id) judgeRoleId = ""
+                                    debatePositionByRoleId.remove(role.id)
                                 } else {
                                     selectedIds.add(role.id)
+                                    if (groupKind == GroupKind.CHAT && mode == GroupMode.DEBATE) {
+                                        debatePositionByRoleId[role.id] = debatePositionFor(role.id)
+                                    }
                                 }
                             },
                         )
@@ -620,6 +650,34 @@ private fun CreateGroupPage(
                             )
                         }
                     }
+                }
+            }
+
+            if (groupKind == GroupKind.CHAT && mode == GroupMode.DEBATE) {
+                CreateGroupSection(
+                    title = if (isZh) "辩方绑定" else "Debate sides",
+                    meta = debateSideSummary(
+                        roleIds = debateParticipantIds,
+                        positionFor = ::debatePositionFor,
+                        isZh = isZh,
+                    ),
+                    c = c,
+                ) {
+                    DebateSideBinder(
+                        selectedRoleIds = selectedIds.toList(),
+                        availableRoles = availableRoles,
+                        judgeRoleId = judgeRoleId,
+                        positionFor = ::debatePositionFor,
+                        c = c,
+                        isZh = isZh,
+                        onChange = { roleId, position ->
+                            if (position == GROUP_MEMBER_POSITION_FREE) {
+                                debatePositionByRoleId.remove(roleId)
+                            } else {
+                                debatePositionByRoleId[roleId] = position
+                            }
+                        },
+                    )
                 }
             }
 
@@ -850,6 +908,12 @@ private fun CreateGroupPage(
                             roundLimit = roundLimit.coerceIn(1, 8),
                             turnStyle = turnStyle,
                             autoStart = autoStart,
+                            memberPositions = if (groupKind == GroupKind.CHAT && mode == GroupMode.DEBATE) {
+                                debateParticipantIds.associateWith { debatePositionFor(it) }
+                                    .filterValues { it in setOf(GROUP_MEMBER_POSITION_DEBATE_PRO, GROUP_MEMBER_POSITION_DEBATE_CON) }
+                            } else {
+                                emptyMap()
+                            },
                             judgeRoleId = judgeRoleId.takeIf { selectedIds.contains(it) }.orEmpty(),
                             gameProfile = if (groupKind == GroupKind.GAME) {
                                 buildGameProfile(
@@ -885,6 +949,7 @@ private fun CreateGroupPage(
                         !hasGameJudge -> if (isZh) "先分配一个法官/流程执行者" else "Assign a host first"
                         !hasGamePlayers -> if (isZh) "至少需要一个玩家席位" else "Add at least one player seat"
                         !hasGameIdentities -> if (isZh) "至少配置一个身份" else "Add at least one identity"
+                        !hasDebateSides -> if (isZh) "辩论赛需要至少一个正方和一个反方" else "Debate needs at least one pro and one con role"
                         else -> if (isZh) "群名不能为空" else "Group name is required"
                     },
                     color = c.subtext.copy(alpha = 0.72f),
@@ -1277,9 +1342,9 @@ private fun gameTemplateDrafts(isZh: Boolean): List<GameTemplateDraft> {
                 voteEffect = GameVoteRuleDraft.PLURALITY_OUT,
                 voteTiePolicy = GameTiePolicyDraft.NO_EFFECT,
                 finalJudgePrompt = if (isZh) {
-                    "最终轮结束后，AI 根据存活状态、阵营目标、投票放逐、夜间行动和公开推理证据判断阵营胜负；中途狼人归零或人数优势只作为终局证据，不提前结束。"
+                    "每轮结算后，AI 根据存活状态、阵营目标、投票放逐、夜间行动和公开推理证据判断是否结束；狼人阵营无人存活则好人胜，狼人达到或超过其他存活玩家人数则狼人胜，达到最大轮数时必须裁定。"
                 } else {
-                    "After the final round, AI judges the winning side using survival state, team goals, exiles, night actions, and public reasoning evidence. Mid-game wolf count or majority is evidence only, not an early win."
+                    "After each round, AI checks survival state, team goals, exiles, night actions, and public reasoning. Village wins if no wolves remain; wolves win if wolves reach parity or majority among alive players; at max rounds, adjudicate."
                 },
             ),
             defaultRounds = 6,
@@ -1305,9 +1370,9 @@ private fun gameTemplateDrafts(isZh: Boolean): List<GameTemplateDraft> {
             icon = "game",
             topicPlaceholder = if (isZh) "可选设定，例如：用逻辑、创意或说服力锁定目标" else "Optional setup, e.g. target by logic, creativity, or persuasion",
             publicRules = if (isZh) {
-                "每轮先公开发言，再提交击杀或护盾。有效击杀让行动者 +1 分，目标不出局；护盾会挡掉本轮针对目标的击杀得分。投票阶段有效投票者 +1 分。满 5 分是终局重要依据，最终胜负由 AI 在最后一轮后裁定。"
+                "每轮先公开发言，再提交击杀或护盾。有效击杀让行动者 +1 分，目标不出局；护盾会挡掉本轮针对目标的击杀得分。投票阶段有效投票者 +1 分。达到 5 分后进入胜利判定。"
             } else {
-                "Each round has public speech, then hit or shield actions. A valid hit gives the actor +1 point and does not eliminate the target; shield blocks hit points against that target. In vote phase, valid voters gain +1 point. Reaching 5 points is key final evidence; AI adjudicates the winner after the final round."
+                "Each round has public speech, then hit or shield actions. A valid hit gives the actor +1 point and does not eliminate the target; shield blocks hit points against that target. In vote phase, valid voters gain +1 point. Reaching 5 points triggers victory adjudication."
             },
             ruleConfig = GameRuleConfigDraft(
                 eliminateEffect = GameEliminateRuleDraft.SCORE,
@@ -1318,9 +1383,9 @@ private fun gameTemplateDrafts(isZh: Boolean): List<GameTemplateDraft> {
                 voteTiePolicy = GameTiePolicyDraft.NO_EFFECT,
                 scoreLimit = 5,
                 finalJudgePrompt = if (isZh) {
-                    "最终轮结束后，AI 优先比较积分，其次看有效击杀、有效保护、投票质量和公开理由。达到 5 分只是强证据，不在中途自动胜利。"
+                    "每轮结算后，AI 优先检查是否有人达到 5 分；若达到则结合有效击杀、有效保护、投票质量和公开理由宣读胜者；若无人达到且未到最大轮数则继续。"
                 } else {
-                    "After the final round, AI primarily compares points, then valid hits, shields, vote quality, and public reasoning. Reaching 5 points is strong evidence, not an automatic mid-game win."
+                    "After each round, AI first checks whether anyone reached 5 points. If so, adjudicate using points, valid hits, shields, vote quality, and public reasoning; otherwise continue until max rounds."
                 },
             ),
             defaultRounds = 5,
@@ -1347,9 +1412,9 @@ private fun gameTemplateDrafts(isZh: Boolean): List<GameTemplateDraft> {
             ruleConfig = GameRuleConfigDraft(
                 voteEffect = GameVoteRuleDraft.RECORD_ONLY,
                 finalJudgePrompt = if (isZh) {
-                    "最终轮结束后，AI 根据推理准确性、证据质量、质询有效性、修正能力和最终投票理由判断胜者。"
+                    "每轮结算后，AI 根据推理准确性、证据质量、质询有效性、修正能力和投票理由判断是否已有明显胜者；若没有明显胜者且未到最大轮数则继续。"
                 } else {
-                    "After the final round, AI judges the winner by reasoning accuracy, evidence quality, challenge effectiveness, revision ability, and final vote rationale."
+                    "After each round, AI checks whether there is a clear winner by reasoning accuracy, evidence quality, challenge effectiveness, revision ability, and vote rationale; otherwise continue until max rounds."
                 },
             ),
             defaultRounds = 3,
@@ -1374,9 +1439,9 @@ private fun gameTemplateDrafts(isZh: Boolean): List<GameTemplateDraft> {
             ruleConfig = GameRuleConfigDraft(
                 voteEffect = GameVoteRuleDraft.PLURALITY_OUT,
                 finalJudgePrompt = if (isZh) {
-                    "最终轮结束后，AI 按用户写下的公开规则、身份目标、行动结果、投票记录、积分和证据链综合判断胜负；每轮只结算事件。"
+                    "每轮结算后，AI 按用户写下的公开规则、身份目标、行动结果、投票记录、积分和证据链综合判断是否满足胜利条件；未满足则继续，最大轮数时必须裁定。"
                 } else {
-                    "After the final round, AI judges the winner from the user's public rules, identity goals, action results, votes, points, and evidence chain. Each round only resolves events."
+                    "After each round, AI checks the user's public rules, identity goals, action results, votes, points, and evidence chain. Continue if no win condition is met; adjudicate at max rounds."
                 },
             ),
             defaultRounds = 4,
@@ -1481,6 +1546,22 @@ private fun groupTurnStyleLabel(style: GroupTurnStyle, isZh: Boolean): String = 
     GroupTurnStyle.QUIET -> if (isZh) "安静" else "Quiet"
     GroupTurnStyle.BALANCED -> if (isZh) "平衡" else "Balanced"
     GroupTurnStyle.ACTIVE -> if (isZh) "活跃" else "Active"
+}
+
+private fun debatePositionLabel(position: String, isZh: Boolean): String = when (position) {
+    GROUP_MEMBER_POSITION_DEBATE_PRO -> if (isZh) "正方" else "Pro"
+    GROUP_MEMBER_POSITION_DEBATE_CON -> if (isZh) "反方" else "Con"
+    else -> if (isZh) "自由位" else "Free"
+}
+
+private fun debateSideSummary(
+    roleIds: List<String>,
+    positionFor: (String) -> String,
+    isZh: Boolean,
+): String {
+    val pro = roleIds.count { positionFor(it) == GROUP_MEMBER_POSITION_DEBATE_PRO }
+    val con = roleIds.count { positionFor(it) == GROUP_MEMBER_POSITION_DEBATE_CON }
+    return if (isZh) "正方 $pro · 反方 $con" else "Pro $pro · Con $con"
 }
 
 private fun defaultGroupOpeningPrompt(mode: GroupMode, topic: String, isZh: Boolean): String {
@@ -1811,12 +1892,18 @@ private fun GameRuleConfigDraft.toWinConditionJson(): String {
         addProperty("targetPoints", voteTargetPoints.coerceIn(-20, 20))
         addProperty("tiePolicy", voteTiePolicy.jsonValue())
     })
+    val victoryCriteria = finalJudgePrompt.trim().ifBlank {
+        "每轮结算后，AI 根据本局公开规则、行动/投票记录、积分、出局状态和证据链判断是否已经满足胜利条件；若达到最大轮数则必须裁定胜负。"
+    }
+    root.add("victoryCheck", JsonObject().apply {
+        addProperty("mode", "ai_after_each_round")
+        addProperty("timing", "after_each_round")
+        addProperty("criteria", victoryCriteria)
+    })
     root.add("finalJudgement", JsonObject().apply {
-        addProperty("mode", "ai_after_final_round")
-        addProperty("timing", "after_round_limit")
-        addProperty("criteria", finalJudgePrompt.trim().ifBlank {
-            "最终轮结束后，AI 根据本局公开规则、行动/投票记录、积分、出局状态和证据链判断最终胜负；每轮结算不提前判胜。"
-        })
+        addProperty("mode", "ai_victory_check")
+        addProperty("timing", "after_each_round_or_round_limit")
+        addProperty("criteria", victoryCriteria)
     })
     return groupPageGson.toJson(root)
 }
@@ -2175,7 +2262,7 @@ private fun GameFlowExecutorPicker(
         if (judgeRoleId.isBlank() && userGameRole == GameUserRole.HOST) {
             if (isZh) "你是法官，只负责开局、阶段推进、结算和公开结果，不参与隐藏身份抽签。" else "You host the flow and do not draw a hidden identity."
         } else if (judgeRoleId.isBlank()) {
-            if (isZh) "系统法官会按席位点名推进发言、逐个收票、事件期、公开结果和本轮结算；最终轮结束后再交给 AI 做终局判定。你可以作为玩家抽身份。" else "The system host calls each seat for speech, collects votes one by one, advances event windows, public results, and round settlement; after the final round, AI makes the final verdict. You can still play."
+            if (isZh) "系统法官会按席位点名推进发言、逐个收票、事件期、公开结果和本轮结算；每轮结算后由 AI 检查胜利条件，满足就宣读胜负，否则继续下一轮。你可以作为玩家抽身份。" else "The system host calls each seat for speech, collects votes, advances event windows, results, and settlement; after each round, AI checks the win condition and either announces the winner or continues. You can still play."
         } else {
             if (isZh) "选中的角色是流程执行者；你可以作为玩家抽身份，或只旁观/共同主持。" else "The selected role hosts the flow. You can play, watch, or co-host."
         },
@@ -2580,6 +2667,82 @@ private fun GameSeatIdentityPicker(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
+private fun DebateSideBinder(
+    selectedRoleIds: List<String>,
+    availableRoles: List<Role>,
+    judgeRoleId: String,
+    positionFor: (String) -> String,
+    c: ClawColors,
+    isZh: Boolean,
+    onChange: (String, String) -> Unit,
+) {
+    val roles = selectedRoleIds.mapNotNull { roleId -> availableRoles.firstOrNull { it.id == roleId } }
+    if (roles.isEmpty()) {
+        Text(
+            if (isZh) "先选择参赛角色" else "Select debate roles first",
+            color = c.subtext,
+            fontSize = 12.sp,
+        )
+        return
+    }
+    roles.forEachIndexed { index, role ->
+        if (index > 0) {
+            HorizontalDivider(color = c.border.copy(alpha = 0.42f), thickness = 0.5.dp)
+            Spacer(Modifier.height(8.dp))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                role.name,
+                color = c.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (role.id == judgeRoleId) {
+                Text(
+                    if (isZh) "裁判" else "Judge",
+                    color = c.subtext,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        if (role.id == judgeRoleId) {
+            Text(
+                if (isZh) "裁判负责记录攻防和总结，不占正反方席位。" else "The judge summarizes and does not take a side.",
+                color = c.subtext,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
+        } else {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    GROUP_MEMBER_POSITION_DEBATE_PRO,
+                    GROUP_MEMBER_POSITION_DEBATE_CON,
+                    GROUP_MEMBER_POSITION_FREE,
+                ).forEach { position ->
+                    GroupSmallPill(
+                        text = debatePositionLabel(position, isZh),
+                        selected = positionFor(role.id) == position,
+                        c = c,
+                        onClick = { onChange(role.id, position) },
+                    )
+                }
+            }
+        }
+        if (index != roles.lastIndex) Spacer(Modifier.height(8.dp))
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun GameRuleConfigEditor(
     config: GameRuleConfigDraft,
     c: ClawColors,
@@ -2681,7 +2844,7 @@ private fun GameRuleConfigEditor(
 
     Spacer(Modifier.height(12.dp))
     RuleNumberStepper(
-        title = if (isZh) "终局积分参考" else "Final score ref",
+        title = if (isZh) "胜利积分参考" else "Win score ref",
         value = config.scoreLimit,
         c = c,
         range = 0..50,
@@ -2689,14 +2852,14 @@ private fun GameRuleConfigEditor(
         onChange = { onChange(config.copy(scoreLimit = it)) },
     )
     Spacer(Modifier.height(12.dp))
-    RuleSectionLabel(text = if (isZh) "终局判定标准" else "Final criteria", c = c)
+    RuleSectionLabel(text = if (isZh) "胜利条件" else "Win condition", c = c)
     GroupCreateTextField(
         value = config.finalJudgePrompt,
         onValueChange = { onChange(config.copy(finalJudgePrompt = it)) },
         placeholder = if (isZh) {
-            "最终轮结束后，AI 根据哪些证据判断胜负？例如积分、阵营目标、有效行动、投票理由、公开推理..."
+            "每轮结算后如何判断是否结束？例如狼人全出局、某阵营达成人数优势、积分达到阈值、AI 按证据裁定..."
         } else {
-            "After the final round, what should AI use to decide the winner? Points, team goals, valid actions, votes, reasoning..."
+            "After each round, how should AI decide whether the game ends? Score threshold, team goal, eliminations, evidence..."
         },
         c = c,
         singleLine = false,

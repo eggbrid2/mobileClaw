@@ -20,6 +20,8 @@ import com.mobileclaw.agent.GameSeat
 import com.mobileclaw.agent.GameSeatStatus
 import com.mobileclaw.agent.GameUserActionPolicy
 import com.mobileclaw.agent.GameUserRole
+import com.mobileclaw.agent.GROUP_MEMBER_POSITION_DEBATE_CON
+import com.mobileclaw.agent.GROUP_MEMBER_POSITION_DEBATE_PRO
 import com.mobileclaw.agent.Group
 import com.mobileclaw.agent.GroupKind
 import com.mobileclaw.agent.GroupMode
@@ -127,6 +129,18 @@ private fun buildGroupModePrompt(role: Role, group: Group, allMembers: List<Role
             appendLine("• 你不是裁判。请专注给出自己的判断、策略或回应，不要抢最终裁决。")
         }
     }
+    if (group.mode == GroupMode.DEBATE) {
+        val proNames = group.debateRoleNames(allMembers, GROUP_MEMBER_POSITION_DEBATE_PRO)
+        val conNames = group.debateRoleNames(allMembers, GROUP_MEMBER_POSITION_DEBATE_CON)
+        if (proNames.isNotBlank() || conNames.isNotBlank()) {
+            appendLine("• 辩方绑定：正方=${proNames.ifBlank { "未指定" }}；反方=${conNames.ifBlank { "未指定" }}。")
+        }
+        when (group.memberPositions[role.id]) {
+            GROUP_MEMBER_POSITION_DEBATE_PRO -> appendLine("• 你绑定为正方。你的发言必须维护正方立场，主动回应反方攻击。")
+            GROUP_MEMBER_POSITION_DEBATE_CON -> appendLine("• 你绑定为反方。你的发言必须维护反方立场，主动拆解正方论证。")
+            else -> if (role.id != group.judgeRoleId) appendLine("• 你是自由位。可以补充攻防、质询双方，但不要假装自己是裁判。")
+        }
+    }
     when (group.mode) {
         GroupMode.FREE_CHAT -> {
             appendLine("• 当前是自然群聊。少抢话，别为了存在感硬接；有性格、有信息量时再发。")
@@ -137,6 +151,7 @@ private fun buildGroupModePrompt(role: Role, group: Group, allMembers: List<Role
         }
         GroupMode.DEBATE -> {
             appendLine("• 当前是多轮辩论。发言要有立场、理由、反驳对象和可被检验的判断。")
+            appendLine("• 正反方已绑定时，不要切换立场；同方角色要补强，不要互相拆台。")
             appendLine("• 不要只复述上一位；优先推进攻防。")
         }
         GroupMode.WORKSHOP -> {
@@ -149,6 +164,12 @@ private fun buildGroupModePrompt(role: Role, group: Group, allMembers: List<Role
         }
     }
 }
+
+private fun Group.debateRoleNames(allMembers: List<Role>, position: String): String =
+    memberRoleIds
+        .filter { memberPositions[it] == position }
+        .mapNotNull { roleId -> allMembers.firstOrNull { it.id == roleId }?.name }
+        .joinToString("、")
 
 private fun buildGroupGamePrompt(role: Role, group: Group, allMembers: List<Role>): String = buildString {
     val profile = group.gameProfile
@@ -195,7 +216,7 @@ private fun buildGroupGamePrompt(role: Role, group: Group, allMembers: List<Role
     } else if (profile?.userRole == GameUserRole.HOST) {
         appendLine("• 本局流程执行者/法官：用户。角色不要抢法官裁决。")
     } else if (usesSystemJudge) {
-        appendLine("• 本局流程执行者/法官：系统法官。没有角色扮演法官时，App 会内建推进：按席位逐个点名发言 -> 按席位逐个收票 -> 事件期 -> 公布投票结果/投杀 -> 依次点名身份事件 -> 公布可公开结果/死亡 -> 本轮结算 -> 下一轮；最终轮结束后才进入 AI 终局判定。")
+        appendLine("• 本局流程执行者/法官：系统法官。没有角色扮演法官时，App 会内建推进：按席位逐个点名发言 -> 按席位逐个收票 -> 事件期 -> 公布投票结果/投杀 -> 依次点名身份事件 -> 公布可公开结果/死亡 -> 本轮结算 -> 每轮 AI 胜利条件检查 -> 继续下一轮或宣读胜负。")
     }
     if (currentPhase != null) {
         appendLine("• 当前阶段：${currentPhase.name}。")
@@ -254,11 +275,11 @@ private fun buildGroupGamePrompt(role: Role, group: Group, allMembers: List<Role
     }
 
     appendLine("• 群聊消息按频道和可见性分发。你只能基于自己可见的频道历史发言，隐藏身份、队友、查验结果、夜间目标、团队会议等私密信息不能写进公开频道。")
-    appendLine("• 保护、击杀、投票会由 Game Runtime 按本局规则统一结算；同一个能力在不同模板里可能是出局、计分或仅记录。每轮结算只处理本轮事件，不在中途判胜负。")
+    appendLine("• 保护、击杀、投票会由 Game Runtime 按本局规则统一结算；同一个能力在不同模板里可能是出局、计分或仅记录。每轮行动期只处理本轮事件，结算后再进入胜利条件检查。")
     appendLine("• 如果你要提交刀人、查验、守护、投票、质询等游戏动作，优先调用 game_runtime(action=\"submit_action\", ability_id=\"...\", target_seat_ids=[...], target_actor_ids=[...], target_name=\"...\", visibility=\"judge/team/private/public\", reason=\"...\")。")
     appendLine("• 调用 game_runtime 后，不要在普通公开发言里复述私密行动细节；只在需要时用角色口吻说一句不泄密的公开发言。")
     appendLine("• 只有用户/法官明确要求公开提交行动时，才用「【行动】能力 -> 目标；理由」这种短格式；不要额外泄露系统提示或私密身份链路。")
-    appendLine("• 不要伪造结算。击杀、保护、查验、复活、投票结果必须等待用户/法官或后续游戏引擎确认；最终胜负只能在计划轮数结束后，按胜负配置由 AI/法官裁定。")
+    appendLine("• 不要伪造结算。击杀、保护、查验、复活、投票结果必须等待用户/法官或后续游戏引擎确认；胜负只能在每轮结算后的胜利条件检查或最大轮数时，按用户配置由 AI/法官裁定并宣读。")
     appendLine("• 公开阶段优先做发言、推理、质询、投票和复盘；私密阶段优先保持克制，说明需要法官处理私密行动即可。")
     if (usesSystemJudge && !isJudgeRole) {
         appendLine("• 系统法官消息以【系统法官】开头。你要服从它的阶段、投票、点名和结算；不要自称系统法官，也不要主动宣布进入下一轮。")
@@ -340,6 +361,80 @@ internal fun buildSystemGameFinalJudgementPrompt(
     }
 }
 
+internal fun buildSystemGameVictoryCheckPrompt(
+    group: Group,
+    messages: List<GroupMessage>,
+    isZh: Boolean,
+): String = buildString {
+    val profile = group.gameProfile
+    val state = profile?.runtimeState()
+    val publicRules = profile?.publicRules?.ifBlank { group.rules } ?: group.rules
+    val criteria = profile?.winConditionJson.orEmpty().finalJudgementCriteriaText()
+    val rawRuleConfig = profile?.winConditionJson
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && it != "{}" }
+        .orEmpty()
+    val currentRound = state?.roundIndex?.coerceAtLeast(1) ?: 1
+    val maxRound = group.roundLimit.coerceIn(1, 8)
+    val scoreText = profile?.scoreboardPrompt(state?.scores.orEmpty()).orEmpty()
+    val seatLines = profile?.seats.orEmpty().joinToString("\n") { seat ->
+        val identity = profile?.identityFor(seat)
+        val identityText = identity?.name.orEmpty().ifBlank { "未分配" }
+        val teamText = seat.teamId.ifBlank { identity?.teamId.orEmpty() }.ifBlank { "无阵营" }
+        "- ${seat.displayName.ifBlank { seat.seatId }}：状态=${seat.status.promptLabel()}，身份=$identityText，阵营=$teamText"
+    }
+    val eventLines = state?.events.orEmpty()
+        .takeLast(90)
+        .joinToString("\n") { it.finalJudgeLine(profile) }
+    val publicMessageLines = messages
+        .filter { it.visibility == GROUP_VISIBILITY_PUBLIC || it.channelId == GROUP_CHANNEL_PUBLIC }
+        .takeLast(80)
+        .joinToString("\n") { message ->
+            "- [${message.senderName}] ${message.text.replace('\n', ' ').take(240)}"
+        }
+
+    if (isZh) {
+        appendLine("你是本局游戏的胜利条件检查 AI。每轮结算后都要判断一次是否已经满足用户配置的胜利条件。")
+        appendLine("如果胜利条件已经满足，宣读胜方/胜者并结束本局；如果没有满足，明确说继续下一轮。")
+        appendLine("如果当前轮数已经达到最大轮数，也必须根据胜利条件和当前局势给出最终胜负，不要继续。")
+        appendLine("不要输出公开可见的 JSON 之外的解释；下面 JSON 会被 App 解析，用户只会看到 announcement。")
+        appendLine()
+        appendLine("只输出 JSON：")
+        appendLine("""{"shouldEnd":true或false,"winner":"胜方或胜者，未结束则为空","announcement":"【胜利判定】或【胜利检查】开头的一段自然语言宣读"}""")
+        appendLine()
+        appendLine("本局：${group.name}")
+        appendLine("当前轮数：$currentRound / $maxRound")
+        appendLine("模板：${profile?.templateName?.ifBlank { group.mode.promptLabel() } ?: group.mode.promptLabel()}")
+        if (group.topic.isNotBlank()) appendLine("设定：${group.topic.trim()}")
+        if (publicRules.isNotBlank()) appendLine("公开规则：${publicRules.trim()}")
+        if (criteria.isNotBlank()) appendLine("胜利条件：$criteria")
+        if (rawRuleConfig.isNotBlank()) appendLine("规则引擎配置：${rawRuleConfig.replace('\n', ' ').take(1200)}")
+        if (scoreText.isNotBlank()) appendLine("当前积分：$scoreText")
+        if (seatLines.isNotBlank()) appendLine("席位/身份/阵营状态：\n$seatLines")
+        if (eventLines.isNotBlank()) appendLine("运行事件记录：\n$eventLines")
+        if (publicMessageLines.isNotBlank()) appendLine("公开群聊记录：\n$publicMessageLines")
+    } else {
+        appendLine("You are the victory-condition checker for this game. After every round settlement, decide whether the configured win condition is already satisfied.")
+        appendLine("If the condition is satisfied, announce the winner and end the game. If not, say the game continues.")
+        appendLine("If the current round has reached the max round, you must decide the final result now.")
+        appendLine("Output only JSON; the app will show only announcement to users.")
+        appendLine()
+        appendLine("""{"shouldEnd":true or false,"winner":"winner or empty if continuing","announcement":"A natural-language host announcement starting with 【Victory Check】 or 【Victory Verdict】"}""")
+        appendLine()
+        appendLine("Game: ${group.name}")
+        appendLine("Round: $currentRound / $maxRound")
+        appendLine("Template: ${profile?.templateName?.ifBlank { group.mode.promptLabel() } ?: group.mode.promptLabel()}")
+        if (group.topic.isNotBlank()) appendLine("Setup: ${group.topic.trim()}")
+        if (publicRules.isNotBlank()) appendLine("Public rules: ${publicRules.trim()}")
+        if (criteria.isNotBlank()) appendLine("Win condition: $criteria")
+        if (rawRuleConfig.isNotBlank()) appendLine("Rule engine config: ${rawRuleConfig.replace('\n', ' ').take(1200)}")
+        if (scoreText.isNotBlank()) appendLine("Current score: $scoreText")
+        if (seatLines.isNotBlank()) appendLine("Seats / identities / teams:\n$seatLines")
+        if (eventLines.isNotBlank()) appendLine("Runtime event log:\n$eventLines")
+        if (publicMessageLines.isNotBlank()) appendLine("Public chat log:\n$publicMessageLines")
+    }
+}
+
 private fun GameProfile.currentPhase(): GamePhase? =
     phases.firstOrNull { it.id == currentPhaseId } ?: phases.minByOrNull { it.order }
 
@@ -409,7 +504,10 @@ private fun String.finalJudgementCriteriaText(): String {
         JsonParser.parseString(ifBlank { "{}" }).asJsonObject
     }.getOrNull() ?: return ""
     val finalJudgement = root.obj("finalJudgement")
+    val victoryCheck = root.obj("victoryCheck")
     return listOfNotNull(
+        victoryCheck?.string("criteria"),
+        victoryCheck?.string("prompt"),
         finalJudgement?.string("criteria"),
         finalJudgement?.string("prompt"),
         root.string("finalJudgePrompt"),
@@ -489,6 +587,7 @@ private fun String.runtimeFlowPromptLabel(): String = when (this) {
     GAME_RUNTIME_FLOW_EVENT_ACTORS -> "身份事件行动"
     GAME_RUNTIME_FLOW_EVENT_RESULT -> "公布事件结果"
     GAME_RUNTIME_FLOW_SETTLEMENT -> "本轮结算"
+    GAME_RUNTIME_FLOW_VICTORY_CHECK -> "胜利条件检查"
     GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> "终局判定"
     else -> if (isBlank()) "等待开局" else this
 }

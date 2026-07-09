@@ -45,6 +45,17 @@ class GroupManager(private val context: Context) {
         val cleanMode = mode ?: GroupMode.FREE_CHAT
         val cleanTurnStyle = turnStyle ?: GroupTurnStyle.BALANCED
         val cleanKind = kind ?: if (cleanMode == GroupMode.ROUNDED_GAME) GroupKind.GAME else GroupKind.CHAT
+        val cleanJudgeRoleId = judgeRoleId.orEmpty().takeIf { it in cleanMembers }.orEmpty()
+        val cleanMemberPositions = memberPositions
+            .orEmpty()
+            .filterKeys { it in cleanMembers }
+            .mapValues { it.value.orEmpty().trim() }
+            .filterValues { it.isNotBlank() }
+        val normalizedMemberPositions = if (cleanKind == GroupKind.CHAT && cleanMode == GroupMode.DEBATE) {
+            cleanMemberPositions.normalizedDebatePositions(cleanMembers, cleanJudgeRoleId)
+        } else {
+            cleanMemberPositions
+        }
         val cleanGameProfile = gameProfile?.normalized(cleanMembers)
             ?: if (cleanKind == GroupKind.GAME) {
                 GameProfile(
@@ -67,10 +78,27 @@ class GroupManager(private val context: Context) {
             rules = rules.orEmpty(),
             roundLimit = roundLimit.takeIf { it in 1..8 } ?: 3,
             turnStyle = cleanTurnStyle,
-            judgeRoleId = judgeRoleId.orEmpty().takeIf { it in cleanMembers }.orEmpty(),
+            memberPositions = normalizedMemberPositions,
+            judgeRoleId = cleanJudgeRoleId,
             gameProfile = cleanGameProfile,
             updatedAt = updatedAt.takeIf { it > 0L } ?: createdAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
         )
+    }
+
+    private fun Map<String, String>.normalizedDebatePositions(
+        memberRoleIds: List<String>,
+        judgeRoleId: String,
+    ): Map<String, String> {
+        val participants = memberRoleIds.filter { it != judgeRoleId }
+        if (participants.isEmpty()) return emptyMap()
+        val valid = filterKeys { it in participants }
+            .filterValues { it == GROUP_MEMBER_POSITION_DEBATE_PRO || it == GROUP_MEMBER_POSITION_DEBATE_CON }
+        val hasPro = participants.any { valid[it] == GROUP_MEMBER_POSITION_DEBATE_PRO }
+        val hasCon = participants.any { valid[it] == GROUP_MEMBER_POSITION_DEBATE_CON }
+        if (hasPro && hasCon) return valid
+        return participants.mapIndexed { index, roleId ->
+            roleId to if (index % 2 == 0) GROUP_MEMBER_POSITION_DEBATE_PRO else GROUP_MEMBER_POSITION_DEBATE_CON
+        }.toMap()
     }
 
     private fun GameProfile.normalized(validRoleIds: List<String>): GameProfile {

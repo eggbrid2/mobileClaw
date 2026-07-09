@@ -226,6 +226,7 @@ import com.mobileclaw.ui.group.GROUP_GAME_TIMELINE_LIMIT
 import com.mobileclaw.ui.group.GROUP_CHANNEL_JUDGE
 import com.mobileclaw.ui.group.GROUP_CHANNEL_PUBLIC
 import com.mobileclaw.ui.group.GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE
+import com.mobileclaw.ui.group.GAME_RUNTIME_FLAG_VICTORY_CHECK_DONE_ROUND
 import com.mobileclaw.ui.group.GROUP_VISIBILITY_JUDGE
 import com.mobileclaw.ui.group.GROUP_VISIBILITY_PRIVATE
 import com.mobileclaw.ui.group.GROUP_VISIBILITY_PUBLIC
@@ -236,14 +237,17 @@ import com.mobileclaw.ui.group.availableUserGameAbilities
 import com.mobileclaw.ui.group.applyGameRuntimeControl
 import com.mobileclaw.ui.group.buildGroupSystemPrompt
 import com.mobileclaw.ui.group.buildSystemGameFinalJudgementPrompt
+import com.mobileclaw.ui.group.buildSystemGameVictoryCheckPrompt
 import com.mobileclaw.ui.group.canRoleSeeGroupMessage
 import com.mobileclaw.ui.group.canCurrentUserSpeakInGame
 import com.mobileclaw.ui.group.canUserSeeGroupMessage
 import com.mobileclaw.ui.group.channelForGameAbility
 import com.mobileclaw.ui.group.channelForUserGameAbility
 import com.mobileclaw.ui.group.currentGamePhase
+import com.mobileclaw.ui.group.continueSystemGameAfterVictoryCheck
 import com.mobileclaw.ui.group.defaultGroupBubbleStyleFor
 import com.mobileclaw.ui.group.gameSeatForRole
+import com.mobileclaw.ui.group.finishSystemGameByVictoryCheck
 import com.mobileclaw.ui.group.gamePhaseAdvancedEvent
 import com.mobileclaw.ui.group.groupAttachmentPrompt
 import com.mobileclaw.ui.group.groupPreviewText
@@ -251,6 +255,7 @@ import com.mobileclaw.ui.group.isGameGroup
 import com.mobileclaw.ui.group.isGameSpeechOpenForPlayers
 import com.mobileclaw.ui.group.isSystemGameEventActionStep
 import com.mobileclaw.ui.group.isSystemGameFlowFinalJudgement
+import com.mobileclaw.ui.group.isSystemGameFlowVictoryCheck
 import com.mobileclaw.ui.group.isLowValueGroupReply
 import com.mobileclaw.ui.group.isOrganicGroupTrigger
 import com.mobileclaw.ui.group.markSystemGameUserSpeechSubmitted
@@ -5508,10 +5513,200 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             calledSeat = resolution.calledSeat,
             triggerText = resolution.triggerText,
         )
-        maybeRunSystemGameFinalJudgement(resolution.group)
-        if (!launched && !resolution.group.systemGameFlowShouldWaitForUserAction()) {
+        val victoryHandled = maybeRunSystemGameVictoryCheck(resolution.group)
+        if (!victoryHandled) maybeRunSystemGameFinalJudgement(resolution.group)
+        if (!victoryHandled && !launched && !resolution.group.systemGameFlowShouldWaitForUserAction()) {
             maybeAutoAdvanceSystemGameFlow(groupId, depth + 1)
         }
+    }
+
+    private data class SystemGameVictoryCheckResult(
+        val shouldEnd: Boolean,
+        val announcement: String,
+        val winner: String = "",
+    )
+
+    private suspend fun maybeRunSystemGameVictoryCheck(group: com.mobileclaw.agent.Group): Boolean {
+        if (!group.usesSystemGameJudge() || !group.isSystemGameFlowVictoryCheck()) return false
+        var alreadyHandled = false
+        val markedGroup = synchronized(groupGameRuntimeLock) {
+            val latest = groupManager.get(group.id) ?: group
+            if (!latest.usesSystemGameJudge() || !latest.isSystemGameFlowVictoryCheck()) return@synchronized null
+            val profile = latest.gameProfile ?: return@synchronized null
+            val state = profile.runtimeState()
+            val roundText = state.roundIndex.coerceAtLeast(1).toString()
+            if (state.flags[GAME_RUNTIME_FLAG_VICTORY_CHECK_DONE_ROUND] == roundText) {
+                alreadyHandled = true
+                return@synchronized null
+            }
+            val nextState = state.copy(
+                flags = state.flags + (GAME_RUNTIME_FLAG_VICTORY_CHECK_DONE_ROUND to roundText),
+            )
+            latest.copy(
+                gameProfile = profile.withRuntimeState(nextState),
+                updatedAt = System.currentTimeMillis(),
+            ).also { groupManager.save(it) }
+        }
+        if (alreadyHandled) return true
+        if (markedGroup == null) return false
+        updateGroupRuntimeInUi(markedGroup)
+
+        val isZh = config.language != "en"
+        val profile = markedGroup.gameProfile
+        val state = profile?.runtimeState()
+        val currentRound = state?.roundIndex?.coerceAtLeast(1) ?: 1
+        val maxRound = markedGroup.roundLimit.coerceIn(1, 8)
+        val prompt = buildSystemGameVictoryCheckPrompt(
+            group = markedGroup,
+            messages = _uiState.value.groupState.messages.filter { it.groupId == markedGroup.id },
+            isZh = isZh,
+        )
+        val systemPrompt = if (isZh) {
+            "你是 mobileClaw 的游戏胜利条件检查器。每轮结算后判断是否满足胜利条件。只输出可解析 JSON，不输出代码块。"
+        } else {
+            "You are mobileClaw's game victory-condition checker. After each round, decide whether the game should end. Output parseable JSON only, no code fences."
+        }
+        val raw = runCatching {
+            llm.chat(
+                ChatRequest(
+                    messages = listOf(
+                        Message(role = "system", content = systemPrompt),
+                        Message(role = "user", content = prompt),
+                    ),
+                    stream = false,
+                ),
+            ).content.orEmpty()
+        }.getOrElse { e ->
+            if (isZh) {
+                """{"shouldEnd":false,"announcement":"【胜利检查】AI 胜利条件检查调用失败：${e.message ?: "未知错误"}。本轮先继续，法官可手动裁定。"}"""
+            } else {
+                """{"shouldEnd":false,"announcement":"【Victory Check】The AI victory check failed: ${e.message ?: "unknown error"}. Continue for now; the host may adjudicate manually."}"""
+            }
+        }
+        val parsed = parseSystemGameVictoryCheckResult(
+            raw = raw,
+            isZh = isZh,
+            forceEnd = currentRound >= maxRound,
+        )
+        val resolution = synchronized(groupGameRuntimeLock) {
+            val latest = groupManager.get(markedGroup.id) ?: markedGroup
+            if (!latest.usesSystemGameJudge() || !latest.isSystemGameFlowVictoryCheck()) return@synchronized null
+            val latestRound = latest.gameProfile?.runtimeState()?.roundIndex?.coerceAtLeast(1) ?: currentRound
+            val mustEnd = parsed.shouldEnd || latestRound >= maxRound
+            val announcement = parsed.announcement.ifBlank {
+                if (mustEnd) {
+                    if (isZh) "【胜利判定】本局达到结束条件。" else "【Victory Verdict】The game has reached its ending condition."
+                } else {
+                    if (isZh) "【胜利检查】本轮尚未满足胜利条件，继续下一轮。" else "【Victory Check】No win condition is satisfied yet. Continue to the next round."
+                }
+            }
+            val next = if (mustEnd) {
+                latest.finishSystemGameByVictoryCheck(announcement)
+            } else {
+                latest.continueSystemGameAfterVictoryCheck(announcement)
+            }
+            next?.also { groupManager.save(it.group) }
+        } ?: return true
+        val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+            group = resolution.group,
+            events = resolution.events,
+            fallbackPublicText = resolution.publicText,
+            fallbackResultMessages = resolution.resultMessages,
+        )
+        persistGameEvents(
+            resolution.group.id,
+            gameEventsForRuntimeTimeline(resolution.group, resolution.events),
+        )
+        val savedMessages = saveGameRuntimeMessageDrafts(resolution.group.id, messageDrafts)
+        savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+        updateGroupRuntimeInUi(resolution.group, savedMessages)
+        loadGroups()
+        if (!parsed.shouldEnd && currentRound < maxRound) {
+            maybeAutoAdvanceSystemGameFlow(resolution.group.id)
+        }
+        return true
+    }
+
+    private fun parseSystemGameVictoryCheckResult(
+        raw: String,
+        isZh: Boolean,
+        forceEnd: Boolean,
+    ): SystemGameVictoryCheckResult {
+        val clean = raw.trim().stripMarkdownFence()
+        val json = runCatching { JsonParser.parseString(clean).asJsonObject }.getOrNull()
+        if (json != null) {
+            val shouldEnd = forceEnd ||
+                json.boolOrNull("shouldEnd") == true ||
+                json.boolOrNull("gameEnded") == true ||
+                json.boolOrNull("end") == true ||
+                json.boolOrNull("victoryReached") == true
+            val winner = json.firstJsonText("winner", "winningSide", "winnerName", "胜方", "胜者")
+            val announcement = json.firstJsonText("announcement", "message", "verdict", "result", "summary", "宣读", "结论")
+                .ifBlank {
+                    if (shouldEnd) {
+                        if (isZh) "【胜利判定】${winner.ifBlank { "本局已满足结束条件" }}。" else "【Victory Verdict】${winner.ifBlank { "The game has reached its ending condition" }}."
+                    } else {
+                        if (isZh) "【胜利检查】本轮尚未满足胜利条件，继续下一轮。" else "【Victory Check】No win condition is satisfied yet. Continue to the next round."
+                    }
+                }
+            return SystemGameVictoryCheckResult(
+                shouldEnd = shouldEnd,
+                winner = winner,
+                announcement = announcement.withVictoryCheckPrefix(shouldEnd, isZh),
+            )
+        }
+        val lower = clean.lowercase()
+        val inferredEnd = forceEnd ||
+            clean.contains("胜方") ||
+            clean.contains("胜者") ||
+            clean.contains("本局结束") ||
+            lower.contains("winner") ||
+            lower.contains("game over") ||
+            lower.contains("shouldend\":true")
+        val fallback = clean
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .take(5)
+            .joinToString("\n")
+            .take(500)
+            .ifBlank {
+                if (inferredEnd) {
+                    if (isZh) "本局已满足结束条件。" else "The game has reached its ending condition."
+                } else {
+                    if (isZh) "本轮尚未满足胜利条件，继续下一轮。" else "No win condition is satisfied yet. Continue to the next round."
+                }
+            }
+        return SystemGameVictoryCheckResult(
+            shouldEnd = inferredEnd,
+            announcement = fallback.withVictoryCheckPrefix(inferredEnd, isZh),
+        )
+    }
+
+    private fun JsonObject.boolOrNull(key: String): Boolean? {
+        val element = get(key) ?: return null
+        return when {
+            element.isJsonPrimitive && element.asJsonPrimitive.isBoolean -> element.asBoolean
+            element.isJsonPrimitive && element.asJsonPrimitive.isNumber -> element.asInt != 0
+            element.isJsonPrimitive -> when (element.asString.trim().lowercase()) {
+                "true", "1", "yes", "end", "ended", "win", "victory" -> true
+                "false", "0", "no", "continue", "ongoing" -> false
+                else -> null
+            }
+            else -> null
+        }
+    }
+
+    private fun String.withVictoryCheckPrefix(shouldEnd: Boolean, isZh: Boolean): String {
+        val clean = trim()
+        val endPrefix = if (isZh) "【胜利判定】" else "【Victory Verdict】"
+        val checkPrefix = if (isZh) "【胜利检查】" else "【Victory Check】"
+        if (clean.startsWith("【胜利判定】") || clean.startsWith("【胜利检查】") ||
+            clean.startsWith("【Victory Verdict】") || clean.startsWith("【Victory Check】")
+        ) {
+            return clean
+        }
+        return (if (shouldEnd) endPrefix else checkPrefix) + clean
     }
 
     private suspend fun maybeRunSystemGameFinalJudgement(group: com.mobileclaw.agent.Group) {
@@ -5999,7 +6194,8 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     calledSeat = systemResolution.calledSeat,
                     triggerText = systemResolution.triggerText,
                 )
-                maybeRunSystemGameFinalJudgement(systemResolution.group)
+                val victoryHandled = maybeRunSystemGameVictoryCheck(systemResolution.group)
+                if (!victoryHandled) maybeRunSystemGameFinalJudgement(systemResolution.group)
                 return@launch
             }
             val (updatedGroup, phaseEvents) = advanceGamePhaseState(groupId) ?: return@launch

@@ -36,12 +36,14 @@ internal const val GAME_RUNTIME_FLAG_SYSTEM_SPEECH_CURSOR = "systemSpeechCursor"
 internal const val GAME_RUNTIME_FLAG_SYSTEM_VOTE_CURSOR = "systemVoteCursor"
 internal const val GAME_RUNTIME_FLAG_SYSTEM_EVENT_CURSOR = "systemEventCursor"
 internal const val GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE = "finalJudgementDone"
+internal const val GAME_RUNTIME_FLAG_VICTORY_CHECK_DONE_ROUND = "victoryCheckDoneRound"
 internal const val GAME_RUNTIME_FLOW_SPEECH = "speech"
 internal const val GAME_RUNTIME_FLOW_VOTE = "vote"
 internal const val GAME_RUNTIME_FLOW_EVENT_ENTER = "event_enter"
 internal const val GAME_RUNTIME_FLOW_EVENT_ACTORS = "event_actors"
 internal const val GAME_RUNTIME_FLOW_EVENT_RESULT = "event_result"
 internal const val GAME_RUNTIME_FLOW_SETTLEMENT = "settlement"
+internal const val GAME_RUNTIME_FLOW_VICTORY_CHECK = "victory_check"
 internal const val GAME_RUNTIME_FLOW_FINAL_JUDGEMENT = "final_judgement"
 
 internal data class GameRuntimeMessageDraft(
@@ -240,9 +242,12 @@ internal fun Group.isSystemGameEventActionStep(): Boolean =
 internal fun Group.isSystemGameFlowFinalJudgement(): Boolean =
     systemGameFlowStep() == GAME_RUNTIME_FLOW_FINAL_JUDGEMENT
 
+internal fun Group.isSystemGameFlowVictoryCheck(): Boolean =
+    systemGameFlowStep() == GAME_RUNTIME_FLOW_VICTORY_CHECK
+
 internal fun Group.systemGameFlowShouldWaitForUserAction(): Boolean {
     if (!usesSystemGameJudge()) return false
-    if (isSystemGameFlowFinalJudgement()) return true
+    if (isSystemGameFlowFinalJudgement() || isSystemGameFlowVictoryCheck()) return true
     val profile = gameProfile ?: return false
     val seat = userGameSeat() ?: return false
     if (seat.status !in setOf(GameSeatStatus.READY, GameSeatStatus.ALIVE)) return false
@@ -620,38 +625,21 @@ internal fun Group.advanceSystemGameJudgeFlow(
         GAME_RUNTIME_FLOW_EVENT_RESULT,
         GAME_RUNTIME_FLOW_SETTLEMENT,
         -> {
-            val maxRound = roundLimit.coerceIn(1, 8)
-            if (currentRound >= maxRound) {
-                val next = withPhaseAndFlags(
-                    phase = currentGamePhase(),
-                    step = GAME_RUNTIME_FLOW_FINAL_JUDGEMENT,
-                    speechOpen = false,
-                    roundIndex = currentRound,
-                    extraFlags = mapOf(GAME_RUNTIME_FLAG_SYSTEM_EVENT_CURSOR to "0"),
-                )
-                result(
-                    group = next,
-                    text = "【系统法官】全部 $maxRound 轮结束，开始终局裁定。",
-                    triggerText = "终局判定：请根据本局胜负配置、公开发言、行动/投票记录、积分与出局状态，给出最终胜负、关键证据和简短复盘。只能在最终轮结束后裁定胜负。",
-                )
-            } else {
-                val nextRound = currentRound + 1
-                val next = withPhaseAndFlags(
-                    phase = speechPhase ?: votePhase ?: eventPhase,
-                    step = GAME_RUNTIME_FLOW_SPEECH,
-                    speechOpen = false,
-                    roundIndex = nextRound,
-                    extraFlags = mapOf(
-                        GAME_RUNTIME_FLAG_SYSTEM_SPEECH_CURSOR to "0",
-                        GAME_RUNTIME_FLAG_SYSTEM_VOTE_CURSOR to "0",
-                        GAME_RUNTIME_FLAG_SYSTEM_EVENT_CURSOR to "0",
-                    ),
-                )
-                result(
-                    group = next,
-                    text = "【系统法官】第 $nextRound 轮开始。",
-                )
-            }
+            val next = withPhaseAndFlags(
+                phase = currentGamePhase(),
+                step = GAME_RUNTIME_FLOW_VICTORY_CHECK,
+                speechOpen = false,
+                roundIndex = currentRound,
+                extraFlags = mapOf(GAME_RUNTIME_FLAG_SYSTEM_EVENT_CURSOR to "0"),
+            )
+            result(
+                group = next,
+                text = "【系统法官】第 $currentRound 轮结算完成，检查胜利条件。",
+                triggerText = "胜利条件检查：请根据本局胜利条件、当前局势、公开发言、行动/投票记录、积分与出局状态，判断是否已经满足结束条件；若未满足，说明继续下一轮。",
+            )
+        }
+        GAME_RUNTIME_FLOW_VICTORY_CHECK -> {
+            null
         }
         GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> {
             null
@@ -673,6 +661,94 @@ internal fun Group.advanceSystemGameJudgeFlow(
             )
         }
     }
+}
+
+internal fun Group.continueSystemGameAfterVictoryCheck(
+    announcement: String,
+    now: Long = System.currentTimeMillis(),
+): GameRuntimeFlowResolution? {
+    val profile = gameProfile ?: return null
+    if (!usesSystemGameJudge()) return null
+    val state = profile.runtimeState()
+    if (state.flags[GAME_RUNTIME_FLAG_SYSTEM_FLOW_STEP] != GAME_RUNTIME_FLOW_VICTORY_CHECK) return null
+    val currentRound = state.roundIndex.coerceAtLeast(1)
+    val maxRound = roundLimit.coerceIn(1, 8)
+    if (currentRound >= maxRound) return null
+    val nextRound = currentRound + 1
+    val flags = state.flags.toMutableMap()
+    flags[GAME_RUNTIME_FLAG_SYSTEM_FLOW_STEP] = GAME_RUNTIME_FLOW_SPEECH
+    flags[GAME_RUNTIME_FLAG_SPEECH_OPEN] = "false"
+    flags[GAME_RUNTIME_FLAG_SYSTEM_SPEECH_CURSOR] = "0"
+    flags[GAME_RUNTIME_FLAG_SYSTEM_VOTE_CURSOR] = "0"
+    flags[GAME_RUNTIME_FLAG_SYSTEM_EVENT_CURSOR] = "0"
+    flags.remove(GAME_RUNTIME_FLAG_CALLED_SEAT_ID)
+    flags.remove(GAME_RUNTIME_FLAG_ENABLED_USER_ABILITY_IDS)
+    val speechPhaseId = profile.speechPhase()?.id
+        ?: profile.votePhase()?.id
+        ?: profile.eventPhase()?.id
+        ?: profile.currentPhaseId
+    val updated = copy(
+        gameProfile = profile.copy(currentPhaseId = speechPhaseId.orEmpty()).withRuntimeState(
+            state.copy(
+                roundIndex = nextRound,
+                phaseStartedAt = now,
+                flags = flags,
+            ),
+        ),
+        updatedAt = now,
+    )
+    val publicText = listOf(
+        announcement.trim(),
+        "【系统法官】第 $nextRound 轮开始。",
+    ).filter { it.isNotBlank() }.joinToString("\n")
+    val events = gameRuntimeResultEvents(
+        group = updated,
+        publicText = publicText,
+        now = now,
+    )
+    val eventedGroup = updated.withAppendedGameEvents(events, now)
+    return GameRuntimeFlowResolution(
+        group = eventedGroup,
+        publicText = publicText,
+        events = events,
+    )
+}
+
+internal fun Group.finishSystemGameByVictoryCheck(
+    announcement: String,
+    now: Long = System.currentTimeMillis(),
+): GameRuntimeFlowResolution? {
+    val profile = gameProfile ?: return null
+    if (!usesSystemGameJudge()) return null
+    val state = profile.runtimeState()
+    if (state.flags[GAME_RUNTIME_FLAG_SYSTEM_FLOW_STEP] != GAME_RUNTIME_FLOW_VICTORY_CHECK) return null
+    val flags = state.flags.toMutableMap()
+    flags[GAME_RUNTIME_FLAG_SYSTEM_FLOW_STEP] = GAME_RUNTIME_FLOW_FINAL_JUDGEMENT
+    flags[GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE] = "true"
+    flags[GAME_RUNTIME_FLAG_SPEECH_OPEN] = "false"
+    flags.remove(GAME_RUNTIME_FLAG_CALLED_SEAT_ID)
+    flags.remove(GAME_RUNTIME_FLAG_ENABLED_USER_ABILITY_IDS)
+    val updated = copy(
+        gameProfile = profile.withRuntimeState(
+            state.copy(
+                phaseStartedAt = now,
+                flags = flags,
+            ),
+        ),
+        updatedAt = now,
+    )
+    val publicText = announcement.trim().ifBlank { "【胜利判定】本局结束。" }
+    val events = gameRuntimeResultEvents(
+        group = updated,
+        publicText = publicText,
+        now = now,
+    )
+    val eventedGroup = updated.withAppendedGameEvents(events, now)
+    return GameRuntimeFlowResolution(
+        group = eventedGroup,
+        publicText = publicText,
+        events = events,
+    )
 }
 
 internal fun Group.applyGameRuntimeControl(

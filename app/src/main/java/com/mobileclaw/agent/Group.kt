@@ -1,5 +1,9 @@
 package com.mobileclaw.agent
 
+const val GROUP_MEMBER_POSITION_DEBATE_PRO = "debate_pro"
+const val GROUP_MEMBER_POSITION_DEBATE_CON = "debate_con"
+const val GROUP_MEMBER_POSITION_FREE = "free"
+
 enum class GroupMode {
     FREE_CHAT,
     ARENA,
@@ -258,6 +262,7 @@ data class Group(
     val roundLimit: Int = 3,
     val turnStyle: GroupTurnStyle = GroupTurnStyle.BALANCED,
     val autoStart: Boolean = false,
+    val memberPositions: Map<String, String> = emptyMap(),
     val judgeRoleId: String = "",
     val gameProfile: GameProfile? = null,
     val createdAt: Long = System.currentTimeMillis(),
