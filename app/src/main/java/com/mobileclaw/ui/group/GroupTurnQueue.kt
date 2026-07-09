@@ -8,6 +8,8 @@ internal data class PendingGroupTurn(
     val longTask: Boolean,
     val requireResponse: Boolean = false,
     val queuedUserText: String? = null,
+    val channelId: String = GROUP_CHANNEL_PUBLIC,
+    val visibility: String = GROUP_VISIBILITY_PUBLIC,
 )
 
 internal class GroupTurnQueue {

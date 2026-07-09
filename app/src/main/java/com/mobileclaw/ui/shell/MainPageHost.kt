@@ -364,11 +364,15 @@ fun MainPageHost(
         val role = uiState.editingRole
         if (role != null) {
             key(role.id) {
+                val configSnapshot by uiState.config.collectAsState(initial = ConfigSnapshot())
                 RoleEditPage(
                     initial = role,
                     workspaceFiles = uiState.roleWorkspaceFiles,
+                    configSnapshot = configSnapshot,
                     availableModels = uiState.availableModels,
                     modelsLoading = uiState.modelsLoading,
+                    gatewayModels = uiState.gatewayModels,
+                    gatewayModelsLoadingIds = uiState.gatewayModelsLoadingIds,
                     allSkills = uiState.allSkills,
                     onSave = { savedRole, chatProtocol ->
                         vm.saveRoleWithChatProtocol(savedRole, chatProtocol)
@@ -376,6 +380,7 @@ fun MainPageHost(
                     },
                     onRestore = if (role.isBuiltin) ({ vm.restoreBuiltinRole(role.id); vm.navigateBack() }) else null,
                     onFetchModels = { vm.fetchModels() },
+                    onFetchGatewayModels = { vm.fetchGatewayModels(it) },
                     onBack = { vm.navigateBack() },
                 )
             }
@@ -512,6 +517,7 @@ fun MainPageHost(
             GroupChatScreen(
                 group = group,
                 messages = uiState.groupState.messages,
+                gameTimeline = uiState.groupState.gameTimeline,
                 availableRoles = uiState.availableRoles,
                 userAvatarUri = uiState.userAvatarUri,
                 isRunning = uiState.groupState.isRunning,
@@ -521,12 +527,21 @@ fun MainPageHost(
                 historyLoading = uiState.groupState.historyLoading,
                 onLoadMoreHistory = { vm.loadOlderGroupMessages() },
                 onUpdateGroupMembers = { vm.updateGroupMembers(group.id, it) },
-                onSend = { text, attachments -> vm.sendGroupMessage(text, attachments) },
+                onSend = { text, attachments, channelId, visibility ->
+                    vm.sendGroupMessage(text, attachments, channelId, visibility)
+                },
                 onStop = { vm.stopGroupChat() },
                 onBack = { vm.closeGroupChat() },
                 onOpenHtmlViewer = { vm.openHtmlViewer(it) },
                 onOpenBrowser = { vm.navigateToBrowser(it) },
                 onOpenAccessibilitySettings = { vm.navigate(AppPage.SETTINGS) },
+                onPublishGameActionSummary = { vm.publishGameActionSummary(it) },
+                onIgnoreGameAction = { vm.ignoreGameAction(it) },
+                onResolveGamePhaseActions = { vm.resolveCurrentGamePhaseActions() },
+                onAdvanceGamePhase = { vm.advanceGroupGamePhase() },
+                onSubmitGameAction = { abilityId, targetSeatId, reason ->
+                    vm.submitUserGameAction(abilityId, targetSeatId, reason)
+                },
             )
         }
     }

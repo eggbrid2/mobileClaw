@@ -1,21 +1,20 @@
 <div align="center">
 
-<img src="docs/logo.png" alt="MobileClaw" width="150" />
+<img src="docs/logo.png" alt="MobileClaw" width="148" />
 
 # MobileClaw
 
-### An open Android AI agent runtime that can see the screen, control apps, build tools, remember context, and route its own skills.
+### Turn your Android phone into an AI arena.
 
-MobileClaw is an experimental Android app for running LLM agents on a real phone. It sits at the intersection of Android automation, mobile AI agents, accessibility-based phone control, on-device Python tools, multi-agent workflows, and VPN/proxy operations.
+MobileClaw is an Android AI agent lab. This release is about one thing first:
+put different AI roles, providers, and models into the same group game, then
+watch them talk, bluff, vote, eliminate, and expose their limits in public.
 
-The idea is simple: a mobile agent should not just chat about your device. It should be able to observe the screen, choose the right tools, act through Android capabilities, create new workflows, and keep enough memory to improve across tasks.
-
-[![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![Python](https://img.shields.io/badge/Chaquopy-Python%203.11-3776AB?logo=python&logoColor=white)](https://chaquo.com/chaquopy/)
-[![LLM](https://img.shields.io/badge/OpenAI--compatible-111827?logo=openai&logoColor=white)](https://platform.openai.com)
-[![License](https://img.shields.io/badge/License-MIT-22c55e)](LICENSE)
+[![Android](https://img.shields.io/badge/Android-11%2B-111111?logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2-111111?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/Jetpack%20Compose-111111?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![LLM](https://img.shields.io/badge/Multi--Model%20Arena-111111?logo=openai&logoColor=white)](https://github.com/eggbrid2/mobileClaw)
+[![License](https://img.shields.io/badge/License-MIT-111111)](LICENSE)
 
 **[中文 README](README_zh.md)**
 
@@ -23,24 +22,41 @@ The idea is simple: a mobile agent should not just chat about your device. It sh
 
 ---
 
-## Project Status
+## This Release: AI Arena Group Play
 
-MobileClaw is currently going through a UI refresh, so some screens may feel visually inconsistent or rough while the new interface is being rebuilt.
+This is not a normal group chat. It is a phone-sized AI arena.
 
-MobileClaw includes an MCP client skill. The built-in `mcp_client` tool can connect to standard Streamable HTTP or SSE MCP servers and run `initialize`, `tools/list`, and `tools/call`. The skill market also has a `ModelScope MCP` tab: paste a ModelScope MCP SSE endpoint or copied config JSON, add a token, discover server tools, and install them as normal MobileClaw skills.
+Create a room, seat several AI roles, let each role use a different configured
+gateway and model, then start a social game. The system host can call speakers,
+collect votes, hide night actions, announce results, and keep the game moving.
 
-## Recent Updates
+The fun is watching the models collide:
 
-- Unified the app around the minimal black-white AI visual style from the chat home: warm off-white backgrounds, white grouped lists, black primary pills, and restrained mint status accents.
-- Rebuilt role list, role detail, and role edit flows around one role identity image field, role workspace entry, and role package import/export.
-- Added MiniAPP import/export entry points, detail export, long-press delete, and batch delete support.
-- Reworked the Me/settings area into AI base config, general settings, tools, memory/history, and profile-aware AI context.
-- Added a MiniAPP v2 technical plan for a Javet-backed Node runtime, Vue/TS project builds, native bridge boundaries, and portable project packages.
-- Restored Pgyer release integration with automatic update checks, a native update dialog, APK installer handoff, Git-derived versions, and a desktop release script.
+- Which model reasons better?
+- Which one lies better?
+- Which one leads the vote?
+- Which one gets exposed first?
+- Which one survives when the table turns hostile?
 
-## Real Device Demo
+Use it for traitor-hunt games, debate rooms, model-vs-model tests, custom
+elimination games, or pure "AI arena watching" when you just want to see
+different agents fight for the table.
 
-Captured from a Xiaomi device running the debug build. These are real agent runs, not mockups: MobileClaw created and opened a WebView MiniAPP, created a native AI Page, kept a multi-agent group chat with stickers, manages on-device models with vision packs, and exposes its skill/VPN/runtime surfaces.
+## New In This Build
+
+- Game-style group rooms for multi-agent arena play.
+- Roles can choose user-configured gateways and models.
+- System host flow for speaking, voting, hidden actions, and round progression.
+- Vote tally announcements, highest-vote elimination, and eliminated-seat lockout.
+- Safer hidden action handling so night/event actors are not casually leaked.
+- Pgyer update flow is back with native update prompts and APK install handoff.
+
+## Real Device Preview
+
+<p align="center">
+  <img src="docs/media/mobileclaw_real_group_chat.png" alt="MobileClaw multi-agent group chat" width="390" />
+  <img src="docs/media/mobileclaw_groups.png" alt="MobileClaw group creation and group list" width="390" />
+</p>
 
 <p align="center">
   <img src="docs/media/mobileclaw_pocket_synth.gif" alt="MobileClaw creates and runs an interactive Pocket Synth MiniAPP" width="360" />
@@ -51,296 +67,33 @@ Captured from a Xiaomi device running the debug build. These are real agent runs
   <img src="docs/media/mobileclaw_fun_gallery.jpg" alt="MobileClaw real capabilities on device" width="820" />
 </p>
 
-## Community
+## Join The Group
 
-Join the WeChat group to discuss MobileClaw usage, Android agent development, local models, skills, ROM compatibility, and real-device bugs.
+Join the WeChat group to discuss MobileClaw, Android agents, local models,
+multi-agent games, MiniAPPs, skills, ROM compatibility, and real-device bugs.
 
 <p align="center">
-  <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="260" />
+  <img src="docs/media/mobileclaw_wechat_group_qr.png" alt="MobileClaw WeChat group QR code" width="300" />
 </p>
 
-This WeChat group QR code is valid until **July 10, 2026**. If it expires, open the latest README or ask for an updated invite.
+This WeChat group QR code is valid until **July 16, 2026**.
 
-## Why This Exists
+## What Else MobileClaw Can Do
 
-Most mobile AI apps are chat surfaces. MobileClaw is closer to a small operating layer for agents.
+MobileClaw also includes phone-control agents, role management, memory, local
+and cloud model routing, MiniAPPs, native AI pages, skill tools, VPN helpers,
+and a desktop Codex bridge. The group-game release sits on top of that larger
+Android agent runtime.
 
-A user request is turned into a scoped task. The task gets a role, a short plan, a filtered tool set, and an execution loop. That shape is the core of the project:
+Useful docs:
 
-```text
-user goal -> task type -> role scheduler -> planner -> allowed skills -> observe -> act -> verify
-```
-
-This matters because phone automation fails quickly when every tool is always available. MobileClaw keeps phone control, web research, file work, app building, image generation, VPN control, skill management, and code execution in different task modes.
-
-The project is still moving fast. Some pieces are stable enough to use daily; some are research-grade and need device-specific fixes. The code is open because this kind of Android agent needs real devices, real ROM quirks, and real users to become good.
-
-## What Works Today
-
-### Common Use Cases
-
-- Android AI agent for phone control and app automation.
-- VLM-style screen reading with coordinate-based tapping and scrolling.
-- AI assistant that can operate real Android apps through AccessibilityService.
-- Mobile agent runtime with task planning, role routing, and scoped tool injection.
-- Multi-agent group chat with long-running tasks and interruptible work.
-- AI-generated mini apps and native Android pages.
-- Optional on-device local model runtime with downloadable Gemma LiteRT models.
-- Clash/Mihomo subscription import and Android VPN control.
-- Embedded Python execution and dynamic skill creation on Android.
-
-### Phone Control
-
-- Accessibility-based screen reading through XML when Android exposes a useful tree.
-- Vision-first screen reading with `see_screen`, which captures a screenshot, marks interactive targets, and returns coordinates for direct action.
-- Raw `screenshot` fallback when XML is empty or misleading, especially for Flutter, React Native, WebView, and game-like UIs.
-- Tap, long press, scroll, text input, back/home navigation, app launch, installed app listing.
-- A lightweight IME exists for more reliable text insertion paths.
-
-### Background Phone Work
-
-- Hidden virtual display support for launching apps away from the user's main screen.
-- Background screen XML and screenshot tools: `bg_launch`, `bg_read_screen`, `bg_screenshot`, `bg_stop`.
-- ROM-aware setup guidance, plus optional root or one-time ADB activated privileged service for devices that block launching apps onto virtual displays.
-
-### Task Runtime
-
-- `TaskClassifier` maps requests into task types such as `PHONE_CONTROL`, `WEB_RESEARCH`, `APP_BUILD`, `VPN_CONTROL`, `SKILL_MANAGEMENT`, and `CODE_EXECUTION`.
-- `TaskPlanner` makes a planning call before tool execution.
-- `TaskToolPolicy` controls which tools are visible for each task.
-- `RoleScheduler` chooses from built-in and user-created roles.
-- `AgentRuntime` runs a ReAct-style loop with repeated-perception guards, screenshot context trimming, structured observations, and task events.
-
-### Roles And Scheduling
-
-Built-in roles include:
-
-- General assistant
-- Coder
-- Web agent
-- Phone operator
-- Creator
-- Skill admin
-- VPN operator
-
-Roles are not just personas. They can declare preferred task types, keywords, scheduler priority, forced skills, and model overrides. User-created roles participate in the same scheduler.
-
-The role UI is designed around quick task assignment rather than decorative persona editing. The Roles page highlights the current role first, then lists built-in and custom roles with readable capability labels such as code, research, phone control, apps, images, VPN, and skills. Built-in roles are protected as presets: editing them creates a custom copy, while custom roles can be edited directly. Advanced fields such as system prompt addenda, model override, and pinned skills are kept behind an advanced section so normal role creation stays approachable.
-
-### Skills
-
-MobileClaw has a native skill registry with injection levels:
-
-- Level 0: always available for core runtime needs.
-- Level 1: task-aware skills.
-- Level 2: on-demand skills, usually created or promoted by the user.
-
-Built-in skill groups include:
-
-- Phone and perception: `see_screen`, `screenshot`, `read_screen`, `tap`, `scroll`, `input_text`, `navigate`, `list_apps`.
-- Web: `web_search`, `fetch_url`, hidden WebView browsing, page content extraction, JavaScript execution.
-- Files and attachments: create/read/list files, create HTML pages, user storage access, file cards, image/file/html/webpage/search-result attachments.
-- Creation: image generation, video generation, document generation, icon generation.
-- Apps: HTML mini-app creation and native Compose AI page creation.
-- Code: embedded Python execution, runtime pure-Python package install, shell execution, console editing.
-- Memory and user data: semantic memory, user profile facts, user config, skill notes.
-- Meta tools: create skills, generate skills from a description, browse/install marketplace skills, manage roles, switch model, switch role, manage chat sessions.
-- VPN: start/stop/status through `vpn_control`.
-
-Dynamic skills can be Python or HTTP definitions saved under app storage. Native and shell skills are intentionally not generated by the agent through the normal meta-skill path.
-
-### Mini Apps And AI Pages
-
-MobileClaw has two app-building paths:
-
-- HTML mini-apps run inside WebView and get a `Claw` JavaScript bridge for HTTP, SQLite, Python, shell, memory, config, files, clipboard, device info, app launch, URL opening, sharing, and asking the agent.
-- AI Pages are native Compose pages stored as JSON. They render a component DSL and execute action steps such as HTTP, shell, notification, vibration, app launch, open URL, clipboard, intents, phone dialer, SMS composer, alarms, and navigation between pages.
-
-Both are created from chat through skills. Mini apps are good for fast web-like tools. AI Pages are better when a workflow should feel native.
-
-Follow-up edits keep artifact context. If the user asks to change "that page" after creating an AI Page, MobileClaw carries the recent page ID into the next task and routes the update back through `ui_builder` instead of falling back to one-off HTML.
-
-### VPN And Proxy Runtime
-
-MobileClaw includes a VPN stack designed for Android agent use:
-
-- Clash/Mihomo subscription import.
-- Raw YAML is stored so runtime configs can be rebuilt without resubscribing every time.
-- Supported parsed proxy types include HTTP, SOCKS5, Shadowsocks, SSR from YAML, VMess, Trojan, and VLESS.
-- Node latency is tested through short-lived mihomo processes.
-- Runtime config is built around a selected node and `MATCH,GLOBAL`.
-- Android `VpnService` creates the TUN interface.
-- mihomo provides the local mixed proxy.
-- `hev-socks5-tunnel` bridges Android TUN traffic to mihomo.
-- App HTTP and WebView traffic can use the active proxy path.
-
-This stack does not use Xray. mihomo handles the proxy protocols; hev is kept because Android still needs a TUN-to-SOCKS bridge.
-
-### Chat, Group Chat, And Attachments
-
-- Normal chat supports text, image attachment, file attachment, streaming output, task logs, details sheets, collapsed long content, and separate attachment messages.
-- Group chat supports user and AI attachments.
-- Group chat has a small task pool. A long task occupies its agent and one pool slot, not the whole group.
-- Agents can be interrupted by newer user turns when capacity is available.
-- Group chat roles can own their own bubble style. Agents are encouraged to choose native Markdown bubbles by default, then tune presets, text color, font family, font weight, font size, gradients, background images, patterns, emotion fields, per-corner radius, padding, shadows, small decorations, and lightweight text/border animations.
-- Roles may opt into HTML bubble rendering only when native Markdown styling is not expressive enough. HTML bubbles support custom templates, height, transparent backgrounds, optional JavaScript, and optional network images, but native rendering remains the preferred path for performance and app-like consistency.
-- Built-in ChineseBQB stickers can be searched or favorited from a thumbnail grid. Selecting a sticker sends it directly as a sticker/image message instead of staging it as a generic attachment.
-
-### Memory
-
-- Semantic memory stores durable key-value facts.
-- Conversation memory stores recent user and assistant messages.
-- Episodic memory records task outcomes, skills used, and reflections, then retrieves similar past tasks through a local character n-gram embedder.
-- User profile extraction writes structured profile facts into semantic memory.
-- Working memory trims task steps to keep the active prompt bounded.
-
-### Local Models
-
-MobileClaw can run selected on-device models through LiteRT-LM:
-
-- Local model management lives in Settings, with download, import, delete, enable, and model selection controls.
-- Built-in download choices include Gemma 4 E2B and Gemma 4 E4B LiteRT-LM packages.
-- Multimodal `.task` resource packages can be downloaded or imported separately while the current Android LiteRT-LM chat path uses `.litertlm` text runtime files.
-- Model downloads support multiple sources: Hugging Face, ModelScope, and a user-provided custom direct URL.
-- Hugging Face tokens are supported for official Hugging Face downloads, but are not sent to domestic mirrors or custom URLs.
-- Local chat is used for text-only requests when enabled. Tool calls, image input, web access, or unavailable local models automatically fall back to the configured cloud endpoint when possible.
-
-### Local And LAN APIs
-
-- A loopback API server exposes skills, dynamic skill install/delete, memory, and config to local HTTP skills.
-- A LAN console server exposes a browser UI, SSE task events, session/message APIs, skill export/import APIs, memory/config APIs, and a downloadable OpenClaw CLI script.
-- The console page can be edited by the agent through `console_editor`.
-
-## Codex Bridge, Pgyer Releases, And Versioning
-
-This group of features connects MobileClaw on the phone to desktop Codex, and lets the app check and install Pgyer-published APK updates.
-
-### Pgyer Release And Auto Update
-
-MobileClaw includes a native `pgyer_release` skill:
-
-- `status`: checks whether release-channel credentials are configured.
-- `check_update` / `update`: calls the Pgyer update-check API.
-- `download`: downloads the latest APK and opens Android's package installer, or falls back to the Pgyer install page.
-- `upload`: uploads a local APK path from the phone when explicitly requested.
-
-The app checks for updates once per launch. If Pgyer reports a newer build, MobileClaw shows a compact black-white update dialog with current version, release version, release notes, and an update button. Android may still ask the user to allow installs from MobileClaw before opening the system installer.
-
-For local desktop builds, keep secrets in `local.properties` or environment variables; do not commit them:
-
-```text
-pgyer.api_key = Pgyer API Key
-pgyer.app_key = Pgyer App Key
-pgyer.user_key = Pgyer User Key, optional for current API calls
-```
-
-The same values can be injected with:
-
-```bash
-PGYER_API_KEY="Pgyer API Key" \
-PGYER_APP_KEY="Pgyer App Key" \
-PGYER_USER_KEY="Pgyer User Key" \
-./gradlew :app:assembleDebug
-```
-
-The desktop release helper uses Pgyer's current COS upload flow:
-
-```bash
-PGYER_API_KEY="Pgyer API Key" \
-python3 scripts/pgyer_release.py build-upload --gradle-task assembleDebug --notes "MobileClaw 0.5.0"
-```
-
-If an APK already exists:
-
-```bash
-PGYER_API_KEY="Pgyer API Key" \
-python3 scripts/pgyer_release.py upload --apk app/build/outputs/apk/debug/app-debug.apk
-```
-
-To check the published version:
-
-```bash
-PGYER_API_KEY="Pgyer API Key" \
-PGYER_APP_KEY="Pgyer App Key" \
-python3 scripts/pgyer_release.py check
-```
-
-### Git Version Source
-
-Android versions are generated from Git:
-
-```text
-versionName = git describe --tags --always --dirty
-versionCode = git rev-list --count HEAD
-```
-
-The same values are also exposed through:
-
-```text
-BuildConfig.GIT_VERSION
-BuildConfig.GIT_COMMIT
-BuildConfig.GIT_BRANCH
-```
-
-This keeps the in-app update check, Pgyer release script, GitHub tags, and visible app version aligned. A dirty workspace adds `-dirty` to `versionName`, so release APKs should be built after committing and tagging.
-
-## Architecture
-
-```text
-app/src/main/java/com/mobileclaw
-├─ agent
-│  ├─ TaskSession.kt       task types, task plans, tool policy
-│  ├─ AgentRuntime.kt      ReAct loop and task events
-│  ├─ AgentContext.kt      prompt construction
-│  ├─ Role.kt              built-in roles and role metadata
-│  └─ RoleScheduler.kt     automatic role routing
-├─ skill
-│  ├─ SkillRegistry.kt     registration, injection levels, overrides
-│  ├─ SkillLoader.kt       dynamic Python/HTTP skill persistence
-│  ├─ builtin/             native skills
-│  └─ executor/            Python, HTTP, shell executors
-├─ perception
-│  ├─ ClawAccessibilityService.kt
-│  ├─ ScreenshotController.kt
-│  ├─ ActionController.kt
-│  ├─ VirtualDisplayManager.kt
-│  └─ ClawIME.kt
-├─ ui
-│  ├─ ChatScreen.kt        main chat
-│  ├─ GroupChatScreen.kt   multi-agent group chat
-│  ├─ DynamicUiRenderer.kt inline generated UI blocks
-│  ├─ MiniAppActivity.kt   WebView mini apps
-│  └─ aipage/              native AI page runtime
-├─ vpn
-│  ├─ VpnManager.kt
-│  ├─ ClashParser.kt
-│  ├─ MihomoConfigBuilder.kt
-│  ├─ MihomoProcess.kt
-│  └─ ClawVpnService.kt
-├─ llm
-│  ├─ OpenAiGateway.kt     OpenAI-compatible cloud gateway
-│  ├─ LocalGemmaGateway.kt LiteRT-LM local gateway
-│  └─ LocalModelManager.kt local model download/import/delete
-├─ memory
-│  ├─ SemanticMemory.kt
-│  ├─ EpisodicMemory.kt
-│  ├─ ConversationMemory.kt
-│  └─ UserProfileExtractor.kt
-└─ server
-   ├─ ConsoleServer.kt
-   ├─ LocalApiServer.kt
-   ├─ PrivilegedServer.kt
-   └─ PrivilegedClient.kt
-```
+- [Quickstart](docs/quickstart.md)
+- [Group chat creation design](docs/group-chat-creation-design.md)
+- [Game mode design](docs/group-chat-game-mode-design.md)
+- [Game module boundary](docs/group-chat-game-module-boundary.md)
+- [MiniAPP Javet/Node runtime plan](docs/miniapp-javet-node-runtime-plan.md)
 
 ## Build
-
-Requirements:
-
-- Android Studio Ladybug or newer
-- JDK 21
-- Android 11+ device or emulator
-- An OpenAI-compatible chat endpoint and API key
 
 ```bash
 git clone https://github.com/eggbrid2/mobileClaw.git
@@ -354,56 +107,16 @@ Debug APK:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The helper script uses Android Studio's bundled JBR 21 when available and sets
-`NO_PROXY=*` for Chaquopy/pip so stale local proxy variables do not break Python
-dependency downloads. If you build directly from Android Studio, set the Gradle
-JDK to JBR 21 and add `NO_PROXY=*` to the Gradle environment when your shell or
-IDE exports proxy variables.
+## Pgyer Release Helper
 
-The app uses Kotlin 2.2, Jetpack Compose, Room, DataStore, WebView, OkHttp, Gson, Jsoup, SnakeYAML, Chaquopy Python 3.11, LiteRT-LM, mihomo, and hev-socks5-tunnel.
+```bash
+python3 scripts/pgyer_release.py build-upload \
+  --gradle-task assembleDebug \
+  --notes "MobileClaw AI arena group play release"
+```
 
-## Project Docs
-
-- [Quickstart](docs/quickstart.md)
-- [Contribution guide](CONTRIBUTING.md)
-- [Roadmap](ROADMAP.md)
-- [Privacy notes](PRIVACY.md)
-- [Security policy](SECURITY.md)
-- Recipes:
-  - [Phone control smoke test](docs/recipes/phone-control.md)
-  - [Small skill contribution](docs/recipes/skill-authoring.md)
-  - [ROM compatibility report](docs/recipes/rom-compatibility-report.md)
-
-## Permissions And Device Notes
-
-MobileClaw works by turning user-authorized Android capabilities into explicit agent tools. Depending on the feature, it may ask for:
-
-- Accessibility service access for screen reading, screenshots, gestures, and input.
-- VPN permission for Android `VpnService`.
-- Notification permission for foreground VPN state and AI Page notifications.
-- File and media access for user-selected attachments and user storage tools.
-- Overlay/background-related permissions for long-running and visual assistant features.
-- Optional ADB activation for the privileged virtual-display helper on ROMs that block standard APIs.
-
-Root is not a baseline requirement. Some background-display features may still need ROM-specific setup, root, or the bundled shell-uid helper.
-
-## Good First Areas To Improve
-
-- More robust UI automation on non-standard Android views.
-- Better VLM grounding and action verification.
-- Safer dynamic skill review and promotion.
-- Better task policies and role scheduling heuristics.
-- More reproducible VPN subscription and mihomo edge cases.
-- ROM compatibility reports for virtual display launch behavior.
-- Better docs, demos, and small role/skill presets.
-
-Before opening a PR, read [CONTRIBUTING.md](CONTRIBUTING.md). For device-specific behavior, use the ROM compatibility issue template and include the checklist from [docs/recipes/rom-compatibility-report.md](docs/recipes/rom-compatibility-report.md).
-
-## Status
-
-MobileClaw is not a polished assistant product. It is an open-source Android agent lab with a working app around it. Expect sharp edges, especially around device permissions, ROM policies, VPN configs, and long-running automation.
-
-If you contribute, keep behavior inspectable. Small, understandable tools are better than magic.
+Keep Pgyer secrets in `local.properties`, `.pgyer.env`, or environment
+variables. Do not commit them.
 
 ## License
 

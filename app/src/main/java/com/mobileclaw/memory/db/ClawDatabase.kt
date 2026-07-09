@@ -172,6 +172,44 @@ private val MIGRATION_11_12 = object : Migration(11, 12) {
     }
 }
 
+private val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.addColumnIfMissing("group_messages", "channelId", "TEXT NOT NULL DEFAULT 'public'")
+        db.addColumnIfMissing("group_messages", "visibility", "TEXT NOT NULL DEFAULT 'public'")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_messages_groupId_channelId_createdAt ON group_messages(groupId, channelId, createdAt)")
+    }
+}
+
+private val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS group_game_events (" +
+                "id TEXT PRIMARY KEY NOT NULL, " +
+                "groupId TEXT NOT NULL, " +
+                "type TEXT NOT NULL, " +
+                "roundIndex INTEGER NOT NULL DEFAULT 1, " +
+                "phaseId TEXT NOT NULL DEFAULT '', " +
+                "actorSeatId TEXT NOT NULL DEFAULT '', " +
+                "actorRoleId TEXT NOT NULL DEFAULT '', " +
+                "actorName TEXT NOT NULL DEFAULT '', " +
+                "abilityId TEXT NOT NULL DEFAULT '', " +
+                "targetSeatIdsJson TEXT NOT NULL DEFAULT '[]', " +
+                "targetActorIdsJson TEXT NOT NULL DEFAULT '[]', " +
+                "targetName TEXT NOT NULL DEFAULT '', " +
+                "actionRecordId TEXT NOT NULL DEFAULT '', " +
+                "channelId TEXT NOT NULL DEFAULT '', " +
+                "visibility TEXT NOT NULL DEFAULT 'public', " +
+                "text TEXT NOT NULL DEFAULT '', " +
+                "resultText TEXT NOT NULL DEFAULT '', " +
+                "metadataJson TEXT NOT NULL DEFAULT '{}', " +
+                "createdAt INTEGER NOT NULL)"
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_game_events_groupId_createdAt_id ON group_game_events(groupId, createdAt, id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_game_events_groupId_type_createdAt ON group_game_events(groupId, type, createdAt)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_group_game_events_actionRecordId ON group_game_events(actionRecordId)")
+    }
+}
+
 private fun SupportSQLiteDatabase.addColumnIfMissing(table: String, column: String, definition: String) {
     query("PRAGMA table_info(`$table`)").use { cursor ->
         val nameIndex = cursor.getColumnIndex("name")
@@ -229,10 +267,11 @@ private val MIGRATION_2_3 = object : Migration(2, 3) {
         SessionEntity::class,
         SessionMessageEntity::class,
         GroupMessageEntity::class,
+        GroupGameEventEntity::class,
         SubscriptionEntity::class,
         VideoGenerationTaskEntity::class,
     ],
-    version = 12,
+    version = 14,
     exportSchema = true,
 )
 abstract class ClawDatabase : RoomDatabase() {
@@ -242,6 +281,7 @@ abstract class ClawDatabase : RoomDatabase() {
     abstract fun sessionDao(): SessionDao
     abstract fun sessionMessageDao(): SessionMessageDao
     abstract fun groupMessageDao(): GroupMessageDao
+    abstract fun groupGameEventDao(): GroupGameEventDao
     abstract fun subscriptionDao(): SubscriptionDao
     abstract fun videoGenerationTaskDao(): VideoGenerationTaskDao
 
@@ -266,6 +306,8 @@ abstract class ClawDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
+                    MIGRATION_13_14,
                 )
                 .build().also { INSTANCE = it }
             }

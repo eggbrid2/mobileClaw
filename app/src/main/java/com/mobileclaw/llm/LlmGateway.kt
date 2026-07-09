@@ -14,7 +14,21 @@ data class ChatRequest(
     val stream: Boolean = true,
     val onToken: ((String) -> Unit)? = null,      // regular content tokens
     val onThinkToken: ((String) -> Unit)? = null, // reasoning_content / <think> tokens
+    val callOptions: LlmCallOptions = LlmCallOptions(),
 )
+
+data class LlmCallOptions(
+    val gatewayId: String? = null,
+    val model: String? = null,
+    val localModelId: String? = null,
+    val forceLocal: Boolean = false,
+) {
+    val hasCloudOverride: Boolean
+        get() = !gatewayId.isNullOrBlank() || !model.isNullOrBlank()
+
+    val hasLocalOverride: Boolean
+        get() = forceLocal || !localModelId.isNullOrBlank()
+}
 
 data class Message(
     val role: String,           // "system" | "user" | "assistant" | "tool"

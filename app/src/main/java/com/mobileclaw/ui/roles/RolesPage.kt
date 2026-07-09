@@ -61,6 +61,7 @@ import com.mobileclaw.R
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.TaskType
+import com.mobileclaw.agent.effectiveModelBinding
 import com.mobileclaw.town.AgentRoom
 import com.mobileclaw.town.RoomFurniture
 import com.mobileclaw.town.AgentTownState
@@ -292,7 +293,7 @@ private fun CurrentRolePanel(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, color = c.text, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = if (isWorking) str(R.string.role_card_generating) else roleRoleSummary(role, room, isZh),
+                    text = if (isWorking) str(R.string.role_card_generating) else roleListSummary(role, room, isZh),
                     color = c.subtext,
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
@@ -407,7 +408,7 @@ private fun RoleListCard(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(role.name.ifBlank { str(R.string.role_card_unnamed) }, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                text = roleRoleSummary(role, room, isZh),
+                text = roleListSummary(role, room, isZh),
                 fontSize = 11.sp,
                 color = c.subtext,
                 maxLines = 1,
@@ -452,6 +453,42 @@ private fun roleRoleSummary(role: Role, room: AgentRoom?, isZh: Boolean): String
     room?.motto?.takeIf { it.isNotBlank() }
         ?: role.preferredTaskTypes.take(3).joinToString(if (isZh) "、" else ", ") { it.roleTaskLabel(isZh) }.takeIf { it.isNotBlank() }
         ?: role.description.ifBlank { if (isZh) "全局助手" else "General assistant" }
+
+private fun roleListSummary(role: Role, room: AgentRoom?, isZh: Boolean): String {
+    val base = roleRoleSummary(role, room, isZh)
+    val binding = role.effectiveModelBinding() ?: return base
+    val model = roleModelBindingLabel(role, isZh, showDefault = false).takeIf { it.isNotBlank() }
+        ?: binding.legacyModelOverride().orEmpty()
+    return if (model.isBlank()) base else "$base · $model"
+}
+
+private fun roleModelBindingLabel(role: Role, isZh: Boolean, showDefault: Boolean = true): String {
+    val binding = role.effectiveModelBinding()?.normalized()
+        ?: return if (showDefault) {
+            if (isZh) "跟随默认网关" else "Follow default gateway"
+        } else {
+            ""
+        }
+    return when {
+        binding.localModelId.isNotBlank() ->
+            (if (isZh) "本地" else "Local") + " / " + binding.localModelId.removePrefix("local:")
+        binding.gatewayName.isNotBlank() && binding.model.isNotBlank() ->
+            "${binding.gatewayName} / ${binding.model}"
+        binding.gatewayId.isNotBlank() && binding.model.isNotBlank() ->
+            "${binding.gatewayId} / ${binding.model}"
+        binding.gatewayName.isNotBlank() ->
+            binding.gatewayName + " / " + if (isZh) "默认模型" else "Default model"
+        binding.gatewayId.isNotBlank() ->
+            binding.gatewayId + " / " + if (isZh) "默认模型" else "Default model"
+        binding.model.isNotBlank() ->
+            (if (isZh) "默认网关" else "Default gateway") + " / " + binding.model
+        else -> if (showDefault) {
+            if (isZh) "跟随默认网关" else "Follow default gateway"
+        } else {
+            ""
+        }
+    }
+}
 
 private fun roleDotBrush(role: Role, accent: Color): Brush {
     return when (role.avatar) {
@@ -509,7 +546,7 @@ fun RoleDetailPage(
         .takeIf { it.isNotEmpty() }
         ?.joinToString(" / ") { it.roleTaskLabel(isZh) }
         ?: if (isZh) "通用对话 / 按任务自动判断" else "General chat / auto-routed"
-    val modelText = role.modelOverride?.takeIf { it.isNotBlank() } ?: str(R.string.role_edit_b11de2)
+    val modelText = roleModelBindingLabel(role, isZh)
     val skillText = role.forcedSkillIds
         .takeIf { it.isNotEmpty() }
         ?.take(8)

@@ -30,7 +30,10 @@ class LocalGemmaGateway(
 
     override suspend fun chat(request: ChatRequest): ChatResponse = withContext(Dispatchers.IO) {
         val startedAt = System.currentTimeMillis()
-        val requestedModelId = modelIdProvider().removePrefix("local:")
+        val requestedModelId = request.callOptions.localModelId
+            ?.takeIf { it.isNotBlank() }
+            ?.removePrefix("local:")
+            ?: modelIdProvider().removePrefix("local:")
         val modelId = if (request.imageBase64Present()) {
             requestedModelId
         } else {
@@ -247,6 +250,18 @@ class HybridLlmGateway(
 ) : LlmGateway {
     override suspend fun chat(request: ChatRequest): ChatResponse {
         val localizedRequest = request.withResponseLanguage(language())
+        if (localizedRequest.callOptions.hasLocalOverride) {
+            return runCatching { local.chat(localizedRequest) }.getOrElse { e ->
+                ChatResponse(content = if (normalizedResponseLanguage(language()) == "en") {
+                    "The role-selected local model call failed: ${e.message}\nPlease confirm that the selected local model is installed and runnable."
+                } else {
+                    "角色指定的本地模型调用失败：${e.message}\n请确认该本地模型已经安装并可运行。"
+                })
+            }
+        }
+        if (localizedRequest.callOptions.hasCloudOverride) {
+            return cloud.chat(localizedRequest)
+        }
         if (nativeOnly()) {
             return runCatching { local.chat(localizedRequest) }.getOrElse { e ->
                 ChatResponse(content = if (normalizedResponseLanguage(language()) == "en") {

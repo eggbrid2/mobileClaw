@@ -11,6 +11,7 @@ data class Role(
     val avatar: String,                         // single role image URI/path/data URI or role icon key, never emoji
     val systemPromptAddendum: String = "",
     val forcedSkillIds: List<String> = emptyList(),
+    val modelBinding: RoleModelBinding? = null,
     val modelOverride: String? = null,
     val preferredTaskTypes: List<TaskType> = emptyList(),
     val keywords: List<String> = emptyList(),
@@ -94,6 +95,46 @@ data class Role(
             ),
         )
     }
+}
+
+data class RoleModelBinding(
+    val gatewayId: String = "",
+    val gatewayName: String = "",
+    val model: String = "",
+    val localModelId: String = "",
+) {
+    fun normalized(): RoleModelBinding = copy(
+        gatewayId = gatewayId.trim(),
+        gatewayName = gatewayName.trim(),
+        model = model.trim(),
+        localModelId = localModelId.trim().removePrefix("local:"),
+    )
+
+    fun isEmpty(): Boolean =
+        gatewayId.isBlank() && gatewayName.isBlank() && model.isBlank() && localModelId.isBlank()
+
+    fun legacyModelOverride(): String? = when {
+        localModelId.isNotBlank() -> "local:${localModelId.removePrefix("local:")}"
+        model.isNotBlank() -> model
+        else -> null
+    }
+
+    companion object {
+        fun fromLegacy(modelOverride: String?): RoleModelBinding? {
+            val model = modelOverride?.trim().orEmpty()
+            if (model.isBlank()) return null
+            return if (model.startsWith("local:")) {
+                RoleModelBinding(localModelId = model.removePrefix("local:"))
+            } else {
+                RoleModelBinding(model = model)
+            }
+        }
+    }
+}
+
+fun Role.effectiveModelBinding(): RoleModelBinding? {
+    val binding = modelBinding?.normalized()?.takeUnless { it.isEmpty() }
+    return binding ?: RoleModelBinding.fromLegacy(modelOverride)
 }
 
 fun Role.localizedName(language: String): String {

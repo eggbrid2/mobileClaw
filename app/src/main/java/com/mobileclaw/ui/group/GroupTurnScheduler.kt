@@ -1,5 +1,8 @@
 package com.mobileclaw.ui.group
 
+import com.mobileclaw.agent.Group
+import com.mobileclaw.agent.GroupMode
+import com.mobileclaw.agent.GroupTurnStyle
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleScheduler
 import com.mobileclaw.agent.TaskType
@@ -10,6 +13,8 @@ internal data class GroupTurnLaunch(
     val chainDepth: Int = 0,
     val longTask: Boolean = false,
     val triggerText: String = "",
+    val channelId: String = GROUP_CHANNEL_PUBLIC,
+    val visibility: String = GROUP_VISIBILITY_PUBLIC,
     val requireResponse: Boolean = false,
 )
 
@@ -34,13 +39,21 @@ internal class GroupTurnScheduler(
 
     fun isEmpty(): Boolean = pendingTurns.isEmpty()
 
-    suspend fun buildInitialTurns(allMembers: List<Role>, userText: String): List<GroupTurnLaunch> {
+    suspend fun buildInitialTurns(
+        group: Group,
+        allMembers: List<Role>,
+        userText: String,
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
+    ): List<GroupTurnLaunch> {
+        val candidateMembers = group.runtimeCandidateMembers(allMembers)
+        if (candidateMembers.isEmpty()) return emptyList()
         val taskType = resolveTaskType(userText)
         val schedulingText = buildMemoryContext(userText, taskType)
         if (taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH)) {
-            val selected = RoleScheduler.schedule(taskType, schedulingText, allMembers, allMembers.first()).role
-                .takeIf { role -> allMembers.any { it.id == role.id } }
-                ?: allMembers.first()
+            val selected = RoleScheduler.schedule(taskType, schedulingText, candidateMembers, candidateMembers.first()).role
+                .takeIf { role -> candidateMembers.any { it.id == role.id } }
+                ?: candidateMembers.first()
             return listOf(
                 GroupTurnLaunch(
                     role = selected,
@@ -48,6 +61,8 @@ internal class GroupTurnScheduler(
                     chainDepth = 0,
                     longTask = true,
                     triggerText = userText,
+                    channelId = channelId,
+                    visibility = visibility,
                     requireResponse = true,
                 ),
             )
@@ -55,24 +70,28 @@ internal class GroupTurnScheduler(
 
         val mentioned = parseMentions(userText)
         if (mentioned.isNotEmpty()) {
-            return allMembers
+            return candidateMembers
                 .filter { role -> mentioned.any { mention -> role.name.contains(mention, ignoreCase = true) || mention.contains(role.name, ignoreCase = true) } }
+                .ifEmpty { candidateMembers.take(1) }
                 .mapIndexed { index, role ->
                     GroupTurnLaunch(
                         role = role,
                         delayMs = 0,
-                        chainDepth = 5,
+                        chainDepth = group.initialChainDepth(),
                         triggerText = userText,
+                        channelId = channelId,
+                        visibility = visibility,
                         requireResponse = index == 0,
                     )
                 }
         }
 
-        val shuffled = allMembers.shuffled()
+        val shuffled = candidateMembers.shuffled()
         val activeCount = when {
             shuffled.size <= 1 -> 1
-            shouldInviteMultipleGroupVoices(userText) -> minOf(2, shuffled.size)
-            else -> initialFanOut
+            shouldInviteMultipleGroupVoices(userText) -> minOf(group.maxInitialVoices().coerceAtLeast(2), shuffled.size)
+            group.mode != GroupMode.FREE_CHAT -> minOf(group.maxInitialVoices(), shuffled.size)
+            else -> minOf(group.maxInitialVoices(), shuffled.size)
         }
         return shuffled.take(activeCount).mapIndexed { idx, role ->
             GroupTurnLaunch(
@@ -82,26 +101,42 @@ internal class GroupTurnScheduler(
                     1 -> (1500L..3000L).random()
                     else -> (3000L..5500L).random()
                 },
-                chainDepth = if (idx == 0) 5 else 2,
+                chainDepth = if (idx == 0) group.initialChainDepth() else group.secondaryChainDepth(),
                 triggerText = userText,
+                channelId = channelId,
+                visibility = visibility,
                 requireResponse = idx == 0,
             )
         }
     }
 
-    suspend fun enqueueUserTurn(allMembers: List<Role>, userText: String): List<String> {
+    suspend fun enqueueUserTurn(
+        group: Group,
+        allMembers: List<Role>,
+        userText: String,
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
+    ): List<String> {
+        val candidateMembers = group.runtimeCandidateMembers(allMembers)
+        if (candidateMembers.isEmpty()) return snapshotPendingMessages()
         val taskType = resolveTaskType(userText)
         val schedulingText = buildMemoryContext(userText, taskType)
         val mentioned = parseMentions(userText)
         val targets = when {
             taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH) -> {
-                val selected = RoleScheduler.schedule(taskType, schedulingText, allMembers, allMembers.first()).role
-                listOfNotNull(allMembers.firstOrNull { it.id == selected.id } ?: allMembers.firstOrNull())
+                val selected = RoleScheduler.schedule(taskType, schedulingText, candidateMembers, candidateMembers.first()).role
+                listOfNotNull(candidateMembers.firstOrNull { it.id == selected.id } ?: candidateMembers.firstOrNull())
             }
-            mentioned.isNotEmpty() -> allMembers.filter { role ->
+            mentioned.isNotEmpty() -> candidateMembers.filter { role ->
                 mentioned.any { mention -> role.name.contains(mention, ignoreCase = true) || mention.contains(role.name, ignoreCase = true) }
-            }
-            else -> allMembers.shuffled().take(if (shouldInviteMultipleGroupVoices(userText)) minOf(2, allMembers.size) else 1)
+            }.ifEmpty { candidateMembers.take(1) }
+            else -> candidateMembers.shuffled().take(
+                if (shouldInviteMultipleGroupVoices(userText) || group.mode != GroupMode.FREE_CHAT) {
+                    minOf(group.maxInitialVoices(), candidateMembers.size)
+                } else {
+                    1
+                },
+            )
         }
 
         targets.forEach { role ->
@@ -109,11 +144,13 @@ internal class GroupTurnScheduler(
                 PendingGroupTurn(
                     roleId = role.id,
                     triggerText = userText,
-                    chainDepth = if (mentioned.isNotEmpty()) 3 else 1,
+                    chainDepth = if (mentioned.isNotEmpty()) 3 else group.secondaryChainDepth(),
                     priority = 100,
                     longTask = taskType !in listOf(TaskType.CHAT, TaskType.GENERAL, TaskType.WEB_RESEARCH),
                     requireResponse = true,
                     queuedUserText = userText,
+                    channelId = channelId,
+                    visibility = visibility,
                 ),
             )
         }
@@ -126,6 +163,8 @@ internal class GroupTurnScheduler(
         chainDepth: Int,
         longTask: Boolean,
         requireResponse: Boolean,
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
     ): List<String> {
         pendingTurns.addLast(
             PendingGroupTurn(
@@ -136,6 +175,8 @@ internal class GroupTurnScheduler(
                 longTask = longTask,
                 requireResponse = requireResponse,
                 queuedUserText = triggerText.takeIf { requireResponse && it.isNotBlank() },
+                channelId = channelId,
+                visibility = visibility,
             ),
         )
         return snapshotPendingMessages()
@@ -149,9 +190,14 @@ internal class GroupTurnScheduler(
         if (stopped) return GroupTurnDrainBatch(emptyList(), snapshotPendingMessages())
 
         val launches = mutableListOf<GroupTurnLaunch>()
+        val allowedRoleIds = allMembers.map { it.id }.toSet()
         val availableSlots = (taskPoolLimit - busyRoleIds.size).coerceAtLeast(0)
         repeat(availableSlots) {
-            val nextTurn = pendingTurns.pollHighestPriority { roleId -> roleId !in busyRoleIds && launches.none { launch -> launch.role.id == roleId } }
+            val nextTurn = pendingTurns.pollHighestPriority { roleId ->
+                roleId in allowedRoleIds &&
+                    roleId !in busyRoleIds &&
+                    launches.none { launch -> launch.role.id == roleId }
+            }
                 ?: return@repeat
             val nextRole = allMembers.firstOrNull { it.id == nextTurn.roleId } ?: return@repeat
             launches += GroupTurnLaunch(
@@ -159,9 +205,37 @@ internal class GroupTurnScheduler(
                 chainDepth = nextTurn.chainDepth,
                 longTask = nextTurn.longTask,
                 triggerText = nextTurn.triggerText,
+                channelId = nextTurn.channelId,
+                visibility = nextTurn.visibility,
                 requireResponse = nextTurn.requireResponse,
             )
         }
         return GroupTurnDrainBatch(launches = launches, pendingMessages = snapshotPendingMessages())
+    }
+
+    private fun Group.maxInitialVoices(): Int {
+        val styleCount = when (turnStyle) {
+            GroupTurnStyle.QUIET -> 1
+            GroupTurnStyle.BALANCED -> if (mode == GroupMode.FREE_CHAT) initialFanOut else 2
+            GroupTurnStyle.ACTIVE -> if (mode == GroupMode.FREE_CHAT) 2 else 3
+        }
+        return styleCount.coerceAtLeast(1)
+    }
+
+    private fun Group.initialChainDepth(): Int = when (turnStyle) {
+        GroupTurnStyle.QUIET -> if (mode == GroupMode.FREE_CHAT) 2 else 3
+        GroupTurnStyle.BALANCED -> if (mode == GroupMode.FREE_CHAT) 5 else 6
+        GroupTurnStyle.ACTIVE -> if (mode == GroupMode.FREE_CHAT) 6 else 7
+    }
+
+    private fun Group.secondaryChainDepth(): Int = when (turnStyle) {
+        GroupTurnStyle.QUIET -> 1
+        GroupTurnStyle.BALANCED -> if (mode == GroupMode.FREE_CHAT) 2 else 3
+        GroupTurnStyle.ACTIVE -> if (mode == GroupMode.FREE_CHAT) 3 else 4
+    }
+
+    private fun Group.runtimeCandidateMembers(allMembers: List<Role>): List<Role> {
+        val allowedIds = allowedRuntimeResponderRoleIds() ?: return allMembers
+        return allMembers.filter { it.id in allowedIds }
     }
 }

@@ -6,12 +6,14 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleManager
+import com.mobileclaw.agent.RoleModelBinding
 import com.mobileclaw.agent.RolePackageImportOptions
 import com.mobileclaw.agent.RolePackageStore
 import com.mobileclaw.agent.RoleAvatarDefaults
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChatBubbleDecoration
 import com.mobileclaw.agent.TaskType
+import com.mobileclaw.agent.effectiveModelBinding
 import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.skill.Skill
 import com.mobileclaw.skill.SkillMeta
@@ -39,7 +41,7 @@ class RoleManagerSkill(
         name = "Role Manager",
         description = "Create, list, update, delete, and activate agent roles (personas). " +
             "Each role has one role image field (avatar image/icon key), name, description, optional system prompt addendum, " +
-            "scheduler keywords, preferred task types, forced skill IDs, optional model override, and open group chat bubble theme DSL. " +
+            "scheduler keywords, preferred task types, forced skill IDs, optional gateway/model binding, and open group chat bubble theme DSL. " +
             "Use an image path/content URI/data URI, or a role icon key like role:custom. This single field is used everywhere the role image appears. " +
             "Actions: list, create, update, delete, activate, export_package, import_package.",
         parameters = listOf(
@@ -54,6 +56,9 @@ class RoleManagerSkill(
             SkillParam("scheduler_priority", "number", "Optional scheduling priority. Higher wins when roles are otherwise similar.", required = false),
             SkillParam("forced_skills", "string", "Comma-separated skill IDs that are always injected with this role (e.g. 'shell,web_search')", required = false),
             SkillParam("model_override", "string", "Optional model ID to use when this role is active (e.g. 'gpt-4o')", required = false),
+            SkillParam("gateway_id", "string", "Optional configured gateway id for this role's chat model.", required = false),
+            SkillParam("gateway_name", "string", "Optional configured gateway name for this role's chat model.", required = false),
+            SkillParam("gateway_model", "string", "Optional chat model from the selected gateway.", required = false),
             SkillParam("bubble_preset", "string", "Group chat bubble preset: minimal | ink | paper | outline | glass | neon", required = false),
             SkillParam("bubble_background", "string", "Optional hex color for this role's AI chat bubble, e.g. #0A0A0A or #F7F7F4", required = false),
             SkillParam("bubble_background_image", "string", "Optional local/content/data image reference for this role's bubble background.", required = false),
@@ -110,7 +115,7 @@ class RoleManagerSkill(
                 roles.forEach { r ->
                     sb.append("• ${r.id}: ${r.name}${if (r.isBuiltin) " [builtin]" else ""}")
                     if (r.forcedSkillIds.isNotEmpty()) sb.append(" | forced: ${r.forcedSkillIds.joinToString(",")}")
-                    if (r.modelOverride != null) sb.append(" | model: ${r.modelOverride}")
+                    modelBindingSummary(r)?.let { sb.append(" | model: $it") }
                     if (r.preferredTaskTypes.isNotEmpty()) sb.append(" | tasks: ${r.preferredTaskTypes.joinToString(",")}")
                     if (r.keywords.isNotEmpty()) sb.append(" | keywords: ${r.keywords.take(6).joinToString(",")}")
                     r.chatBubbleStyle.takeIf { it != ChatBubbleStyle() }?.let { s ->
@@ -139,6 +144,7 @@ class RoleManagerSkill(
                     ?: emptyList()
                 val preferredTaskTypes = parseTaskTypes(params["preferred_task_types"] as? String)
                 val keywords = parseCsv(params["keywords"] as? String)
+                val modelBinding = modelBindingFromParams(params)
                 val role = Role(
                     id = id,
                     name = name,
@@ -146,7 +152,9 @@ class RoleManagerSkill(
                     avatar = normalizeRoleAvatar(id, params["avatar"] as? String ?: RoleAvatarDefaults.CUSTOM),
                     systemPromptAddendum = params["system_prompt"] as? String ?: "",
                     forcedSkillIds = forcedSkills,
-                    modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() },
+                    modelBinding = modelBinding,
+                    modelOverride = modelBinding?.legacyModelOverride()
+                        ?: (params["model_override"] as? String)?.takeIf { it.isNotBlank() },
                     preferredTaskTypes = preferredTaskTypes,
                     keywords = keywords,
                     schedulerPriority = (params["scheduler_priority"] as? Number)?.toInt() ?: 0,
@@ -175,6 +183,7 @@ class RoleManagerSkill(
                 val keywords = (params["keywords"] as? String)
                     ?.let { parseCsv(it) }
                     ?: existing.keywords
+                val modelBinding = modelBindingFromParams(params)
                 val updated = if (styleOnlyUpdate) {
                     existing.copy(chatBubbleStyle = bubbleStyleFromParams(params, existing.chatBubbleStyle))
                 } else {
@@ -184,7 +193,10 @@ class RoleManagerSkill(
                         avatar = normalizeRoleAvatar(id, params["avatar"] as? String ?: existing.avatar),
                         systemPromptAddendum = params["system_prompt"] as? String ?: existing.systemPromptAddendum,
                         forcedSkillIds = forcedSkills,
-                        modelOverride = (params["model_override"] as? String)?.takeIf { it.isNotBlank() } ?: existing.modelOverride,
+                        modelBinding = modelBinding ?: existing.modelBinding,
+                        modelOverride = modelBinding?.legacyModelOverride()
+                            ?: (params["model_override"] as? String)?.takeIf { it.isNotBlank() }
+                            ?: existing.modelOverride,
                         preferredTaskTypes = preferredTaskTypes,
                         keywords = keywords,
                         schedulerPriority = (params["scheduler_priority"] as? Number)?.toInt() ?: existing.schedulerPriority,
@@ -279,6 +291,41 @@ class RoleManagerSkill(
         parseCsv(raw).mapNotNull { value ->
             runCatching { TaskType.valueOf(value.uppercase()) }.getOrNull()
         }.distinct()
+
+    private fun modelBindingFromParams(params: Map<String, Any?>): RoleModelBinding? {
+        val legacy = (params["model_override"] as? String)?.trim().orEmpty()
+        val gatewayId = (params["gateway_id"] as? String)?.trim().orEmpty()
+        val gatewayName = (params["gateway_name"] as? String)?.trim().orEmpty()
+        val gatewayModel = (params["gateway_model"] as? String)?.trim().orEmpty()
+        val localModelId = when {
+            gatewayModel.startsWith("local:") -> gatewayModel.removePrefix("local:")
+            legacy.startsWith("local:") -> legacy.removePrefix("local:")
+            else -> ""
+        }
+        val binding = if (localModelId.isNotBlank()) {
+            RoleModelBinding(localModelId = localModelId)
+        } else {
+            RoleModelBinding(
+                gatewayId = gatewayId,
+                gatewayName = gatewayName,
+                model = gatewayModel.ifBlank { legacy.takeUnless { it.startsWith("local:") }.orEmpty() },
+            )
+        }.normalized()
+        return binding.takeUnless { it.isEmpty() }
+    }
+
+    private fun modelBindingSummary(role: Role): String? {
+        val binding = role.effectiveModelBinding()?.normalized() ?: return role.modelOverride
+        return when {
+            binding.localModelId.isNotBlank() -> "local:${binding.localModelId.removePrefix("local:")}"
+            binding.gatewayName.isNotBlank() && binding.model.isNotBlank() -> "${binding.gatewayName}/${binding.model}"
+            binding.gatewayId.isNotBlank() && binding.model.isNotBlank() -> "${binding.gatewayId}/${binding.model}"
+            binding.gatewayName.isNotBlank() -> "${binding.gatewayName}/default"
+            binding.gatewayId.isNotBlank() -> "${binding.gatewayId}/default"
+            binding.model.isNotBlank() -> "default/${binding.model}"
+            else -> null
+        }
+    }
 
     private fun isBubbleStyleOnlyUpdate(params: Map<String, Any>): Boolean {
         val allowed = setOf(

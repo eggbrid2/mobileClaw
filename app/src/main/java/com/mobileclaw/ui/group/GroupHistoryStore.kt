@@ -31,6 +31,8 @@ internal class GroupHistoryStore(
                 "senderAvatar" to message.senderAvatar,
                 "text" to message.text,
                 "attachmentsJson" to serializeAttachments(message.attachments),
+                "channelId" to message.channelId,
+                "visibility" to message.visibility,
                 "createdAt" to message.createdAt,
             )
             val file = historyFile(message.groupId)
@@ -54,6 +56,8 @@ internal class GroupHistoryStore(
                         senderAvatar = obj["senderAvatar"]?.asString ?: RoleAvatarDefaults.CUSTOM,
                         text = obj["text"]?.asString ?: "",
                         attachments = deserializeAttachments(obj["attachmentsJson"]?.asString ?: "[]"),
+                        channelId = obj["channelId"]?.asString ?: GROUP_CHANNEL_PUBLIC,
+                        visibility = obj["visibility"]?.asString ?: GROUP_VISIBILITY_PUBLIC,
                         createdAt = obj["createdAt"]?.asLong ?: 0L,
                     )
                 }.getOrNull()
@@ -67,7 +71,7 @@ internal class GroupHistoryStore(
             .takeLast(limit)
 
     fun dedupeKey(message: GroupMessage): String =
-        "${message.groupId}:${message.senderId}:${message.createdAt}:${message.text}:${message.attachments.size}"
+        "${message.groupId}:${message.channelId}:${message.visibility}:${message.senderId}:${message.createdAt}:${message.text}:${message.attachments.size}"
 
     private fun compactBackupIfNeeded(file: File) {
         if (!file.exists() || file.length() < 2_000_000L) return

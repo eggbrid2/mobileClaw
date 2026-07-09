@@ -13,6 +13,7 @@ import com.mobileclaw.agent.NetworkTracer
 import com.mobileclaw.config.AgentConfig
 import com.mobileclaw.config.capabilityApiKey
 import com.mobileclaw.config.capabilityEndpoint
+import com.mobileclaw.config.capabilityModel
 import com.mobileclaw.vpn.AppHttpProxy
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -55,12 +56,23 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
         .build()
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
-        val body = buildRequestBody(request)
         val snapshot = config.snapshot()
-        val apiBase = normalizeApiBase(snapshot.chatEndpoint)
+        val chatGateway = request.callOptions.gatewayId
+            ?.let { id -> snapshot.gateways.firstOrNull { it.id == id } }
+            ?: snapshot.activeGateway
+        val selectedModel = request.callOptions.model?.takeIf { it.isNotBlank() }
+            ?: chatGateway?.capabilityModel("chat")
+            ?: chatGateway?.model
+            ?: snapshot.cloudModel
+        val apiBase = normalizeApiBase(
+            chatGateway?.capabilityEndpoint("chat")?.takeIf { it.isNotBlank() }
+                ?: snapshot.chatEndpoint
+        )
+        val apiKey = chatGateway?.capabilityApiKey("chat")?.takeIf { it.isNotBlank() } ?: snapshot.chatApiKey
+        val body = buildRequestBody(request, selectedModel)
         val httpRequest = Request.Builder()
             .url("$apiBase/chat/completions")
-            .header("Authorization", "Bearer ${snapshot.chatApiKey}")
+            .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
             .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
@@ -118,8 +130,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
         }
     }
 
-    private fun buildRequestBody(request: ChatRequest): JsonObject {
-        val snapshot = config.snapshot()
+    private fun buildRequestBody(request: ChatRequest, model: String): JsonObject {
         val messages = JsonArray()
         request.messages.forEach { msg ->
             val obj = JsonObject()
@@ -170,7 +181,7 @@ class OpenAiGateway(private val config: AgentConfig) : LlmGateway {
             messages.add(obj)
         }
         return JsonObject().apply {
-            addProperty("model", snapshot.cloudModel)
+            addProperty("model", model)
             add("messages", messages)
             addProperty("stream", request.stream)
             if (request.tools.isNotEmpty()) {

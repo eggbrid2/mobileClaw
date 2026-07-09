@@ -6,6 +6,8 @@ import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import com.mobileclaw.ui.group.GROUP_CHANNEL_PUBLIC
+import com.mobileclaw.ui.group.GROUP_VISIBILITY_PUBLIC
 
 data class GroupMessageGroupCount(
     val groupId: String,
@@ -17,6 +19,7 @@ data class GroupMessageGroupCount(
     tableName = "group_messages",
     indices = [
         Index(value = ["groupId", "createdAt", "id"]),
+        Index(value = ["groupId", "channelId", "createdAt"]),
         Index(value = ["createdAt"]),
     ],
 )
@@ -28,6 +31,8 @@ data class GroupMessageEntity(
     val senderAvatar: String,
     val text: String,
     val attachmentsJson: String = "[]",
+    val channelId: String = GROUP_CHANNEL_PUBLIC,
+    val visibility: String = GROUP_VISIBILITY_PUBLIC,
     val createdAt: Long = System.currentTimeMillis(),
 )
 
@@ -53,6 +58,9 @@ interface GroupMessageDao {
 
     @Query("SELECT * FROM group_messages WHERE groupId = :groupId ORDER BY createdAt DESC LIMIT 1")
     suspend fun latestForGroup(groupId: String): GroupMessageEntity?
+
+    @Query("SELECT * FROM group_messages WHERE groupId = :groupId AND (visibility = 'public' OR channelId = 'public') ORDER BY createdAt DESC LIMIT 1")
+    suspend fun latestPublicForGroup(groupId: String): GroupMessageEntity?
 
     @Query("SELECT groupId, COUNT(*) AS count, MAX(createdAt) AS latestAt FROM group_messages GROUP BY groupId ORDER BY latestAt DESC")
     suspend fun groupCounts(): List<GroupMessageGroupCount>

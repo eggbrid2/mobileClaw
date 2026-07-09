@@ -57,10 +57,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.GsonBuilder
 import com.mobileclaw.R
+import com.mobileclaw.config.ConfigSnapshot
+import com.mobileclaw.config.GatewayConfig
+import com.mobileclaw.config.capabilityModel
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RoleAvatarDefaults
+import com.mobileclaw.agent.RoleModelBinding
 import com.mobileclaw.agent.RoleWorkspaceSnapshot
 import com.mobileclaw.agent.RoleWorkspaceStore
+import com.mobileclaw.agent.effectiveModelBinding
 import com.mobileclaw.agent.isRoleImageAvatar
 import com.mobileclaw.agent.normalizeRoleAvatar
 import com.mobileclaw.agent.TaskType
@@ -93,12 +98,16 @@ private enum class RoleExecutionPreference {
 fun RoleEditPage(
     initial: Role,
     workspaceFiles: List<RoleWorkspaceFileUi> = emptyList(),
+    configSnapshot: ConfigSnapshot = ConfigSnapshot(),
     availableModels: List<String> = emptyList(),
     modelsLoading: Boolean = false,
+    gatewayModels: Map<String, List<String>> = emptyMap(),
+    gatewayModelsLoadingIds: Set<String> = emptySet(),
     allSkills: List<SkillMeta> = emptyList(),
     onSave: (Role, String) -> Unit,
     onRestore: (() -> Unit)? = null,
     onFetchModels: () -> Unit = {},
+    onFetchGatewayModels: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -112,9 +121,16 @@ fun RoleEditPage(
     var addendum by remember { mutableStateOf(initial.systemPromptAddendum) }
     var schedulerKeywords by remember { mutableStateOf(initial.keywords.joinToString(", ")) }
     var selectedTaskTypes by remember { mutableStateOf(initial.preferredTaskTypes.toSet()) }
-    var selectedModel by remember { mutableStateOf(initial.modelOverride ?: "") }
+    val initialModelBinding = remember(initial.id, initial.modelBinding, initial.modelOverride) { initial.effectiveModelBinding() }
+    var selectedGatewayId by remember(initial.id, initial.modelBinding, initial.modelOverride) { mutableStateOf(initialModelBinding?.gatewayId.orEmpty()) }
+    var selectedModel by remember(initial.id, initial.modelBinding, initial.modelOverride) {
+        mutableStateOf(
+            initialModelBinding?.legacyModelOverride()
+                ?: initial.modelOverride
+                ?: "",
+        )
+    }
     var selectedSkillIds by remember { mutableStateOf(initial.forcedSkillIds.toSet()) }
-    var modelDropdownExpanded by remember { mutableStateOf(false) }
     var advancedExpanded by remember { mutableStateOf(false) }
     var cropSourceUri by remember { mutableStateOf<Uri?>(null) }
     var editMode by remember { mutableStateOf(RoleEditMode.QUICK) }
@@ -159,6 +175,19 @@ fun RoleEditPage(
     ).toMarkdown()
 
     val isImageAvatar = isRoleImageAvatar(avatar)
+    val selectedGateway = configSnapshot.gateways.firstOrNull { it.id == selectedGatewayId }
+    fun draftModelBinding(): RoleModelBinding? {
+        val model = selectedModel.trim()
+        if (model.startsWith("local:")) {
+            return RoleModelBinding(localModelId = model.removePrefix("local:"))
+        }
+        val binding = RoleModelBinding(
+            gatewayId = selectedGateway?.id.orEmpty(),
+            gatewayName = selectedGateway?.name.orEmpty(),
+            model = model,
+        ).normalized()
+        return binding.takeUnless { it.isEmpty() }
+    }
     fun draftRole(): Role = Role(
         id = initial.id,
         name = name.trim(),
@@ -166,7 +195,8 @@ fun RoleEditPage(
         avatar = normalizeRoleAvatar(initial.id, avatar),
         systemPromptAddendum = addendum.trim(),
         forcedSkillIds = selectedSkillIds.toList(),
-        modelOverride = selectedModel.trim().ifBlank { null },
+        modelBinding = draftModelBinding(),
+        modelOverride = draftModelBinding()?.legacyModelOverride(),
         preferredTaskTypes = selectedTaskTypes.toList(),
         keywords = schedulerKeywords
             .split(",", "，", "\n")
@@ -315,6 +345,24 @@ fun RoleEditPage(
                 onResetAvatar = { avatar = RoleAvatarDefaults.forRoleId(initial.id) },
             )
 
+            RoleModelBindingPanel(
+                configSnapshot = configSnapshot,
+                selectedGatewayId = selectedGatewayId,
+                onGatewaySelect = { gateway ->
+                    selectedGatewayId = gateway?.id.orEmpty()
+                    selectedModel = gateway?.defaultChatModel().orEmpty()
+                    gateway?.id?.let(onFetchGatewayModels)
+                },
+                selectedModel = selectedModel,
+                onModelSelect = { selectedModel = it },
+                gatewayModels = gatewayModels,
+                gatewayModelsLoadingIds = gatewayModelsLoadingIds,
+                availableModels = availableModels,
+                modelsLoading = modelsLoading,
+                onFetchModels = onFetchModels,
+                onFetchGatewayModels = onFetchGatewayModels,
+            )
+
             RoleEditSectionCard(str(R.string.role_edit_section_work)) {
                 TaskType.values().forEachIndexed { index, taskType ->
                     if (index > 0) HorizontalDivider(color = c.border, thickness = 0.5.dp, modifier = Modifier.padding(start = 46.dp))
@@ -400,77 +448,6 @@ fun RoleEditPage(
                     maxLines = 6,
                     shape = RoundedCornerShape(16.dp),
                     colors = roleEditorTextFieldColors(c),
-                )
-
-                when {
-                    modelsLoading -> {
-                        OutlinedTextField(
-                            value = str(R.string.role_edit_loading),
-                            onValueChange = {},
-                            readOnly = true,
-                            enabled = false,
-                            label = { Text(str(R.string.role_field_model)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = roleEditorTextFieldColors(c),
-                        )
-                    }
-                    availableModels.isNotEmpty() -> {
-                        ExposedDropdownMenuBox(
-                            expanded = modelDropdownExpanded,
-                            onExpandedChange = { modelDropdownExpanded = it },
-                        ) {
-                            OutlinedTextField(
-                                value = selectedModel.ifBlank { str(R.string.role_edit_b11de2) },
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text(str(R.string.role_field_model)) },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = roleEditorTextFieldColors(c),
-                            )
-                            ExposedDropdownMenu(
-                                expanded = modelDropdownExpanded,
-                                onDismissRequest = { modelDropdownExpanded = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(str(R.string.role_edit_b11de2)) },
-                                    onClick = { selectedModel = ""; modelDropdownExpanded = false },
-                                )
-                                availableModels.forEach { model ->
-                                    DropdownMenuItem(
-                                        text = { Text(model, fontSize = 13.sp) },
-                                        onClick = { selectedModel = model; modelDropdownExpanded = false },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    else -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = selectedModel,
-                                onValueChange = { selectedModel = it },
-                                label = { Text(str(R.string.role_field_model)) },
-                                placeholder = { Text(str(R.string.role_edit_2442c5), fontSize = 12.sp, color = c.subtext) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = roleEditorTextFieldColors(c),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            TextButton(onClick = onFetchModels) {
-                                Text(str(R.string.role_edit_refresh), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
-                Text(
-                    text = str(R.string.role_field_model_hint),
-                    fontSize = 11.sp,
-                    color = c.subtext,
-                    lineHeight = 15.sp,
                 )
 
                 if (allSkills.isNotEmpty()) {
@@ -840,6 +817,236 @@ private fun RoleEditSectionCard(
         content()
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoleModelBindingPanel(
+    configSnapshot: ConfigSnapshot,
+    selectedGatewayId: String,
+    onGatewaySelect: (GatewayConfig?) -> Unit,
+    selectedModel: String,
+    onModelSelect: (String) -> Unit,
+    gatewayModels: Map<String, List<String>>,
+    gatewayModelsLoadingIds: Set<String>,
+    availableModels: List<String>,
+    modelsLoading: Boolean,
+    onFetchModels: () -> Unit,
+    onFetchGatewayModels: (String) -> Unit,
+) {
+    val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
+    val gateways = configSnapshot.gateways
+    val selectedGateway = gateways.firstOrNull { it.id == selectedGatewayId }
+    val modelGateway = selectedGateway ?: configSnapshot.activeGateway
+    val modelGatewayId = modelGateway?.id.orEmpty()
+    val fetchedModels = gatewayModels[modelGatewayId].orEmpty()
+    val configuredModels = modelGateway?.chatModelOptions().orEmpty()
+    val fallbackModels = if (selectedGateway == null && fetchedModels.isEmpty()) availableModels else emptyList()
+    val modelOptions = (fetchedModels + configuredModels + listOf(selectedModel) + fallbackModels)
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+    val loadingModels = modelGatewayId in gatewayModelsLoadingIds || (selectedGateway == null && modelsLoading)
+    var gatewayDropdownExpanded by remember { mutableStateOf(false) }
+    var modelDropdownExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(modelGatewayId) {
+        if (modelGatewayId.isNotBlank() && gatewayModels[modelGatewayId].isNullOrEmpty()) {
+            onFetchGatewayModels(modelGatewayId)
+        }
+    }
+
+    RoleEditSectionCard(if (isZh) "模型调用" else "Model routing") {
+        ExposedDropdownMenuBox(
+            expanded = gatewayDropdownExpanded,
+            onExpandedChange = { gatewayDropdownExpanded = it },
+        ) {
+            OutlinedTextField(
+                value = when {
+                    gateways.isEmpty() -> if (isZh) "还没有配置网关" else "No gateway configured"
+                    selectedGateway != null -> selectedGateway.name
+                    else -> if (isZh) "跟随默认网关" else "Follow default gateway"
+                },
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(if (isZh) "网关" else "Gateway") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = gatewayDropdownExpanded) },
+                modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                shape = RoundedCornerShape(16.dp),
+                colors = roleEditorTextFieldColors(c),
+            )
+            ExposedDropdownMenu(
+                expanded = gatewayDropdownExpanded,
+                onDismissRequest = { gatewayDropdownExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(if (isZh) "跟随默认网关" else "Follow default gateway", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(configSnapshot.activeGateway?.name.orEmpty().ifBlank { if (isZh) "使用全局当前配置" else "Use the current global config" }, fontSize = 11.sp, color = c.subtext)
+                        }
+                    },
+                    onClick = {
+                        onGatewaySelect(null)
+                        gatewayDropdownExpanded = false
+                    },
+                )
+                gateways.forEach { gateway ->
+                    DropdownMenuItem(
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(gateway.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOf(gateway.endpoint.hostLabel(), gateway.defaultChatModel().ifBlank { if (isZh) "默认模型" else "Default model" })
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" · "),
+                                    fontSize = 11.sp,
+                                    color = c.subtext,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        },
+                        onClick = {
+                            onGatewaySelect(gateway)
+                            gatewayDropdownExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+
+        if (gateways.isEmpty()) {
+            Text(
+                text = if (isZh) "请先在 AI 基础配置里添加 OpenAI 兼容网关。" else "Add an OpenAI-compatible gateway in AI basic settings first.",
+                color = c.subtext,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+            )
+            return@RoleEditSectionCard
+        }
+
+        when {
+            loadingModels -> {
+                OutlinedTextField(
+                    value = if (isZh) "正在读取模型列表..." else "Loading models...",
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = false,
+                    label = { Text(if (isZh) "模型" else "Model") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = roleEditorTextFieldColors(c),
+                )
+            }
+            modelOptions.isNotEmpty() -> {
+                ExposedDropdownMenuBox(
+                    expanded = modelDropdownExpanded,
+                    onExpandedChange = { modelDropdownExpanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = selectedModel.ifBlank {
+                            modelGateway?.defaultChatModel().orEmpty().ifBlank { if (isZh) "使用网关默认模型" else "Use gateway default" }
+                        },
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text(if (isZh) "模型" else "Model") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = roleEditorTextFieldColors(c),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = modelDropdownExpanded,
+                        onDismissRequest = { modelDropdownExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (isZh) "使用网关默认模型" else "Use gateway default", fontSize = 13.sp) },
+                            onClick = {
+                                onModelSelect("")
+                                modelDropdownExpanded = false
+                            },
+                        )
+                        modelOptions.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                onClick = {
+                                    onModelSelect(model)
+                                    modelDropdownExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            else -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = selectedModel,
+                        onValueChange = onModelSelect,
+                        label = { Text(if (isZh) "模型 ID" else "Model ID") },
+                        placeholder = { Text("gpt-4o", fontSize = 12.sp, color = c.subtext) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = roleEditorTextFieldColors(c),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(
+                        onClick = {
+                            if (modelGatewayId.isNotBlank()) onFetchGatewayModels(modelGatewayId) else onFetchModels()
+                        },
+                    ) {
+                        Text(str(R.string.role_edit_refresh), color = c.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        val summaryGateway = selectedGateway?.name
+            ?: configSnapshot.activeGateway?.name
+            ?: if (isZh) "默认网关" else "Default gateway"
+        val summaryModel = selectedModel.ifBlank {
+            modelGateway?.defaultChatModel().orEmpty().ifBlank { if (isZh) "默认模型" else "Default model" }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.cardAlt)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(c.accent),
+            )
+            Text(
+                text = "$summaryGateway · $summaryModel",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+private fun GatewayConfig.defaultChatModel(): String =
+    capabilityModel("chat") ?: model
+
+private fun GatewayConfig.chatModelOptions(): List<String> =
+    listOfNotNull(capabilityModel("chat"), model.takeIf { it.isNotBlank() }).distinct()
+
+private fun String.hostLabel(): String =
+    removePrefix("https://")
+        .removePrefix("http://")
+        .substringBefore("/")
+        .ifBlank { this }
 
 @Composable
 private fun RoleTaskTypeRow(

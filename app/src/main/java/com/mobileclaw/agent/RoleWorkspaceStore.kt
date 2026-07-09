@@ -6,6 +6,7 @@ import com.google.gson.GsonBuilder
 import com.mobileclaw.config.ConfigSnapshot
 import com.mobileclaw.config.capabilityEndpoint
 import com.mobileclaw.config.capabilityModel
+import com.mobileclaw.llm.RoleModelResolver
 import com.mobileclaw.skill.SkillMeta
 import com.mobileclaw.skill.SkillToolCategory
 import com.mobileclaw.storage.AtomicTextFile
@@ -197,7 +198,7 @@ ${roleCorePlaybook(role)}
 - Preferred task types: ${role.preferredTaskTypes.joinToString(", ").ifBlank { "GENERAL" }}
 - Keywords: ${role.keywords.joinToString(", ").ifBlank { "none" }}
 - Forced skills: ${role.forcedSkillIds.joinToString(", ").ifBlank { "none" }}
-- Model override: ${role.modelOverride ?: "none"}
+- Model binding: ${roleModelBindingText(role)}
 """.trimIndent() + "\n"
 
     private fun defaultSkills(role: Role, skills: List<SkillMeta>): String = """
@@ -243,7 +244,7 @@ ${renderCompactSkillGroups(skills)}
 
 ## 当前记录
 - 尚未记录实际运行配置。
-- Role model override: ${role.modelOverride ?: "none"}
+- Role model binding: ${roleModelBindingText(role)}
 
 ## 说明
 - 这里记录角色最近一次实际使用的模型、网关和能力模型配置。
@@ -425,7 +426,20 @@ ${renderCompactSkillGroups(skills)}
     }
 
     private fun roleModelConfigMap(role: Role, snapshot: ConfigSnapshot, source: String): Map<String, Any?> {
-        val gateway = snapshot.activeGateway
+        val binding = role.effectiveModelBinding()
+        val resolved = RoleModelResolver.resolve(role, snapshot)
+        val gateway = if (resolved.localModelId.isNotBlank()) {
+            null
+        } else {
+            snapshot.gateways.firstOrNull { resolved.gatewayId.isNotBlank() && it.id == resolved.gatewayId }
+                ?: snapshot.gateways.firstOrNull { resolved.gatewayName.isNotBlank() && it.name.equals(resolved.gatewayName, ignoreCase = true) }
+                ?: snapshot.activeGateway
+        }
+        val effectiveRoleModel = when {
+            resolved.localModelId.isNotBlank() -> "local:${resolved.localModelId.removePrefix("local:")}"
+            resolved.model.isNotBlank() -> resolved.model
+            else -> snapshot.model
+        }
         val capabilities = listOf("chat", "image", "video", "embedding").associateWith { type ->
             mapOf(
                 "model" to (gateway?.capabilityModel(type) ?: ""),
@@ -440,15 +454,29 @@ ${renderCompactSkillGroups(skills)}
                 "id" to role.id,
                 "name" to role.name,
                 "modelOverride" to role.modelOverride,
+                "modelBinding" to binding?.let {
+                    mapOf(
+                        "gatewayId" to it.gatewayId,
+                        "gatewayName" to it.gatewayName,
+                        "model" to it.model,
+                        "localModelId" to it.localModelId,
+                    )
+                },
+                "modelBindingSummary" to roleModelBindingText(role),
             ),
             "runtime" to mapOf(
-                "effectiveModel" to snapshot.model,
+                "effectiveModel" to effectiveRoleModel,
                 "chatModel" to snapshot.chatModel,
                 "embeddingModel" to snapshot.embeddingModel,
                 "localModelEnabled" to snapshot.localModelEnabled,
                 "localNativeOnly" to snapshot.localNativeOnly,
                 "localToolCallingEnabled" to snapshot.localToolCallingEnabled,
                 "localModelId" to snapshot.localModelId,
+                "roleInheritsDefault" to resolved.inheritedDefault,
+                "roleGatewayId" to resolved.gatewayId,
+                "roleGatewayName" to resolved.gatewayName,
+                "roleModel" to resolved.model,
+                "roleLocalModelId" to resolved.localModelId,
             ),
             "gateway" to mapOf(
                 "id" to gateway?.id,
@@ -468,6 +496,8 @@ ${renderCompactSkillGroups(skills)}
         val gateway = info["gateway"] as? Map<*, *> ?: emptyMap<String, Any?>()
         val role = info["role"] as? Map<*, *> ?: emptyMap<String, Any?>()
         val capabilities = info["capabilities"] as? Map<*, *> ?: emptyMap<String, Any?>()
+        fun textOrNone(value: Any?): String =
+            value?.toString()?.takeIf { it.isNotBlank() } ?: "none"
         return buildString {
             appendLine("# 模型与网关配置")
             appendLine()
@@ -475,10 +505,15 @@ ${renderCompactSkillGroups(skills)}
             appendLine("- Updated at: ${info["updatedAt"]}")
             appendLine("- Source: ${info["source"]}")
             appendLine("- Role: ${role["name"]} (${role["id"]})")
-            appendLine("- Role model override: ${role["modelOverride"] ?: "none"}")
+            appendLine("- Role model binding: ${role["modelBindingSummary"] ?: role["modelOverride"] ?: "none"}")
             appendLine()
             appendLine("## Effective Model")
             appendLine("- Effective model: ${runtime["effectiveModel"]}")
+            appendLine("- Inherits global default: ${runtime["roleInheritsDefault"]}")
+            appendLine("- Role gateway id: ${textOrNone(runtime["roleGatewayId"])}")
+            appendLine("- Role gateway name: ${textOrNone(runtime["roleGatewayName"])}")
+            appendLine("- Role model: ${textOrNone(runtime["roleModel"])}")
+            appendLine("- Role local model id: ${textOrNone(runtime["roleLocalModelId"])}")
             appendLine("- Chat model: ${runtime["chatModel"]}")
             appendLine("- Embedding model: ${runtime["embeddingModel"]}")
             appendLine("- Local enabled: ${runtime["localModelEnabled"]}")
@@ -551,6 +586,20 @@ ${renderCompactSkillGroups(skills)}
         }
 
     private fun maskEndpoint(value: String): String = value.take(220)
+
+    private fun roleModelBindingText(role: Role): String {
+        val binding = role.effectiveModelBinding() ?: return "none"
+        val normalized = binding.normalized()
+        return when {
+            normalized.localModelId.isNotBlank() -> "local:${normalized.localModelId.removePrefix("local:")}"
+            normalized.gatewayName.isNotBlank() && normalized.model.isNotBlank() -> "${normalized.gatewayName} / ${normalized.model}"
+            normalized.gatewayId.isNotBlank() && normalized.model.isNotBlank() -> "${normalized.gatewayId} / ${normalized.model}"
+            normalized.gatewayName.isNotBlank() -> "${normalized.gatewayName} / default chat model"
+            normalized.gatewayId.isNotBlank() -> "${normalized.gatewayId} / default chat model"
+            normalized.model.isNotBlank() -> "default gateway / ${normalized.model}"
+            else -> "none"
+        }
+    }
 
     private fun nowText(): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())

@@ -5,6 +5,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.mobileclaw.llm.ChatRequest
 import com.mobileclaw.llm.LlmGateway
+import com.mobileclaw.llm.LlmCallOptions
 import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
 import com.mobileclaw.llm.ToolProperty
@@ -57,6 +58,7 @@ class AgentRuntime(
         userProfileContext: String = "",
         allowedToolIds: List<String> = emptyList(),
         roleWorkspaceContext: String = "",
+        callOptions: LlmCallOptions = LlmCallOptions(),
         preferFastLocalVision: Boolean = false,
         preferFastPlan: Boolean = false,
         onToken: ((String) -> Unit)? = null,
@@ -400,6 +402,7 @@ class AgentRuntime(
                         stream = onToken != null || onThinkToken != null,
                         onToken = onToken,
                         onThinkToken = onThinkToken,
+                        callOptions = callOptions,
                     ))
                 }.getOrElse { e ->
                     val msg = "LLM error: ${e.message}"
@@ -584,6 +587,7 @@ class AgentRuntime(
                                 systemPrompt = reviewSystemPrompt,
                                 ctx = reviewContext,
                                 workingMemory = reviewMemory,
+                                callOptions = callOptions,
                             )
                         }
                     }
@@ -601,6 +605,7 @@ class AgentRuntime(
                         systemPrompt = systemPrompt,
                         ctx = ctx,
                         workingMemory = workingMemory,
+                        callOptions = callOptions,
                     )
                 }
                 val checkpointStep = AgentStep(
@@ -635,6 +640,7 @@ class AgentRuntime(
                 ),
                 tools = emptyList(),
                 stream = false,
+                callOptions = callOptions,
             )).content.orEmpty()
         } catch (t: Throwable) {
             Log.e(TAG, "Final summary generation failed for taskId=${ctx.taskId}", t)
@@ -692,6 +698,7 @@ class AgentRuntime(
         systemPrompt: String,
         ctx: AgentContext,
         workingMemory: WorkingMemory,
+        callOptions: LlmCallOptions,
     ): String {
         val review = try {
             llm.chat(ChatRequest(
@@ -711,6 +718,7 @@ This note is for your own next step, so be direct and operational.
                 ),
                 tools = emptyList(),
                 stream = false,
+                callOptions = callOptions,
             )).content.orEmpty()
         } catch (t: Throwable) {
             Log.e(TAG, "Five-step review generation failed for taskId=${ctx.taskId}", t)
@@ -726,6 +734,7 @@ This note is for your own next step, so be direct and operational.
         systemPrompt: String,
         ctx: AgentContext,
         workingMemory: WorkingMemory,
+        callOptions: LlmCallOptions,
     ): String {
         val summary = try {
             llm.chat(ChatRequest(
@@ -735,6 +744,7 @@ This note is for your own next step, so be direct and operational.
                 ),
                 tools = emptyList(),
                 stream = false,
+                callOptions = callOptions,
             )).content.orEmpty()
         } catch (t: Throwable) {
             Log.e(TAG, "Continuation checkpoint generation failed for taskId=${ctx.taskId}", t)

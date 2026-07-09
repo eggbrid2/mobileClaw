@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -48,8 +49,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -102,12 +106,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChatBubbleDecoration
+import com.mobileclaw.agent.GameActionRecord
+import com.mobileclaw.agent.GameAbility
+import com.mobileclaw.agent.GameEventType
+import com.mobileclaw.agent.GameJudgeFlowMode
+import com.mobileclaw.agent.GameSeat
+import com.mobileclaw.agent.GameSeatStatus
+import com.mobileclaw.agent.GameUserActionPolicy
 import com.mobileclaw.agent.Group
+import com.mobileclaw.agent.GroupKind
+import com.mobileclaw.agent.GroupMode
+import com.mobileclaw.agent.GameUserRole
 import com.mobileclaw.agent.Role
 import com.mobileclaw.skill.SkillAttachment
 import com.mobileclaw.ui.ClawColors
 import com.mobileclaw.ui.ClawSymbolIcon
 import com.mobileclaw.ui.GradientAvatar
+import com.mobileclaw.ui.LocalAppLanguage
 import com.mobileclaw.ui.LocalClawColors
 import com.mobileclaw.ui.chat.StickerSearchSheet
 import com.mobileclaw.ui.common.DocumentAttachmentCard
@@ -143,10 +158,114 @@ private val AGENT_COLORS = listOf(
 
 private fun agentColor(index: Int) = AGENT_COLORS[index % AGENT_COLORS.size]
 
+private enum class GroupGameViewMode {
+    CHAT,
+    FLOW,
+}
+
 private fun isGroupVisualImageAttachment(attachment: SkillAttachment): Boolean = when (attachment) {
     is SkillAttachment.ImageData -> true
     is SkillAttachment.FileData -> isImageFileAttachment(attachment)
     else -> false
+}
+
+private fun groupChatMetaText(group: Group, isZh: Boolean): String {
+    if (group.kind == GroupKind.GAME || group.gameProfile != null) {
+        val profile = group.gameProfile
+        val typeText = if (isZh) "游戏" else "Game"
+        val template = profile?.templateName.orEmpty().ifBlank { if (isZh) "自定义" else "Custom" }
+        val phase = profile?.phases?.firstOrNull { it.id == profile.currentPhaseId }
+            ?: profile?.phases?.minByOrNull { it.order }
+        val phaseText = phase?.name.orEmpty()
+        val userRole = profile?.userRole?.chatMetaLabel(isZh).orEmpty()
+        val flowText = if (group.usesSystemGameJudge()) {
+            if (isZh) "系统法官" else "System host"
+        } else {
+            profile?.judgeFlowMode?.chatMetaLabel(isZh).orEmpty()
+        }
+        val controlText = profile?.userActionPolicy?.chatMetaLabel(isZh).orEmpty()
+        val topic = group.topic.trim()
+        val roundText = if (isZh) "${group.roundLimit.coerceIn(1, 8)} 轮" else "${group.roundLimit.coerceIn(1, 8)} rounds"
+        return listOf(typeText, template, phaseText, flowText, controlText, userRole, topic, roundText)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+    }
+    if (group.mode == GroupMode.FREE_CHAT && group.topic.isBlank()) return ""
+    val modeText = when (group.mode) {
+        GroupMode.FREE_CHAT -> if (isZh) "自由群聊" else "Free chat"
+        GroupMode.ARENA -> if (isZh) "模型竞技" else "Arena"
+        GroupMode.DEBATE -> if (isZh) "辩论赛" else "Debate"
+        GroupMode.WORKSHOP -> if (isZh) "协作间" else "Workshop"
+        GroupMode.ROUNDED_GAME -> if (isZh) "回合游戏" else "Round game"
+    }
+    val topic = group.topic.trim()
+    val roundText = if (group.mode != GroupMode.FREE_CHAT) {
+        if (isZh) "${group.roundLimit.coerceIn(1, 8)} 轮" else "${group.roundLimit.coerceIn(1, 8)} rounds"
+    } else {
+        ""
+    }
+    return listOf(modeText, topic, roundText).filter { it.isNotBlank() }.joinToString(" · ")
+}
+
+private fun GameUserRole.chatMetaLabel(isZh: Boolean): String = when (this) {
+    GameUserRole.HOST -> if (isZh) "法官" else "Host"
+    GameUserRole.SPECTATOR -> if (isZh) "旁观者" else "Spectator"
+    GameUserRole.PLAYER -> if (isZh) "玩家" else "Player"
+    GameUserRole.CO_HOST -> if (isZh) "共同主持" else "Co-host"
+}
+
+private fun GameJudgeFlowMode.chatMetaLabel(isZh: Boolean): String = when (this) {
+    GameJudgeFlowMode.FREE -> if (isZh) "自由" else "Free"
+    GameJudgeFlowMode.ORDERED -> if (isZh) "按序" else "Ordered"
+    GameJudgeFlowMode.CALLED -> if (isZh) "点名" else "Called"
+    GameJudgeFlowMode.PHASE -> if (isZh) "阶段" else "Phase"
+}
+
+private fun GameUserActionPolicy.chatMetaLabel(isZh: Boolean): String = when (this) {
+    GameUserActionPolicy.OPEN -> if (isZh) "按键全开" else "Controls open"
+    GameUserActionPolicy.PHASE -> if (isZh) "按阶段开放" else "Phase controls"
+    GameUserActionPolicy.JUDGE_CONTROLLED -> if (isZh) "法官控键" else "Host controls"
+}
+
+private fun String.systemFlowChatLabel(isZh: Boolean): String = when (this) {
+    GAME_RUNTIME_FLOW_SPEECH -> if (isZh) "逐席发言" else "Seat speech"
+    GAME_RUNTIME_FLOW_VOTE -> if (isZh) "逐席投票" else "Seat vote"
+    GAME_RUNTIME_FLOW_EVENT_ENTER -> if (isZh) "阵营行动" else "Faction actions"
+    GAME_RUNTIME_FLOW_EVENT_ACTORS -> if (isZh) "阵营行动" else "Faction actions"
+    GAME_RUNTIME_FLOW_EVENT_RESULT -> if (isZh) "公开结果" else "Results"
+    GAME_RUNTIME_FLOW_SETTLEMENT -> if (isZh) "本轮结算" else "Round settlement"
+    GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> if (isZh) "终局判定" else "Final verdict"
+    else -> ""
+}
+
+private fun Group.userGameInputStatusText(
+    isZh: Boolean,
+    phaseName: String,
+    hasActions: Boolean,
+): String {
+    if (!isGameGroup(this)) return if (isZh) "输入消息" else "Message"
+    val userSeat = userGameSeat()
+    if (userSeat?.status in setOf(GameSeatStatus.OUT, GameSeatStatus.SPECTATING)) {
+        return if (isZh) "你已出局，等待复盘" else "You are out: wait for recap"
+    }
+    if (!usesSystemGameJudge()) {
+        return if (isZh) "等待法官开放发言" else "Waiting for host to open speech"
+    }
+    val calledSeat = currentCalledGameSeat()
+    val isUserCalled = userSeat != null && calledSeat?.seatId == userSeat.seatId
+    val step = systemGameFlowStep()
+    return when {
+        isUserCalled && step == GAME_RUNTIME_FLOW_SPEECH -> if (isZh) "轮到你发言" else "Your speech turn"
+        isUserCalled && step == GAME_RUNTIME_FLOW_VOTE -> if (isZh) "轮到你投票，请使用行动按钮" else "Your vote: use the action button"
+        isUserCalled && step == GAME_RUNTIME_FLOW_EVENT_ACTORS -> if (isZh) "轮到你行动，请使用身份按钮" else "Your action: use the role button"
+        step in setOf(GAME_RUNTIME_FLOW_EVENT_ENTER, GAME_RUNTIME_FLOW_EVENT_ACTORS) -> if (isZh) "阵营行动中" else "Faction actions in progress"
+        step == GAME_RUNTIME_FLOW_FINAL_JUDGEMENT -> if (isZh) "终局判定中" else "Final verdict in progress"
+        hasActions -> if (isZh) "请先完成当前行动" else "Complete the current action first"
+        else -> listOf(
+            if (isZh) "等待系统法官点名" else "Waiting for system host",
+            phaseName,
+        ).filter { it.isNotBlank() }.joinToString(" · ")
+    }
 }
 
 // ── Root composable ───────────────────────────────────────────────────────────
@@ -155,6 +274,7 @@ private fun isGroupVisualImageAttachment(attachment: SkillAttachment): Boolean =
 fun GroupChatScreen(
     group: Group,
     messages: List<GroupMessage>,
+    gameTimeline: List<GroupGameTimelineItem>,
     availableRoles: List<Role>,
     userAvatarUri: String?,
     isRunning: Boolean,
@@ -164,15 +284,22 @@ fun GroupChatScreen(
     historyLoading: Boolean,
     onLoadMoreHistory: () -> Unit,
     onUpdateGroupMembers: (List<String>) -> Unit,
-    onSend: (String, List<SkillAttachment>) -> Unit,
+    onSend: (String, List<SkillAttachment>, String, String) -> Unit,
     onStop: () -> Unit,
     onBack: () -> Unit,
     onOpenHtmlViewer: (SkillAttachment.HtmlData) -> Unit = {},
     onOpenBrowser: (String) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit = {},
+    onPublishGameActionSummary: (String) -> Unit = {},
+    onIgnoreGameAction: (String) -> Unit = {},
+    onResolveGamePhaseActions: () -> Unit = {},
+    onAdvanceGamePhase: () -> Unit = {},
+    onSubmitGameAction: (abilityId: String, targetSeatId: String, reason: String) -> Unit = { _, _, _ -> },
 ) {
     val c = LocalClawColors.current
+    val isZh = LocalAppLanguage.current == "zh"
     val listState = rememberLazyListState()
+    val timelineListState = rememberLazyListState()
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var pendingAttachments by remember { mutableStateOf<List<SkillAttachment>>(emptyList()) }
     var pendingTextAppend by remember { mutableStateOf("") }
@@ -181,6 +308,9 @@ fun GroupChatScreen(
     var showPlusPanel by remember { mutableStateOf(false) }
     var showMemberDrawer by remember { mutableStateOf(false) }
     var memberEditMode by remember { mutableStateOf(false) }
+    var selectedGameAbility by remember { mutableStateOf<GameAbility?>(null) }
+    var selectedGameChannelId by remember(group.id) { mutableStateOf(GROUP_CHANNEL_FILTER_ALL) }
+    var selectedGameViewMode by remember(group.id) { mutableStateOf(GroupGameViewMode.CHAT) }
     val context = LocalContext.current
 
     val imagePicker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
@@ -206,17 +336,74 @@ fun GroupChatScreen(
     val memberRoles = group.memberRoleIds.mapNotNull { id -> availableRoles.firstOrNull { it.id == id } }
     val colorMap: Map<String, Color> = memberRoles.mapIndexed { i, r -> r.id to agentColor(i) }.toMap()
     val totalMembers = memberRoles.size + 1 // +1 for the user
+    val gameChannelFilters = remember(group, messages, isZh) {
+        visibleGameChannelFiltersForUser(group, messages, isZh)
+    }
+    val activeGameChannelId = remember(gameChannelFilters, selectedGameChannelId) {
+        selectedGameChannelId.takeIf { selected -> gameChannelFilters.any { it.id == selected } }
+            ?: GROUP_CHANNEL_FILTER_ALL
+    }
+    LaunchedEffect(activeGameChannelId, selectedGameChannelId) {
+        if (activeGameChannelId != selectedGameChannelId) selectedGameChannelId = activeGameChannelId
+    }
+    val visibleMessages = remember(group, messages, activeGameChannelId) {
+        visibleGroupMessagesForUserChannel(group, messages, activeGameChannelId)
+    }
+    val selectedGameChannelTarget = remember(group, activeGameChannelId) {
+        messageChannelTargetForUser(group, activeGameChannelId)
+    }
+    val activeGameChannelLabel = remember(gameChannelFilters, activeGameChannelId) {
+        gameChannelFilters.firstOrNull { it.id == activeGameChannelId }?.label.orEmpty()
+    }
+    val pendingGameActions = remember(group) {
+        if (group.canCurrentUserHostGame()) group.pendingGameActions() else emptyList()
+    }
+    val canDriveGameFlow = remember(group) { group.canCurrentUserDriveGameFlow() }
+    val userGameAbilities = remember(group) { group.availableUserGameAbilities() }
+    val targetableGameSeats = remember(group) { group.targetableGameSeatsForUser() }
+    val canUserSpeak = remember(group) { group.canCurrentUserSpeakInGame() }
+    val currentGamePhaseName = remember(group) { group.currentGamePhase()?.name.orEmpty() }
+    val canUseInputExtras = remember(group, canUserSpeak) { canUserSpeak && !group.usesSystemGameJudge() }
+    val userInputStatusText = remember(group, isZh, currentGamePhaseName, userGameAbilities) {
+        group.userGameInputStatusText(
+            isZh = isZh,
+            phaseName = currentGamePhaseName,
+            hasActions = userGameAbilities.isNotEmpty(),
+        )
+    }
+    val activeGameViewMode = remember(group, selectedGameViewMode) {
+        if (isGameGroup(group)) selectedGameViewMode else GroupGameViewMode.CHAT
+    }
 
-    val lastMessageId = messages.lastOrNull()?.let { "${it.id}:${it.createdAt}:${it.senderId}" }
-    LaunchedEffect(lastMessageId, typingAgentIds.size, workingAgentIds.size) {
-        if (listState.layoutInfo.totalItemsCount > 0) {
+    LaunchedEffect(canUserSpeak, canUseInputExtras, group.id) {
+        if (!canUserSpeak || !canUseInputExtras) {
+            showPlusPanel = false
+            showMentionPicker = false
+            showStickerSearch = false
+        }
+        if (!canUseInputExtras) {
+            pendingAttachments = emptyList()
+            pendingTextAppend = ""
+        }
+    }
+
+    val lastMessageId = visibleMessages.lastOrNull()?.let { "${it.id}:${it.createdAt}:${it.senderId}" }
+    LaunchedEffect(activeGameViewMode, lastMessageId, typingAgentIds.size, workingAgentIds.size) {
+        if (activeGameViewMode == GroupGameViewMode.CHAT && listState.layoutInfo.totalItemsCount > 0) {
             listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
         }
     }
 
+    val lastTimelineItemId = gameTimeline.lastOrNull()?.id
+    LaunchedEffect(activeGameViewMode, lastTimelineItemId) {
+        if (activeGameViewMode == GroupGameViewMode.FLOW && gameTimeline.isNotEmpty()) {
+            timelineListState.animateScrollToItem(gameTimeline.lastIndex)
+        }
+    }
+
     val firstVisibleIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
-    LaunchedEffect(firstVisibleIndex, historyHasMore, historyLoading) {
-        if (firstVisibleIndex == 0 && historyHasMore && !historyLoading) {
+    LaunchedEffect(activeGameViewMode, firstVisibleIndex, historyHasMore, historyLoading) {
+        if (activeGameViewMode == GroupGameViewMode.CHAT && firstVisibleIndex == 0 && historyHasMore && !historyLoading) {
             onLoadMoreHistory()
         }
     }
@@ -273,22 +460,43 @@ fun GroupChatScreen(
 
             HorizontalDivider(color = c.border, thickness = 0.5.dp)
 
-            // Thin status strip — typing and working are intentionally separate states.
-            if (typingAgentIds.isNotEmpty() || workingAgentIds.isNotEmpty()) {
-                val typingNames = typingAgentIds
-                    .mapNotNull { id -> memberRoles.firstOrNull { it.id == id }?.name }
-                    .joinToString("、")
-                val workingNames = workingAgentIds
-                    .mapNotNull { id -> memberRoles.firstOrNull { it.id == id }?.name }
-                    .joinToString("、")
-                val statusText = listOfNotNull(
-                    typingNames.takeIf { it.isNotBlank() }?.let { str(R.string.typing_indicator, it) },
-                    workingNames.takeIf { it.isNotBlank() }?.let { str(R.string.working_indicator, it) },
-                ).joinToString(" · ")
+            val groupMeta = remember(group, isZh) { groupChatMetaText(group, isZh) }
+            if (groupMeta.isNotBlank()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(if (workingAgentIds.isNotEmpty()) c.blue.copy(alpha = 0.08f) else c.accent.copy(alpha = 0.06f))
+                        .background(c.surface)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(c.accent),
+                    )
+                    Text(
+                        groupMeta,
+                        color = c.subtext.copy(alpha = 0.76f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            // Thin status strip. Keep game identities private while work is running.
+            if (typingAgentIds.isNotEmpty() || workingAgentIds.isNotEmpty()) {
+                val statusText = if (workingAgentIds.isNotEmpty()) {
+                    if (isZh) "处理中" else "Processing"
+                } else {
+                    if (isZh) "正在输入" else "Thinking"
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(c.accent.copy(alpha = if (workingAgentIds.isNotEmpty()) 0.08f else 0.06f))
                         .padding(horizontal = 14.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -303,11 +511,41 @@ fun GroupChatScreen(
                     )
                 }
             }
+
+            if (canDriveGameFlow && isGameGroup(group)) {
+                GameRuntimeActionStrip(
+                    group = group,
+                    actions = pendingGameActions,
+                    isZh = isZh,
+                    c = c,
+                    onPublish = onPublishGameActionSummary,
+                    onIgnore = onIgnoreGameAction,
+                    onResolvePhase = onResolveGamePhaseActions,
+                    onAdvance = onAdvanceGamePhase,
+                )
+            }
+            if (isGameGroup(group)) {
+                GameViewModeStrip(
+                    selectedMode = activeGameViewMode,
+                    timelineCount = gameTimeline.size,
+                    isZh = isZh,
+                    c = c,
+                    onSelect = { selectedGameViewMode = it },
+                )
+            }
+            if (activeGameViewMode == GroupGameViewMode.CHAT && gameChannelFilters.isNotEmpty()) {
+                GameChannelFilterStrip(
+                    filters = gameChannelFilters,
+                    selectedId = activeGameChannelId,
+                    c = c,
+                    onSelect = { selectedGameChannelId = it },
+                )
+            }
         }
 
-        val keyedMessages = remember(messages) {
+        val keyedMessages = remember(visibleMessages) {
             val occurrences = mutableMapOf<String, Int>()
-            messages.map { msg ->
+            visibleMessages.map { msg ->
                 val baseKey = "${msg.id}:${msg.createdAt}:${msg.senderId}"
                 val occurrence = occurrences.getOrDefault(baseKey, 0)
                 occurrences[baseKey] = occurrence + 1
@@ -316,54 +554,72 @@ fun GroupChatScreen(
             }
         }
 
-        // ── Message list ─────────────────────────────────────────────────────
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            item { Spacer(Modifier.height(8.dp)) }
+        if (activeGameViewMode == GroupGameViewMode.FLOW) {
+            GameTimelineList(
+                timeline = gameTimeline,
+                listState = timelineListState,
+                isZh = isZh,
+                c = c,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            // ── Message list ─────────────────────────────────────────────────
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                item { Spacer(Modifier.height(8.dp)) }
 
-            if (historyLoading) {
-                item(key = "group_history_loading") {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.subtext)
+                if (historyLoading) {
+                    item(key = "group_history_loading") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = c.subtext)
+                        }
+                    }
+                } else if (historyHasMore) {
+                    item(key = "group_history_hint") {
+                        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                            Text(str(R.string.chat_b721d3), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.45f))
+                        }
                     }
                 }
-            } else if (historyHasMore) {
-                item(key = "group_history_hint") {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                        Text(str(R.string.chat_b721d3), fontSize = 11.sp, color = c.subtext.copy(alpha = 0.45f))
-                    }
+
+                items(
+                    keyedMessages,
+                    key = { it.first },
+                ) { (_, msg) ->
+                    val isUser = msg.senderId == "user"
+                    val agentColor = if (isUser) c.green else colorMap[msg.senderId] ?: c.accent
+                    val senderRole = memberRoles.firstOrNull { it.id == msg.senderId }
+                    GroupMessageBubble(
+                        message = msg,
+                        isUser = isUser,
+                        displaySenderName = if (isUser) msg.senderName else senderRole?.name ?: msg.senderName,
+                        displaySenderAvatar = if (isUser) userAvatarUri.orEmpty() else senderRole?.avatar ?: msg.senderAvatar,
+                        accentColor = agentColor,
+                        channelLabel = groupChannelLabel(group, msg, isZh),
+                        bubbleStyle = senderRole?.chatBubbleStyle,
+                        memberRoles = memberRoles,
+                        colorMap = colorMap,
+                        onAction = {
+                            onSend(
+                                it,
+                                emptyList(),
+                                selectedGameChannelTarget.channelId,
+                                selectedGameChannelTarget.visibility,
+                            )
+                        },
+                        onOpenHtmlViewer = onOpenHtmlViewer,
+                        onOpenBrowser = onOpenBrowser,
+                        onOpenAccessibilitySettings = onOpenAccessibilitySettings,
+                        c = c,
+                    )
+                    Spacer(Modifier.height(5.dp))
                 }
-            }
 
-            items(
-                keyedMessages,
-                key = { it.first },
-            ) { (_, msg) ->
-                val isUser = msg.senderId == "user"
-                val agentColor = if (isUser) c.green else colorMap[msg.senderId] ?: c.accent
-                val senderRole = memberRoles.firstOrNull { it.id == msg.senderId }
-                GroupMessageBubble(
-                    message = msg,
-                    isUser = isUser,
-                    displaySenderName = if (isUser) msg.senderName else senderRole?.name ?: msg.senderName,
-                    displaySenderAvatar = if (isUser) userAvatarUri.orEmpty() else senderRole?.avatar ?: msg.senderAvatar,
-                    accentColor = agentColor,
-                    bubbleStyle = senderRole?.chatBubbleStyle,
-                    memberRoles = memberRoles,
-                    colorMap = colorMap,
-                    onAction = { onSend(it, emptyList()) },
-                    onOpenHtmlViewer = onOpenHtmlViewer,
-                    onOpenBrowser = onOpenBrowser,
-                    onOpenAccessibilitySettings = onOpenAccessibilitySettings,
-                    c = c,
-                )
-                Spacer(Modifier.height(5.dp))
+                item { Spacer(Modifier.height(4.dp)) }
             }
-
-            item { Spacer(Modifier.height(4.dp)) }
         }
 
         // ── @mention picker ──────────────────────────────────────────────────
@@ -388,6 +644,38 @@ fun GroupChatScreen(
 
         // ── Input bar ────────────────────────────────────────────────────────
         HorizontalDivider(color = c.border, thickness = 0.5.dp)
+        if (userGameAbilities.isNotEmpty()) {
+            GameUserAbilityStrip(
+                abilities = userGameAbilities,
+                isZh = isZh,
+                c = c,
+                onPick = { selectedGameAbility = it },
+            )
+        }
+        if (!canUserSpeak) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(c.surface)
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(c.accent),
+                )
+                Text(
+                    userInputStatusText,
+                    color = c.subtext.copy(alpha = 0.76f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         if (pendingAttachments.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -413,13 +701,14 @@ fun GroupChatScreen(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
+            val canSubmitMessage = canUserSpeak && (input.text.isNotBlank() || pendingAttachments.isNotEmpty())
             Box(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
                     .background(c.cardAlt)
                     .border(0.5.dp, c.border, CircleShape)
-                    .clickable { showStickerSearch = true },
+                    .clickable(enabled = canUseInputExtras) { showStickerSearch = true },
                 contentAlignment = Alignment.Center,
             ) {
                 GroupStickerIcon(tint = c.text, modifier = Modifier.size(20.dp))
@@ -439,15 +728,25 @@ fun GroupChatScreen(
                     onValueChange = { newVal ->
                         input = newVal
                         // Auto-show mention picker when user types @
-                        if (newVal.text.endsWith("@")) showMentionPicker = true
+                        if (canUseInputExtras && newVal.text.endsWith("@")) showMentionPicker = true
                     },
                     textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 13.sp, lineHeight = 18.sp),
                     cursorBrush = SolidColor(c.accent),
+                    enabled = canUserSpeak,
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
                         if (input.text.isEmpty()) {
-                            Text(str(R.string.group_chat_hint), color = c.subtext, fontSize = 13.sp)
+                            val hint = if (!canUserSpeak) {
+                                userInputStatusText
+                            } else if (group.usesSystemGameJudge()) {
+                                userInputStatusText
+                            } else if (selectedGameChannelTarget.channelId != GROUP_CHANNEL_PUBLIC) {
+                                if (isZh) "发到 $activeGameChannelLabel" else "Message $activeGameChannelLabel"
+                            } else {
+                                str(R.string.group_chat_hint)
+                            }
+                            Text(hint, color = c.subtext, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         inner()
                     },
@@ -459,16 +758,21 @@ fun GroupChatScreen(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(if (input.text.isNotBlank() || pendingAttachments.isNotEmpty()) c.text else if (showPlusPanel) c.text else c.cardAlt)
-                    .border(0.5.dp, if (input.text.isNotBlank() || pendingAttachments.isNotEmpty() || showPlusPanel) Color.Transparent else c.border, CircleShape)
-                    .clickable {
-                        if (input.text.isNotBlank() || pendingAttachments.isNotEmpty()) {
-                            onSend((input.text.trim() + pendingTextAppend).trim(), pendingAttachments)
+                    .background(if (canSubmitMessage) c.text else if (showPlusPanel && canUseInputExtras) c.text else c.cardAlt)
+                    .border(0.5.dp, if (canSubmitMessage || (showPlusPanel && canUseInputExtras)) Color.Transparent else c.border, CircleShape)
+                    .clickable(enabled = canUserSpeak) {
+                        if (canSubmitMessage) {
+                            onSend(
+                                (input.text.trim() + pendingTextAppend).trim(),
+                                pendingAttachments,
+                                selectedGameChannelTarget.channelId,
+                                selectedGameChannelTarget.visibility,
+                            )
                             input = TextFieldValue("")
                             pendingAttachments = emptyList()
                             pendingTextAppend = ""
                             showPlusPanel = false
-                        } else {
+                        } else if (canUseInputExtras) {
                             showPlusPanel = !showPlusPanel
                         }
                     },
@@ -477,17 +781,18 @@ fun GroupChatScreen(
                 Text(
                     when {
                         input.text.isNotBlank() || pendingAttachments.isNotEmpty() -> "↑"
-                        showPlusPanel -> "×"
+                        showPlusPanel && canUseInputExtras -> "×"
+                        !canUserSpeak -> "•"
                         else -> "+"
                     },
-                    color = if (input.text.isNotBlank() || pendingAttachments.isNotEmpty() || showPlusPanel) c.bg else c.text,
+                    color = if (canSubmitMessage || (showPlusPanel && canUseInputExtras)) c.bg else c.text,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Light,
                 )
             }
         }
 
-        if (showPlusPanel) {
+        if (showPlusPanel && canUseInputExtras) {
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -507,7 +812,30 @@ fun GroupChatScreen(
             StickerSearchSheet(
                 onDismiss = { showStickerSearch = false },
                 onSelected = { file ->
-                    onSend("", listOf(file))
+                    onSend(
+                        "",
+                        listOf(file),
+                        selectedGameChannelTarget.channelId,
+                        selectedGameChannelTarget.visibility,
+                    )
+                },
+            )
+        }
+
+        selectedGameAbility?.let { ability ->
+            GameUserActionDialog(
+                ability = ability,
+                seats = targetableGameSeats,
+                initialReason = input.text,
+                isZh = isZh,
+                c = c,
+                onDismiss = { selectedGameAbility = null },
+                onSubmit = { targetSeatId, reason ->
+                    onSubmitGameAction(ability.id, targetSeatId, reason)
+                    selectedGameAbility = null
+                    if (reason.trim() == input.text.trim()) {
+                        input = TextFieldValue("")
+                    }
                 },
             )
         }
@@ -699,6 +1027,713 @@ private fun GroupMemberIconButton(
 }
 
 @Composable
+private fun GameViewModeStrip(
+    selectedMode: GroupGameViewMode,
+    timelineCount: Int,
+    isZh: Boolean,
+    c: ClawColors,
+    onSelect: (GroupGameViewMode) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface),
+    ) {
+        HorizontalDivider(color = c.border.copy(alpha = 0.55f), thickness = 0.5.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GameViewModePill(
+                label = if (isZh) "聊天" else "Chat",
+                selected = selectedMode == GroupGameViewMode.CHAT,
+                c = c,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(GroupGameViewMode.CHAT) },
+            )
+            GameViewModePill(
+                label = listOf(
+                    if (isZh) "流程" else "Flow",
+                    timelineCount.takeIf { it > 0 }?.toString(),
+                ).filterNotNull().joinToString(" "),
+                selected = selectedMode == GroupGameViewMode.FLOW,
+                c = c,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(GroupGameViewMode.FLOW) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun GameViewModePill(
+    label: String,
+    selected: Boolean,
+    c: ClawColors,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) c.text else c.cardAlt)
+            .border(0.6.dp, if (selected) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (selected) c.bg else c.text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun GameTimelineList(
+    timeline: List<GroupGameTimelineItem>,
+    listState: LazyListState,
+    isZh: Boolean,
+    c: ClawColors,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier.padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        item { Spacer(Modifier.height(10.dp)) }
+        if (timeline.isEmpty()) {
+            item(key = "game_timeline_empty") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(c.card)
+                        .border(0.6.dp, c.border.copy(alpha = 0.68f), RoundedCornerShape(22.dp))
+                        .padding(18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (isZh) "暂无流程事件" else "No flow events yet",
+                        color = c.subtext,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        } else {
+            itemsIndexed(
+                timeline,
+                key = { _, item -> item.id },
+            ) { index, item ->
+                GameTimelineRow(
+                    item = item,
+                    index = index,
+                    total = timeline.size,
+                    c = c,
+                )
+            }
+        }
+        item { Spacer(Modifier.height(12.dp)) }
+    }
+}
+
+@Composable
+private fun GameTimelineRow(
+    item: GroupGameTimelineItem,
+    index: Int,
+    total: Int,
+    c: ClawColors,
+) {
+    val shape = when {
+        total <= 1 -> RoundedCornerShape(22.dp)
+        index == 0 -> RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+        index == total - 1 -> RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)
+        else -> RoundedCornerShape(0.dp)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.card)
+            .border(
+                width = if (total <= 1 || index == 0 || index == total - 1) 0.6.dp else 0.dp,
+                color = c.border.copy(alpha = 0.64f),
+                shape = shape,
+            ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(item.timelineDotColor(c)),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    item.title,
+                    color = c.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (item.body.isNotBlank()) {
+                    Text(
+                        item.body,
+                        color = c.subtext.copy(alpha = 0.86f),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    item.meta,
+                    color = c.subtext.copy(alpha = 0.62f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (item.channelLabel.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .height(24.dp)
+                        .widthIn(max = 72.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(c.cardAlt)
+                        .border(0.5.dp, c.border, RoundedCornerShape(999.dp))
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        item.channelLabel,
+                        color = c.subtext,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        if (index < total - 1) {
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 43.dp),
+                color = c.border.copy(alpha = 0.46f),
+                thickness = 0.5.dp,
+            )
+        }
+    }
+}
+
+private fun GroupGameTimelineItem.timelineDotColor(c: ClawColors): Color =
+    when (type) {
+        GameEventType.PHASE_ADVANCED,
+        GameEventType.RESULT_PUBLISHED,
+        -> c.accent
+        GameEventType.ACTION_RESOLVED,
+        GameEventType.CONTROL_CHANGED,
+        GameEventType.SPEAKER_CALLED,
+        -> c.text.copy(alpha = 0.72f)
+        GameEventType.ACTION_SUBMITTED,
+        GameEventType.VOTE_SUBMITTED,
+        -> c.subtext.copy(alpha = 0.78f)
+    }
+
+@Composable
+private fun GameChannelFilterStrip(
+    filters: List<GroupChannelFilter>,
+    selectedId: String,
+    c: ClawColors,
+    onSelect: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface),
+    ) {
+        HorizontalDivider(color = c.border.copy(alpha = 0.55f), thickness = 0.5.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            filters.forEach { filter ->
+                GameChannelFilterPill(
+                    filter = filter,
+                    selected = filter.id == selectedId,
+                    c = c,
+                    onClick = { onSelect(filter.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameChannelFilterPill(
+    filter: GroupChannelFilter,
+    selected: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .height(30.dp)
+            .widthIn(max = 128.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) c.text else c.cardAlt)
+            .border(0.6.dp, if (selected) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            listOf(filter.label, filter.count.takeIf { it > 0 }?.toString()).filterNotNull().joinToString(" "),
+            color = if (selected) c.bg else c.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun GameUserAbilityStrip(
+    abilities: List<GameAbility>,
+    isZh: Boolean,
+    c: ClawColors,
+    onPick: (GameAbility) -> Unit,
+) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            if (isZh) "行动" else "Actions",
+            color = c.subtext.copy(alpha = 0.72f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .height(30.dp)
+                .padding(horizontal = 4.dp),
+        )
+        abilities.take(6).forEach { ability ->
+            GameRuntimeActionPill(
+                label = ability.name,
+                primary = ability.visibility.equals(GROUP_VISIBILITY_PUBLIC, ignoreCase = true),
+                c = c,
+                onClick = { onPick(ability) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun GameUserActionDialog(
+    ability: GameAbility,
+    seats: List<GameSeat>,
+    initialReason: String,
+    isZh: Boolean,
+    c: ClawColors,
+    onDismiss: () -> Unit,
+    onSubmit: (targetSeatId: String, reason: String) -> Unit,
+) {
+    var selectedSeatId by remember(ability.id, seats) { mutableStateOf(seats.firstOrNull()?.seatId.orEmpty()) }
+    var reason by remember(ability.id) { mutableStateOf(TextFieldValue(initialReason.take(220))) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(c.card)
+                .border(0.7.dp, c.border, RoundedCornerShape(22.dp))
+                .padding(16.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(c.accent),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            ability.name,
+                            color = c.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val detail = listOf(ability.targetRule, ability.description)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                        if (detail.isNotBlank()) {
+                            Text(
+                                detail,
+                                color = c.subtext,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = null, tint = c.subtext, modifier = Modifier.size(18.dp))
+                    }
+                }
+
+                if (seats.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        seats.forEach { seat ->
+                            GameTargetSeatPill(
+                                seat = seat,
+                                selected = seat.seatId == selectedSeatId,
+                                c = c,
+                                onClick = { selectedSeatId = seat.seatId },
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 54.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(c.cardAlt)
+                        .border(0.7.dp, c.border, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    BasicTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        textStyle = TextStyle(color = c.text, fontSize = 13.sp, lineHeight = 18.sp),
+                        cursorBrush = SolidColor(c.accent),
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { inner ->
+                            if (reason.text.isBlank()) {
+                                Text(
+                                    if (isZh) "理由或备注" else "Reason or note",
+                                    color = c.subtext.copy(alpha = 0.78f),
+                                    fontSize = 13.sp,
+                                )
+                            }
+                            inner()
+                        },
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    GameDialogButton(
+                        label = if (isZh) "取消" else "Cancel",
+                        primary = false,
+                        c = c,
+                        modifier = Modifier.weight(1f),
+                        onClick = onDismiss,
+                    )
+                    GameDialogButton(
+                        label = if (isZh) "提交" else "Submit",
+                        primary = true,
+                        c = c,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSubmit(selectedSeatId, reason.text) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameTargetSeatPill(
+    seat: GameSeat,
+    selected: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) c.text else c.cardAlt)
+            .border(0.6.dp, if (selected) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            seat.displayName,
+            color = if (selected) c.bg else c.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun GameDialogButton(
+    label: String,
+    primary: Boolean,
+    c: ClawColors,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (primary) c.text else c.cardAlt)
+            .border(0.7.dp, if (primary) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (primary) c.bg else c.text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun GameRuntimeActionStrip(
+    group: Group,
+    actions: List<GameActionRecord>,
+    isZh: Boolean,
+    c: ClawColors,
+    onPublish: (String) -> Unit,
+    onIgnore: (String) -> Unit,
+    onResolvePhase: () -> Unit,
+    onAdvance: () -> Unit,
+) {
+    val profile = group.gameProfile
+    val runtimeState = profile?.runtimeState()
+    val phaseName = profile?.phases?.firstOrNull { it.id == profile.currentPhaseId }?.name.orEmpty()
+    val isSystemJudge = group.usesSystemGameJudge()
+    val systemFlow = runtimeState?.flags?.get(GAME_RUNTIME_FLAG_SYSTEM_FLOW_STEP).orEmpty().systemFlowChatLabel(isZh)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface),
+    ) {
+        HorizontalDivider(color = c.border.copy(alpha = 0.55f), thickness = 0.5.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(c.accent),
+            )
+            Text(
+                if (isZh) "第 ${runtimeState?.roundIndex?.coerceAtLeast(1) ?: 1} 轮" else "Round ${runtimeState?.roundIndex?.coerceAtLeast(1) ?: 1}",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Text(
+                listOf(
+                    if (isSystemJudge) {
+                        if (isZh) "系统法官" else "System host"
+                    } else {
+                        ""
+                    },
+                    systemFlow,
+                    phaseName,
+                    if (!isSystemJudge) profile?.judgeFlowMode?.chatMetaLabel(isZh).orEmpty() else "",
+                    profile?.userActionPolicy?.chatMetaLabel(isZh).orEmpty(),
+                    if (actions.isNotEmpty()) {
+                        if (isZh) "待处理 ${actions.size}" else "${actions.size} pending"
+                    } else {
+                        if (isZh) "无待处理" else "Clear"
+                    },
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+                color = c.subtext.copy(alpha = 0.72f),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (actions.isNotEmpty()) {
+                GameRuntimeActionPill(
+                    label = if (isZh) "阶段结算" else "Settle",
+                    primary = false,
+                    c = c,
+                    onClick = onResolvePhase,
+                )
+            }
+            GameRuntimeActionPill(
+                label = if (isSystemJudge) {
+                    if (isZh) "系统推进" else "System next"
+                } else {
+                    if (isZh) "推进" else "Next"
+                },
+                primary = true,
+                c = c,
+                onClick = onAdvance,
+            )
+        }
+        actions.take(3).forEach { action ->
+            GameRuntimeActionRow(
+                group = group,
+                action = action,
+                isZh = isZh,
+                c = c,
+                onPublish = onPublish,
+                onIgnore = onIgnore,
+            )
+        }
+        if (actions.size > 3) {
+            Text(
+                if (isZh) "还有 ${actions.size - 3} 个行动等待处理" else "${actions.size - 3} more actions waiting",
+                color = c.subtext.copy(alpha = 0.72f),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(start = 31.dp, end = 16.dp, bottom = 7.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        HorizontalDivider(color = c.border.copy(alpha = 0.55f), thickness = 0.5.dp)
+    }
+}
+
+@Composable
+private fun GameRuntimeActionRow(
+    group: Group,
+    action: GameActionRecord,
+    isZh: Boolean,
+    c: ClawColors,
+    onPublish: (String) -> Unit,
+    onIgnore: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 31.dp, end = 10.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                action.compactGameActionTitle(group.gameProfile),
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val meta = action.compactGameActionMeta(group.gameProfile)
+            if (meta.isNotBlank()) {
+                Text(
+                    meta,
+                    color = c.subtext.copy(alpha = 0.78f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        GameRuntimeActionPill(
+            label = if (isZh) "结算" else "Resolve",
+            primary = true,
+            c = c,
+            onClick = { onPublish(action.id) },
+        )
+        GameRuntimeActionPill(
+            label = if (isZh) "忽略" else "Ignore",
+            primary = false,
+            c = c,
+            onClick = { onIgnore(action.id) },
+        )
+    }
+}
+
+@Composable
+private fun GameRuntimeActionPill(
+    label: String,
+    primary: Boolean,
+    c: ClawColors,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .height(28.dp)
+            .widthIn(min = 45.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (primary) c.text else c.cardAlt)
+            .border(0.6.dp, if (primary) Color.Transparent else c.border, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (primary) c.bg else c.text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
 private fun MemberDrawerRow(
     avatar: String,
     name: String,
@@ -766,6 +1801,7 @@ private fun GroupMessageBubble(
     displaySenderName: String,
     displaySenderAvatar: String,
     accentColor: Color,
+    channelLabel: String,
     bubbleStyle: ChatBubbleStyle?,
     memberRoles: List<Role>,
     colorMap: Map<String, Color>,
@@ -852,6 +1888,26 @@ private fun GroupMessageBubble(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(time, color = c.subtext.copy(alpha = 0.5f), fontSize = 10.sp)
+                if (channelLabel.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(c.cardAlt)
+                            .border(0.5.dp, c.border, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            channelLabel,
+                            color = c.subtext,
+                            fontSize = 9.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(2.dp))
 

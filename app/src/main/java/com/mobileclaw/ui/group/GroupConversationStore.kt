@@ -26,8 +26,10 @@ internal class GroupConversationStore(
 ) {
     suspend fun loadPreviews(groups: List<Group>): Map<String, GroupPreview> =
         groups.associate { group ->
-            val dbLatest = groupMessageDao.latestForGroup(group.id)?.toGroupMessage(deserializeAttachments)
-            val backupLatest = groupHistoryStore.readBackup(group.id).maxByOrNull { it.createdAt }
+            val dbLatest = groupMessageDao.latestPublicForGroup(group.id)?.toGroupMessage(deserializeAttachments)
+            val backupLatest = groupHistoryStore.readBackup(group.id)
+                .filter { it.visibility == GROUP_VISIBILITY_PUBLIC || it.channelId == GROUP_CHANNEL_PUBLIC }
+                .maxByOrNull { it.createdAt }
             val latest = listOfNotNull(dbLatest, backupLatest).maxByOrNull { it.createdAt }
             group.id to latest?.let {
                 GroupPreview(
@@ -76,6 +78,8 @@ private fun GroupMessageEntity.toGroupMessage(
             senderAvatar = senderAvatar,
             text = text,
             attachments = deserializeAttachments(attachmentsJson),
+            channelId = channelId,
+            visibility = visibility,
             createdAt = createdAt,
         )
     }.getOrElse {
@@ -87,6 +91,8 @@ private fun GroupMessageEntity.toGroupMessage(
             senderAvatar = senderAvatar,
             text = text,
             attachments = emptyList(),
+            channelId = channelId.ifBlank { GROUP_CHANNEL_PUBLIC },
+            visibility = visibility.ifBlank { GROUP_VISIBILITY_PUBLIC },
             createdAt = createdAt,
         )
     }

@@ -64,6 +64,8 @@ data class MainUiState(
     val currentModel: String = "gpt-4o",
     val availableModels: List<String> = emptyList(),
     val modelsLoading: Boolean = false,
+    val gatewayModels: Map<String, List<String>> = emptyMap(),
+    val gatewayModelsLoadingIds: Set<String> = emptySet(),
     val localModels: List<LocalModelInfo> = emptyList(),
     // Role Home data
     val agentTown: AgentTownState = AgentTownState(),

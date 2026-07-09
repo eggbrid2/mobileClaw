@@ -33,6 +33,16 @@ import com.mobileclaw.agent.AgentWorkspaceUpdate
 import com.mobileclaw.agent.ChatBubbleStyle
 import com.mobileclaw.agent.ChannelType
 import com.mobileclaw.agent.ChannelPermissionPolicy
+import com.mobileclaw.agent.GameActionDraft
+import com.mobileclaw.agent.GameActionRecord
+import com.mobileclaw.agent.GameActionStatus
+import com.mobileclaw.agent.GameActorType
+import com.mobileclaw.agent.GameEvent
+import com.mobileclaw.agent.GameRuntimeControlDraft
+import com.mobileclaw.agent.GameSeat
+import com.mobileclaw.agent.GameSeatStatus
+import com.mobileclaw.agent.GroupMode
+import com.mobileclaw.agent.GroupTurnStyle
 import com.mobileclaw.agent.Role
 import com.mobileclaw.agent.RolePackageStore
 import com.mobileclaw.agent.RoleWorkspaceStore
@@ -56,8 +66,10 @@ import com.mobileclaw.config.capabilityModel
 import com.mobileclaw.config.hasCapability
 import com.mobileclaw.config.supportsCapabilityMultimodal
 import com.mobileclaw.llm.ChatRequest
+import com.mobileclaw.llm.LlmCallOptions
 import com.mobileclaw.llm.Message
 import com.mobileclaw.llm.OpenAiGateway
+import com.mobileclaw.llm.RoleModelResolver
 import com.mobileclaw.llm.ToolDefinition
 import com.mobileclaw.llm.ToolParameters
 import com.mobileclaw.llm.ToolProperty
@@ -66,6 +78,7 @@ import com.mobileclaw.llm.decodeLocalTokenizerSpacing
 import com.mobileclaw.memory.EpisodicMemory
 import com.mobileclaw.memory.MemoryContextBuilder
 import com.mobileclaw.memory.MemoryWriter
+import com.mobileclaw.memory.db.GroupGameEventEntity
 import com.mobileclaw.memory.db.SessionEntity
 import com.mobileclaw.memory.db.SessionMessageEntity
 import com.mobileclaw.perception.ClawAccessibilityService
@@ -91,6 +104,7 @@ import com.mobileclaw.skill.builtin.ListFilesSkill
 import com.mobileclaw.skill.builtin.ReadFileSkill
 import com.mobileclaw.skill.builtin.ShowToastSkill
 import com.mobileclaw.skill.builtin.FetchUrlSkill
+import com.mobileclaw.skill.builtin.GameRuntimeSkill
 import com.mobileclaw.skill.builtin.GenerateDocumentSkill
 import com.mobileclaw.skill.builtin.GenerateIconSkill
 import com.mobileclaw.skill.builtin.GenerateImageSkill
@@ -198,26 +212,72 @@ import com.mobileclaw.vpn.VpnManager
 import com.mobileclaw.skill.builtin.RunPythonSkill
 import com.mobileclaw.skill.executor.ShellSkill
 import com.mobileclaw.ui.group.GroupConversationStore
+import com.mobileclaw.ui.group.GroupGameDirector
 import com.mobileclaw.ui.group.GroupHistoryStore
 import com.mobileclaw.ui.group.GroupMessage
 import com.mobileclaw.ui.group.GroupPreview
+import com.mobileclaw.ui.group.GameRuntimeMessageDraft
 import com.mobileclaw.ui.group.GroupRuntimeDiagnostics
 import com.mobileclaw.ui.group.GroupTurnExecutor
 import com.mobileclaw.ui.group.GroupTurnLaunch
 import com.mobileclaw.ui.group.GroupTurnResult
 import com.mobileclaw.ui.group.GroupTurnScheduler
+import com.mobileclaw.ui.group.GROUP_GAME_TIMELINE_LIMIT
+import com.mobileclaw.ui.group.GROUP_CHANNEL_JUDGE
+import com.mobileclaw.ui.group.GROUP_CHANNEL_PUBLIC
+import com.mobileclaw.ui.group.GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE
+import com.mobileclaw.ui.group.GROUP_VISIBILITY_JUDGE
+import com.mobileclaw.ui.group.GROUP_VISIBILITY_PRIVATE
+import com.mobileclaw.ui.group.GROUP_VISIBILITY_PUBLIC
+import com.mobileclaw.ui.group.GROUP_VISIBILITY_TEAM
+import com.mobileclaw.ui.group.advanceSystemGameJudgeFlow
+import com.mobileclaw.ui.group.availableGameAbilitiesForSeat
+import com.mobileclaw.ui.group.availableUserGameAbilities
+import com.mobileclaw.ui.group.applyGameRuntimeControl
 import com.mobileclaw.ui.group.buildGroupSystemPrompt
+import com.mobileclaw.ui.group.buildSystemGameFinalJudgementPrompt
+import com.mobileclaw.ui.group.canRoleSeeGroupMessage
+import com.mobileclaw.ui.group.canCurrentUserSpeakInGame
+import com.mobileclaw.ui.group.canUserSeeGroupMessage
+import com.mobileclaw.ui.group.channelForGameAbility
+import com.mobileclaw.ui.group.channelForUserGameAbility
+import com.mobileclaw.ui.group.currentGamePhase
 import com.mobileclaw.ui.group.defaultGroupBubbleStyleFor
+import com.mobileclaw.ui.group.gameSeatForRole
+import com.mobileclaw.ui.group.gamePhaseAdvancedEvent
 import com.mobileclaw.ui.group.groupAttachmentPrompt
 import com.mobileclaw.ui.group.groupPreviewText
+import com.mobileclaw.ui.group.isGameGroup
+import com.mobileclaw.ui.group.isGameSpeechOpenForPlayers
+import com.mobileclaw.ui.group.isSystemGameEventActionStep
+import com.mobileclaw.ui.group.isSystemGameFlowFinalJudgement
 import com.mobileclaw.ui.group.isLowValueGroupReply
 import com.mobileclaw.ui.group.isOrganicGroupTrigger
+import com.mobileclaw.ui.group.markSystemGameUserSpeechSubmitted
 import com.mobileclaw.ui.group.parseMentions
+import com.mobileclaw.ui.group.resolveCurrentPhaseGameActions
+import com.mobileclaw.ui.group.resolveGamePhaseActions
+import com.mobileclaw.ui.group.resolvePendingGameAction
+import com.mobileclaw.ui.group.runtimeState
 import com.mobileclaw.ui.group.shouldUseStickerAwareChat
 import com.mobileclaw.ui.group.shouldContinueGroupThread
 import com.mobileclaw.ui.group.shouldInviteMultipleGroupVoices
 import com.mobileclaw.ui.group.shouldRequireGroupReaction
 import com.mobileclaw.ui.group.stickerQueryForText
+import com.mobileclaw.ui.group.systemGameFlowShouldWaitForUserAction
+import com.mobileclaw.ui.group.targetableGameSeatsForSeat
+import com.mobileclaw.ui.group.targetableGameSeatsForUser
+import com.mobileclaw.ui.group.toGameActionResolvedEvent
+import com.mobileclaw.ui.group.toGameActionSubmittedEvent
+import com.mobileclaw.ui.group.toGameEvent
+import com.mobileclaw.ui.group.toGameRuntimeMessageDrafts
+import com.mobileclaw.ui.group.toVisibleGameTimelineItems
+import com.mobileclaw.ui.group.userGameSeat
+import com.mobileclaw.ui.group.visibleGroupMessagesForRole
+import com.mobileclaw.ui.group.withAppendedGameEvents
+import com.mobileclaw.ui.group.withRuntimeState
+import com.mobileclaw.ui.group.runtimeFlagsForPhaseStart
+import com.mobileclaw.ui.group.usesSystemGameJudge
 import com.mobileclaw.ui.profile.ProfileDimension
 import com.mobileclaw.ui.workspace.SemanticFactLike
 import com.mobileclaw.ui.workspace.WorkspaceRuntimeCoordinator
@@ -1000,22 +1060,11 @@ class MainViewModel : ViewModel() {
             app.roleWorkspaceStore.recordModelConfig(role, config.snapshot(), source = "set_active_role")
         }
         _uiState.update { it.copy(currentRole = role) }
-        if (role.modelOverride != null) {
-            viewModelScope.launch {
-                val snap = config.snapshot()
-                val model = role.modelOverride
-                if (model.startsWith("local:")) {
-                    config.update(snap.copy(localModelEnabled = true, localModelId = model.removePrefix("local:")))
-                } else {
-                    val updatedGateways = snap.gateways.map {
-                        if (it.id == snap.activeGatewayId || (snap.activeGatewayId == null && it == snap.gateways.firstOrNull()))
-                            it.copy(model = model)
-                        else it
-                    }
-                    config.update(snap.copy(gateways = updatedGateways, localModelEnabled = false, localNativeOnly = false))
-                }
-            }
-        }
+    }
+
+    private fun roleLlmCallOptions(role: Role): LlmCallOptions {
+        val resolved = RoleModelResolver.resolve(role, config.snapshot())
+        return if (resolved.inheritedDefault) LlmCallOptions() else resolved.callOptions
     }
 
     fun saveCustomRole(role: Role) {
@@ -2674,6 +2723,7 @@ class MainViewModel : ViewModel() {
                     userProfileContext = userProfileContext,
                     allowedToolIds = selectedToolIds,
                     roleWorkspaceContext = roleWorkspaceContext,
+                    callOptions = roleLlmCallOptions(execution.scheduledRole),
                     preferFastLocalVision = prepared.attachedImage != null && (snap.localNativeOnly || snap.localModelEnabled),
                     preferFastPlan = route.source != TaskRouteSource.CLASSIFIER,
                     onToken = { token ->
@@ -3693,6 +3743,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                                 updateSession(resolvedSessionId) { it.copy(streamingToken = (it.streamingToken + clean).cleanLocalStreamingText()) }
                             }
                         },
+                        callOptions = roleLlmCallOptions(currentRole),
                     ))
                 }
                 Log.d(
@@ -4555,6 +4606,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             ).also { groupRuntimeDiagnosticsRef = it }
         }
     @Volatile private var groupChatStopped = false
+    private val groupGameRuntimeLock = Any()
     private val GROUP_TASK_POOL_LIMIT = 4
     private val groupTurnScheduler by lazy {
         GroupTurnScheduler(
@@ -4598,9 +4650,83 @@ For pure conversational replies, greetings, explanations, and simple factual ans
 
     fun createGroup(group: com.mobileclaw.agent.Group) {
         viewModelScope.launch(Dispatchers.IO) {
-            initializeGroupBubbleStyles(group)
-            groupManager.save(group)
-            loadGroups()
+            val now = System.currentTimeMillis()
+            val cleanMembers = group.memberRoleIds.distinct().filter { roleId -> roleManager.get(roleId) != null }
+            if (cleanMembers.isEmpty()) return@launch
+            val savedGroup = group.copy(
+                memberRoleIds = cleanMembers,
+                judgeRoleId = group.judgeRoleId.takeIf { it in cleanMembers }.orEmpty(),
+                roundLimit = group.roundLimit.coerceIn(1, 8),
+                updatedAt = now,
+            )
+            initializeGroupBubbleStyles(savedGroup)
+            groupManager.save(savedGroup)
+
+            val openingText = savedGroup.openingPrompt.trim()
+            if (savedGroup.autoStart && openingText.isNotBlank()) {
+                clearPendingGroupTurns()
+                groupChatStopped = false
+                val userMsg = GroupMessage(
+                    groupId = savedGroup.id,
+                    senderId = "user",
+                    senderName = str(R.string.group_chat_df1fd9),
+                    senderAvatar = _uiState.value.userAvatarUri.orEmpty(),
+                    text = openingText,
+                )
+                val rowId = database.groupMessageDao().insert(userMsg.toEntity())
+                val savedUserMsg = userMsg.copy(id = rowId)
+                groupHistoryStore.appendBackup(savedUserMsg)
+                val savedSystemJudgeMsg = if (savedGroup.usesSystemGameJudge()) {
+                    val isZh = config.language != "en"
+                    val msg = GroupMessage(
+                        groupId = savedGroup.id,
+                        senderId = "game_runtime",
+                        senderName = if (isZh) "系统法官" else "System host",
+                        senderAvatar = "game",
+                        text = if (isZh) "【系统法官】第 1 轮开始。" else "System host: Round 1 starts.",
+                        channelId = GROUP_CHANNEL_PUBLIC,
+                        visibility = GROUP_VISIBILITY_PUBLIC,
+                    )
+                    val systemRowId = database.groupMessageDao().insert(msg.toEntity())
+                    msg.copy(id = systemRowId).also { groupHistoryStore.appendBackup(it) }
+                } else {
+                    null
+                }
+                val groups = groupManager.all()
+                val previews = groupConversationStore.loadPreviews(groups)
+                val allMembers = savedGroup.memberRoleIds.mapNotNull { roleManager.get(it) }
+                val initialMessages = listOfNotNull(savedUserMsg, savedSystemJudgeMsg)
+                _uiState.update { state ->
+                    state.copy(
+                        groupState = state.groupState.copy(
+                            groups = groups,
+                            previews = previews,
+                            openGroup = savedGroup,
+                            messages = initialMessages,
+                            historyOffset = GROUP_MESSAGE_PAGE_SIZE,
+                            historyHasMore = false,
+                            historyLoading = false,
+                            isRunning = !savedGroup.usesSystemGameJudge() && allMembers.isNotEmpty(),
+                            typingAgents = emptySet(),
+                            workingAgents = emptySet(),
+                            pendingMessages = emptyList(),
+                            unreadCount = 0,
+                        ),
+                    )
+                }
+                navigate(AppPage.GROUP_CHAT)
+                recordUserMemoryHints(openingText, workspaceRuntime.resolveSessionWorkspaceId(_uiState.value.currentSessionId))
+                conversationMemory.addUserMessage(openingText)
+                if (savedGroup.usesSystemGameJudge()) {
+                    maybeAutoAdvanceSystemGameFlow(savedGroup.id)
+                } else if (allMembers.isNotEmpty()) {
+                    startGroupTurns(savedGroup, allMembers, savedSystemJudgeMsg?.text ?: openingText)
+                } else {
+                    _uiState.update { it.copy(groupState = it.groupState.copy(isRunning = false)) }
+                }
+            } else {
+                loadGroups()
+            }
         }
     }
 
@@ -4642,6 +4768,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         viewModelScope.launch(Dispatchers.IO) {
             groupManager.delete(id)
             database.groupMessageDao().deleteForGroup(id)
+            database.groupGameEventDao().deleteForGroup(id)
             runCatching { groupHistoryStore.historyFile(id).delete() }
             loadGroups()
             if (_uiState.value.groupState.openGroup?.id == id) closeGroupChat()
@@ -4653,6 +4780,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             groupChatStopped = false
             val pageSize = GROUP_MESSAGE_PAGE_SIZE
             val snapshot = groupConversationStore.openGroup(group.id, pageSize)
+            val gameTimeline = loadGroupGameTimeline(group)
             val currentRoles = roleManager.all()
             val missingRoles = group.memberRoleIds.filter { roleId -> currentRoles.none { it.id == roleId } }
             android.util.Log.d(
@@ -4674,6 +4802,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     groupState = state.groupState.copy(
                         openGroup = group,
                         messages = snapshot.mergedMessages,
+                        gameTimeline = gameTimeline,
                         historyOffset = pageSize,
                         historyHasMore = snapshot.total > pageSize,
                         historyLoading = false,
@@ -4718,12 +4847,28 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
     }
 
+    private suspend fun loadGroupGameTimeline(group: com.mobileclaw.agent.Group): List<com.mobileclaw.ui.group.GroupGameTimelineItem> {
+        if (!isGameGroup(group)) return emptyList()
+        val storedEvents = database.groupGameEventDao()
+            .latestForGroup(group.id, GROUP_GAME_TIMELINE_LIMIT)
+            .asReversed()
+            .map { it.toGameEvent() }
+        val runtimeEvents = group.gameProfile?.runtimeState()?.events.orEmpty()
+        val events = (storedEvents + runtimeEvents)
+            .filter { it.id.isNotBlank() }
+            .distinctBy { it.id }
+            .sortedWith(compareBy<GameEvent> { it.createdAt }.thenBy { it.id })
+            .takeLast(GROUP_GAME_TIMELINE_LIMIT)
+        return events.toVisibleGameTimelineItems(group, config.language != "en")
+    }
+
     fun closeGroupChat() {
         _uiState.update {
             it.copy(
                 groupState = it.groupState.copy(
                     openGroup = null,
                     messages = emptyList(),
+                    gameTimeline = emptyList(),
                     historyOffset = 0,
                     historyHasMore = false,
                     historyLoading = false,
@@ -4756,12 +4901,48 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
     }
 
-    fun sendGroupMessage(text: String, attachments: List<SkillAttachment> = emptyList()) {
+    fun sendGroupMessage(
+        text: String,
+        attachments: List<SkillAttachment> = emptyList(),
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
+    ) {
         val group = _uiState.value.groupState.openGroup ?: return
         if (text.isBlank() && attachments.isEmpty()) return
 
         viewModelScope.launch(Dispatchers.IO) {
-            val userMsg = GroupMessage(groupId = group.id, senderId = "user", senderName = str(R.string.group_chat_df1fd9), senderAvatar = _uiState.value.userAvatarUri.orEmpty(), text = text, attachments = attachments)
+            val permissionGroup = groupManager.get(group.id) ?: group
+            if (permissionGroup.usesSystemGameJudge()) {
+                if (!permissionGroup.canCurrentUserSpeakInGame() || attachments.isNotEmpty()) return@launch
+            }
+            val sendChannelId = if (permissionGroup.usesSystemGameJudge()) {
+                GROUP_CHANNEL_PUBLIC
+            } else if (isGameGroup(permissionGroup)) {
+                channelId.trim().ifBlank { GROUP_CHANNEL_PUBLIC }
+            } else {
+                GROUP_CHANNEL_PUBLIC
+            }
+            val sendVisibility = if (permissionGroup.usesSystemGameJudge()) {
+                GROUP_VISIBILITY_PUBLIC
+            } else if (isGameGroup(permissionGroup)) {
+                visibility
+                    .trim()
+                    .lowercase()
+                    .takeIf { it in setOf(GROUP_VISIBILITY_PUBLIC, GROUP_VISIBILITY_TEAM, GROUP_VISIBILITY_PRIVATE, GROUP_VISIBILITY_JUDGE) }
+                    ?: GROUP_VISIBILITY_PUBLIC
+            } else {
+                GROUP_VISIBILITY_PUBLIC
+            }
+            val userMsg = GroupMessage(
+                groupId = group.id,
+                senderId = "user",
+                senderName = str(R.string.group_chat_df1fd9),
+                senderAvatar = _uiState.value.userAvatarUri.orEmpty(),
+                text = text,
+                attachments = attachments,
+                channelId = sendChannelId,
+                visibility = sendVisibility,
+            )
             val rowId = database.groupMessageDao().insert(userMsg.toEntity())
             val savedUserMsg = userMsg.copy(id = rowId)
             groupHistoryStore.appendBackup(savedUserMsg)
@@ -4770,8 +4951,26 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             recordUserMemoryHints(text, workspaceRuntime.resolveSessionWorkspaceId(_uiState.value.currentSessionId))
             conversationMemory.addUserMessage(text)
 
+            if (permissionGroup.usesSystemGameJudge()) {
+                val updatedGroup = synchronized(groupGameRuntimeLock) {
+                    val current = groupManager.get(group.id) ?: group
+                    current.markSystemGameUserSpeechSubmitted()?.also { groupManager.save(it) }
+                }
+                if (updatedGroup != null) {
+                    updateGroupRuntimeInUi(updatedGroup)
+                }
+                loadGroups()
+                maybeAutoAdvanceSystemGameFlow(group.id)
+                return@launch
+            }
+
             val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
-            if (allMembers.isEmpty()) return@launch
+            val visibleMembers = if (isGameGroup(group)) {
+                allMembers.filter { role -> canRoleSeeGroupMessage(group, role, savedUserMsg) }
+            } else {
+                allMembers
+            }
+            if (visibleMembers.isEmpty()) return@launch
 
             groupChatStopped = false
             _uiState.update { it.copy(groupState = it.groupState.copy(isRunning = true)) }
@@ -4779,21 +4978,49 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             loadGroups()
 
             if (groupAgentJobs.size >= GROUP_TASK_POOL_LIMIT) {
-                enqueueUserGroupTurn(allMembers, text)
+                enqueueUserGroupTurn(group, visibleMembers, text, sendChannelId, sendVisibility)
             } else {
-                startGroupTurns(group, allMembers, text)
+                startGroupTurns(group, visibleMembers, text, sendChannelId, sendVisibility)
             }
         }
     }
 
-    private suspend fun startGroupTurns(group: com.mobileclaw.agent.Group, allMembers: List<Role>, userText: String) {
-        groupTurnScheduler.buildInitialTurns(allMembers, userText).forEach { launch ->
+    private suspend fun startGroupTurns(
+        group: com.mobileclaw.agent.Group,
+        allMembers: List<Role>,
+        userText: String,
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
+    ) {
+        if (isGameGroup(group)) {
+            GroupGameDirector.buildInitialTurns(
+                group = group,
+                allMembers = allMembers,
+                triggerText = userText,
+                channelId = channelId,
+                visibility = visibility,
+            ).orEmpty().forEach { launch ->
+                launchScheduledGroupTurn(group, allMembers, launch)
+            }
+            return
+        }
+        groupTurnScheduler.buildInitialTurns(group, allMembers, userText, channelId, visibility).forEach { launch ->
             launchScheduledGroupTurn(group, allMembers, launch)
         }
     }
 
-    private suspend fun enqueueUserGroupTurn(allMembers: List<Role>, userText: String) {
-        val pendingMessages = groupTurnScheduler.enqueueUserTurn(allMembers, userText)
+    private suspend fun enqueueUserGroupTurn(
+        group: com.mobileclaw.agent.Group,
+        allMembers: List<Role>,
+        userText: String,
+        channelId: String,
+        visibility: String,
+    ) {
+        if (isGameGroup(group)) {
+            startGroupTurns(group, allMembers, userText, channelId, visibility)
+            return
+        }
+        val pendingMessages = groupTurnScheduler.enqueueUserTurn(group, allMembers, userText, channelId, visibility)
         _uiState.update { it.copy(groupState = it.groupState.copy(pendingMessages = pendingMessages)) }
     }
 
@@ -4825,9 +5052,15 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         chainDepth: Int = 0,
         longTask: Boolean = false,
         triggerText: String = "",
+        channelId: String = GROUP_CHANNEL_PUBLIC,
+        visibility: String = GROUP_VISIBILITY_PUBLIC,
         requireResponse: Boolean = false,
     ) {
         if (groupAgentJobs.containsKey(role.id)) return
+        if (isGameGroup(group) && role.id != group.judgeRoleId) {
+            val seatStatus = group.gameSeatForRole(role.id)?.status
+            if (seatStatus !in setOf(GameSeatStatus.READY, GameSeatStatus.ALIVE)) return
+        }
         if (groupAgentJobs.size >= GROUP_TASK_POOL_LIMIT) {
             val pendingMessages = groupTurnScheduler.enqueueDeferredTurn(
                 role = role,
@@ -4835,6 +5068,8 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 chainDepth = chainDepth,
                 longTask = longTask,
                 requireResponse = requireResponse,
+                channelId = channelId,
+                visibility = visibility,
             )
             _uiState.update { it.copy(groupState = it.groupState.copy(pendingMessages = pendingMessages)) }
             return
@@ -4875,11 +5110,12 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     auroraOverlay.beginTask()
                 }
                 val history = _uiState.value.groupState.messages
+                val visibleHistory = visibleGroupMessagesForRole(group, role, history).takeLast(30)
                 memoryWriter.updateTaskState(workspaceId, if (startsWorking) "executing" else "thinking", triggerText.take(200))
                 val memoryPrompt = buildUserMemoryContextForPrompt(triggerText, taskType, workspaceId)
                 val systemPrompt = buildGroupSystemPrompt(
                     role = role,
-                    groupName = group.name,
+                    group = group,
                     allMembers = allMembers,
                     memoryPrompt = memoryPrompt,
                     executionContext = groupOrchestration.toPromptBlock(),
@@ -4887,7 +5123,7 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 conversationMemory.addUserMessage(triggerText, taskId = workspaceId)
                 recordUserMemoryHints(triggerText, workspaceId)
                 // Each agent sees its own past messages as "assistant"; everyone else (user + other AIs) as "user"
-                val historyMsgs = history.takeLast(30).map { msg ->
+                val historyMsgs = visibleHistory.map { msg ->
                     val attachmentText = if (msg.attachments.isEmpty()) "" else {
                         "\n[附件] " + msg.attachments.joinToString("; ") { groupAttachmentPrompt(it) }
                     }
@@ -4908,8 +5144,10 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     taskType = taskType,
                     memoryContext = memoryPrompt,
                     allowedToolIds = groupAllowedToolIds,
+                    extraToolIds = if (isGameGroup(group)) listOf("game_runtime") else emptyList(),
                     maxSkillCalls = if (longTask || taskType == TaskType.PHONE_CONTROL) 12 else 4,
                     requireResponse = requireResponse,
+                    callOptions = roleLlmCallOptions(role),
                     shouldStop = { groupChatStopped },
                     onToolStart = { skillId, params ->
                         _uiState.update { st ->
@@ -4937,14 +5175,28 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                 )
                 val cleanResponse = response.text.trim()
                 val shouldSkipLowValueReply = !requireResponse && isLowValueGroupReply(cleanResponse, response.attachments)
+                if (response.gameActions.isNotEmpty()) {
+                    saveGroupGameActionMessages(group, role, response.gameActions)
+                }
+                if (response.gameControls.isNotEmpty()) {
+                    saveGroupGameControlMessages(group, role, response.gameControls)
+                }
 
                 // [PASS] means the agent found the message irrelevant to them — skip silently
                 if ((cleanResponse.isNotBlank() || response.attachments.isNotEmpty()) &&
                     !cleanResponse.equals("[PASS]", ignoreCase = true) &&
                     !shouldSkipLowValueReply
                 ) {
-                    val agentMsg = GroupMessage(groupId = group.id, senderId = role.id,
-                        senderName = role.name, senderAvatar = role.avatar, text = cleanResponse, attachments = response.attachments)
+                    val agentMsg = GroupMessage(
+                        groupId = group.id,
+                        senderId = role.id,
+                        senderName = role.name,
+                        senderAvatar = role.avatar,
+                        text = cleanResponse,
+                        attachments = response.attachments,
+                        channelId = channelId,
+                        visibility = visibility,
+                    )
                     val rowId = database.groupMessageDao().insert(agentMsg.toEntity())
                     val savedAgentMsg = agentMsg.copy(id = rowId)
                     groupHistoryStore.appendBackup(savedAgentMsg)
@@ -4962,32 +5214,52 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                     groupManager.touch(group.id)
                     loadGroups()
                     val onScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT && _uiState.value.groupState.openGroup?.id == group.id
+                    val visibleToUser = !isGameGroup(group) || canUserSeeGroupMessage(group, savedAgentMsg)
                     _uiState.update { st ->
                         if (st.groupState.openGroup?.id == group.id) {
                             st.copy(groupState = st.groupState.copy(
-                                messages = st.groupState.messages + savedAgentMsg,
-                                unreadCount = if (onScreen) 0 else st.groupState.unreadCount + 1,
+                                messages = if (visibleToUser) st.groupState.messages + savedAgentMsg else st.groupState.messages,
+                                unreadCount = if (onScreen || !visibleToUser) 0 else st.groupState.unreadCount + 1,
                             ))
                         } else {
-                            st.copy(groupState = st.groupState.copy(unreadCount = st.groupState.unreadCount + 1))
+                            st.copy(groupState = st.groupState.copy(
+                                unreadCount = if (visibleToUser) st.groupState.unreadCount + 1 else st.groupState.unreadCount,
+                            ))
                         }
                     }
 
-                    if (!groupChatStopped) {
+                    if (!groupChatStopped && GroupGameDirector.shouldAllowOrganicContinuation(group)) {
                         val mentions = parseMentions(cleanResponse)
 
                         // Explicit @mentions: always chain, no depth limit, immediate
-                        allMembers
+                        val nextVisibleMembers = if (isGameGroup(group)) {
+                            allMembers.filter { nextRole -> canRoleSeeGroupMessage(group, nextRole, savedAgentMsg) }
+                        } else {
+                            allMembers
+                        }
+
+                        nextVisibleMembers
                             .filter { r -> r.id != role.id && mentions.any { m ->
                                 r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true)
                             }}
-                                .forEach { launchGroupAgentTurn(group, it, allMembers, chainDepth = chainDepth, triggerText = cleanResponse) }
+                                .forEach {
+                                    launchGroupAgentTurn(
+                                        group,
+                                        it,
+                                        nextVisibleMembers,
+                                        chainDepth = chainDepth,
+                                        triggerText = cleanResponse,
+                                        channelId = channelId,
+                                        visibility = visibility,
+                                    )
+                                }
 
                         // Organic reactions: allow a short natural thread. The depth and
                         // low-value filter prevent noisy pile-ons, but idle members still
                         // get room to keep the room alive when nobody is speaking.
                         if (chainDepth > 0) {
                             val reactionProb = when (chainDepth) {
+                                7 -> 0.84f
                                 6 -> 0.78f
                                 5 -> 0.66f
                                 4 -> 0.52f
@@ -4995,28 +5267,31 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                                 2 -> 0.24f
                                 else -> 0.10f
                             }
-                            allMembers
+                            nextVisibleMembers
                                 .filter { r -> r.id != role.id && !groupAgentJobs.containsKey(r.id) &&
                                     mentions.none { m -> r.name.contains(m, ignoreCase = true) || m.contains(r.name, ignoreCase = true) }
                                 }
                                 .shuffled()
-                                .take(GROUP_CHAT_ORGANIC_MAX)
+                                .take(groupOrganicMax(group))
                                 .forEachIndexed { index, reactor ->
                                     // Relevance boost: if the response text mentions this reactor's name, higher chance
                                     val nameHit = cleanResponse.contains(reactor.name, ignoreCase = true)
                                     val shouldContinue = shouldContinueGroupThread(cleanResponse)
-                                    val effectiveProb = when {
+                                    val baseProb = when {
                                         shouldContinue && index == 0 -> 0.92f
                                         nameHit -> minOf(reactionProb + 0.28f, 1.0f)
                                         shouldContinue -> minOf(reactionProb + 0.20f, 1.0f)
                                         else -> reactionProb
                                     }
+                                    val effectiveProb = minOf(baseProb * groupReactionMultiplier(group), 1.0f)
                                     if (kotlin.random.Random.nextFloat() < effectiveProb) {
                                         val reactionDelay = (300L..1600L).random()
-                                        launchGroupAgentTurn(group, reactor, allMembers,
+                                        launchGroupAgentTurn(group, reactor, nextVisibleMembers,
                                             delayMs = reactionDelay,
                                             chainDepth = chainDepth - 1,
                                             triggerText = cleanResponse,
+                                            channelId = channelId,
+                                            visibility = visibility,
                                             requireResponse = shouldRequireGroupReaction(cleanResponse, chainDepth, index),
                                         )
                                     }
@@ -5072,6 +5347,11 @@ For pure conversational replies, greetings, explanations, and simple factual ans
                         workingAgents = state.groupState.workingAgents - role.id,
                     ))
                 }
+                if (isGameGroup(group)) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        maybeAutoAdvanceSystemGameFlow(group.id)
+                    }
+                }
             }
         }
     }
@@ -5089,8 +5369,22 @@ For pure conversational replies, greetings, explanations, and simple factual ans
             chainDepth = launch.chainDepth,
             longTask = launch.longTask,
             triggerText = launch.triggerText,
+            channelId = launch.channelId,
+            visibility = launch.visibility,
             requireResponse = launch.requireResponse,
         )
+    }
+
+    private fun groupOrganicMax(group: com.mobileclaw.agent.Group): Int = when (group.turnStyle) {
+        GroupTurnStyle.QUIET -> 1
+        GroupTurnStyle.BALANCED -> if (group.mode == GroupMode.FREE_CHAT) GROUP_CHAT_ORGANIC_MAX else 2
+        GroupTurnStyle.ACTIVE -> if (group.mode == GroupMode.FREE_CHAT) 2 else 3
+    }.coerceAtLeast(1)
+
+    private fun groupReactionMultiplier(group: com.mobileclaw.agent.Group): Float = when (group.turnStyle) {
+        GroupTurnStyle.QUIET -> 0.55f
+        GroupTurnStyle.BALANCED -> if (group.mode == GroupMode.FREE_CHAT) 1.0f else 1.08f
+        GroupTurnStyle.ACTIVE -> if (group.mode == GroupMode.FREE_CHAT) 1.18f else 1.28f
     }
 
     private fun drainPendingGroupTurns(group: com.mobileclaw.agent.Group, allMembers: List<Role>) {
@@ -5110,10 +5404,249 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
     }
 
+    private fun maybeLaunchCalledGameSeat(
+        group: com.mobileclaw.agent.Group,
+        calledSeat: GameSeat?,
+        triggerText: String,
+    ) {
+        if (calledSeat == null || calledSeat.actorType != GameActorType.AI_ROLE || calledSeat.actorId.isBlank()) return
+        if (calledSeat.status !in setOf(GameSeatStatus.READY, GameSeatStatus.ALIVE)) return
+        val role = roleManager.get(calledSeat.actorId) ?: return
+        val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
+        if (allMembers.none { it.id == role.id }) return
+        val isHiddenEventAction = group.isSystemGameEventActionStep()
+        val turnChannelId = if (isHiddenEventAction) {
+            "private_${calledSeat.seatId}"
+        } else {
+            GROUP_CHANNEL_PUBLIC
+        }
+        val turnVisibility = if (isHiddenEventAction) {
+            GROUP_VISIBILITY_PRIVATE
+        } else {
+            GROUP_VISIBILITY_PUBLIC
+        }
+        val turnTriggerText = if (isHiddenEventAction) {
+            triggerText.ifBlank { "系统法官点名你进行私密事件行动。" } +
+                "\n这是一段私密事件期行动。优先调用 game_runtime 提交结构化行动；不要在普通聊天回复里公开目标、阵营、身份或行动细节。"
+        } else {
+            triggerText.ifBlank { "系统法官点名你发言或行动。" }
+        }
+        groupChatStopped = false
+        _uiState.update { it.copy(groupState = it.groupState.copy(isRunning = true)) }
+        launchGroupAgentTurn(
+            group = group,
+            role = role,
+            allMembers = allMembers,
+            chainDepth = 0,
+            triggerText = turnTriggerText,
+            channelId = turnChannelId,
+            visibility = turnVisibility,
+            requireResponse = true,
+        )
+    }
+
+    private suspend fun maybeLaunchSystemGameFlowAgents(
+        group: com.mobileclaw.agent.Group,
+        calledSeat: GameSeat?,
+        triggerText: String,
+    ): Boolean {
+        if (calledSeat != null) {
+            maybeLaunchCalledGameSeat(group, calledSeat, triggerText)
+            return calledSeat.actorType == GameActorType.AI_ROLE
+        }
+        if (triggerText.isBlank() || !group.isGameSpeechOpenForPlayers()) return false
+        val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
+        if (allMembers.isEmpty()) return false
+        groupChatStopped = false
+        _uiState.update { it.copy(groupState = it.groupState.copy(isRunning = true)) }
+        startGroupTurns(group, allMembers, triggerText)
+        return groupAgentJobs.isNotEmpty()
+    }
+
+    private suspend fun maybeAutoAdvanceSystemGameFlow(
+        groupId: String,
+        depth: Int = 0,
+    ) {
+        if (depth > 8 || groupAgentJobs.isNotEmpty() || !pendingGroupTurnsIsEmpty()) return
+        delay(1_100)
+        if (groupAgentJobs.isNotEmpty() || !pendingGroupTurnsIsEmpty()) return
+        val current = groupManager.get(groupId)
+            ?: _uiState.value.groupState.openGroup?.takeIf { it.id == groupId }
+            ?: return
+        if (!current.usesSystemGameJudge()) return
+        if (current.systemGameFlowShouldWaitForUserAction()) {
+            _uiState.update {
+                if (it.groupState.openGroup?.id == groupId) {
+                    it.copy(groupState = it.groupState.copy(isRunning = false))
+                } else {
+                    it
+                }
+            }
+            return
+        }
+        val resolution = synchronized(groupGameRuntimeLock) {
+            val latest = groupManager.get(groupId) ?: return@synchronized null
+            if (!latest.usesSystemGameJudge() || latest.systemGameFlowShouldWaitForUserAction()) return@synchronized null
+            latest.advanceSystemGameJudgeFlow()?.also { groupManager.save(it.group) }
+        } ?: return
+        val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+            group = resolution.group,
+            events = resolution.events,
+            fallbackPublicText = resolution.publicText,
+            fallbackResultMessages = resolution.resultMessages,
+        )
+        persistGameEvents(
+            resolution.group.id,
+            gameEventsForRuntimeTimeline(resolution.group, resolution.events),
+        )
+        val savedMessages = saveGameRuntimeMessageDrafts(resolution.group.id, messageDrafts)
+        savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+        updateGroupRuntimeInUi(resolution.group, savedMessages)
+        loadGroups()
+        val launched = maybeLaunchSystemGameFlowAgents(
+            group = resolution.group,
+            calledSeat = resolution.calledSeat,
+            triggerText = resolution.triggerText,
+        )
+        maybeRunSystemGameFinalJudgement(resolution.group)
+        if (!launched && !resolution.group.systemGameFlowShouldWaitForUserAction()) {
+            maybeAutoAdvanceSystemGameFlow(groupId, depth + 1)
+        }
+    }
+
+    private suspend fun maybeRunSystemGameFinalJudgement(group: com.mobileclaw.agent.Group) {
+        if (!group.usesSystemGameJudge() || !group.isSystemGameFlowFinalJudgement()) return
+        val markedGroup = synchronized(groupGameRuntimeLock) {
+            val latest = groupManager.get(group.id) ?: group
+            if (!latest.usesSystemGameJudge() || !latest.isSystemGameFlowFinalJudgement()) return@synchronized null
+            val profile = latest.gameProfile ?: return@synchronized null
+            val state = profile.runtimeState()
+            if (state.flags[GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE] == "true") return@synchronized null
+            val nextState = state.copy(flags = state.flags + (GAME_RUNTIME_FLAG_FINAL_JUDGEMENT_DONE to "true"))
+            latest.copy(
+                gameProfile = profile.withRuntimeState(nextState),
+                updatedAt = System.currentTimeMillis(),
+            ).also { groupManager.save(it) }
+        } ?: return
+        updateGroupRuntimeInUi(markedGroup)
+
+        val isZh = config.language != "en"
+        val prompt = buildSystemGameFinalJudgementPrompt(
+            group = markedGroup,
+            messages = _uiState.value.groupState.messages.filter { it.groupId == markedGroup.id },
+            isZh = isZh,
+        )
+        val systemPrompt = if (isZh) {
+            "你是 mobileClaw 的游戏终局裁判。只在最终轮结束后判定胜负；严格按用户配置的终局标准裁定；输出自然语言，不输出 JSON。"
+        } else {
+            "You are mobileClaw's final game adjudicator. Decide the winner only after the final round; follow the configured final criteria; output natural language, not JSON."
+        }
+        val judgement = runCatching {
+            llm.chat(
+                ChatRequest(
+                    messages = listOf(
+                        Message(role = "system", content = systemPrompt),
+                        Message(role = "user", content = prompt),
+                    ),
+                    stream = false,
+                ),
+            ).content.orEmpty()
+        }.getOrElse { e ->
+            if (isZh) {
+                "AI 终局裁定调用失败：${e.message ?: "未知错误"}。请用户或法官根据终局判定标准手动裁定。"
+            } else {
+                "Final adjudication failed: ${e.message ?: "unknown error"}. Please adjudicate manually using the final criteria."
+            }
+        }.cleanFinalJudgementText(isZh).trim().ifBlank {
+            if (isZh) {
+                "AI 没有返回有效裁定。请用户或法官根据终局判定标准手动裁定。"
+            } else {
+                "The AI returned an empty verdict. Please adjudicate manually using the final criteria."
+            }
+        }.withFinalJudgementPrefix(isZh)
+
+        val savedMessages = saveGameRuntimeMessageDrafts(
+            groupId = markedGroup.id,
+            drafts = listOf(
+                GameRuntimeMessageDraft(
+                    text = judgement,
+                    channelId = GROUP_CHANNEL_PUBLIC,
+                    visibility = GROUP_VISIBILITY_PUBLIC,
+                ),
+            ),
+        )
+        savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+        updateGroupRuntimeInUi(markedGroup, savedMessages)
+        loadGroups()
+    }
+
+    private fun String.withFinalJudgementPrefix(isZh: Boolean): String {
+        val clean = trim()
+        val zhPrefix = "【终局裁定】"
+        val enPrefix = "【Final Verdict】"
+        if (clean.startsWith(zhPrefix) || clean.startsWith(enPrefix)) return clean
+        return if (isZh) "$zhPrefix$clean" else "$enPrefix$clean"
+    }
+
+    private fun String.cleanFinalJudgementText(isZh: Boolean): String {
+        val clean = trim().stripMarkdownFence()
+        val json = runCatching { JsonParser.parseString(clean).asJsonObject }.getOrNull()
+        if (json != null) {
+            val winner = json.firstJsonText("winner", "winningSide", "winnerName", "胜方", "胜者")
+            val verdict = json.firstJsonText("verdict", "finalVerdict", "result", "summary", "conclusion", "裁定", "结论")
+            val reason = json.firstJsonText("reason", "reasoning", "evidence", "理由", "依据", "证据")
+            val extracted = buildList {
+                if (winner.isNotBlank()) add(if (isZh) "胜方/胜者：$winner" else "Winner: $winner")
+                if (verdict.isNotBlank()) add(verdict)
+                if (reason.isNotBlank()) add(if (isZh) "依据：$reason" else "Evidence: $reason")
+            }.distinct().joinToString("\n")
+            if (extracted.isNotBlank()) return extracted
+        }
+        return clean
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot { it.startsWith("{") || it.startsWith("}") || it.startsWith("\"") }
+            .take(8)
+            .joinToString("\n")
+            .ifBlank { clean.take(600) }
+    }
+
+    private fun String.stripMarkdownFence(): String {
+        val lines = trim().lines()
+        if (lines.firstOrNull()?.trim()?.startsWith("```") != true) return trim()
+        return lines
+            .drop(1)
+            .dropLastWhile { it.trim() == "```" }
+            .joinToString("\n")
+            .trim()
+    }
+
+    private fun JsonObject.firstJsonText(vararg keys: String): String =
+        keys.firstNotNullOfOrNull { key ->
+            jsonElementText(get(key)).takeIf { it.isNotBlank() }
+        }.orEmpty()
+
+    private fun jsonElementText(element: com.google.gson.JsonElement?): String {
+        if (element == null || element.isJsonNull) return ""
+        return when {
+            element.isJsonPrimitive -> runCatching { element.asString.trim() }.getOrDefault("")
+            element.isJsonArray -> element.asJsonArray
+                .mapNotNull { jsonElementText(it).takeIf { text -> text.isNotBlank() } }
+                .joinToString("；")
+            element.isJsonObject -> element.asJsonObject
+                .entrySet()
+                .joinToString("；") { (key, value) -> "$key：${jsonElementText(value)}" }
+                .trim('；')
+            else -> ""
+        }
+    }
+
     /** Triggers a random member to proactively start a conversation only when the user explicitly asks for it. */
     fun sparkGroupChat() {
         val group = _uiState.value.groupState.openGroup ?: return
         if (_uiState.value.groupState.isRunning) return
+        if (isGameGroup(group)) return
 
         viewModelScope.launch(Dispatchers.IO) {
             val allMembers = group.memberRoleIds.mapNotNull { roleManager.get(it) }
@@ -5134,6 +5667,535 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         }
     }
 
+    private fun gameRuntimeMessageDraftsFromEvents(
+        group: com.mobileclaw.agent.Group,
+        events: List<GameEvent>,
+        fallbackPublicText: String = "",
+        fallbackResultMessages: List<GameRuntimeMessageDraft> = emptyList(),
+    ): List<GameRuntimeMessageDraft> {
+        val projected = events.toGameRuntimeMessageDrafts(group.gameProfile)
+        if (projected.isNotEmpty()) return projected
+        return (
+            fallbackPublicText
+                .takeIf { it.isNotBlank() }
+                ?.let {
+                    GameRuntimeMessageDraft(
+                        text = it,
+                        channelId = GROUP_CHANNEL_PUBLIC,
+                        visibility = GROUP_VISIBILITY_PUBLIC,
+                    )
+                }
+                ?.let(::listOf)
+                .orEmpty()
+            ) + fallbackResultMessages
+    }
+
+    private suspend fun saveGameRuntimeMessageDrafts(
+        groupId: String,
+        drafts: List<GameRuntimeMessageDraft>,
+    ): List<GroupMessage> {
+        val runtimeGroup = groupManager.get(groupId)
+            ?: _uiState.value.groupState.openGroup?.takeIf { it.id == groupId }
+        val isZh = config.language != "en"
+        val senderName = when {
+            runtimeGroup?.usesSystemGameJudge() == true -> if (isZh) "系统法官" else "System host"
+            isZh -> "游戏记录"
+            else -> "Game Runtime"
+        }
+        return drafts
+            .filter { it.text.isNotBlank() }
+            .map { draft ->
+                val msg = GroupMessage(
+                    groupId = groupId,
+                    senderId = "game_runtime",
+                    senderName = senderName,
+                    senderAvatar = "game",
+                    text = draft.text,
+                    channelId = draft.channelId.ifBlank { GROUP_CHANNEL_PUBLIC },
+                    visibility = draft.visibility.ifBlank { GROUP_VISIBILITY_PUBLIC },
+                )
+                val rowId = database.groupMessageDao().insert(msg.toEntity())
+                msg.copy(id = rowId)
+            }
+    }
+
+    private suspend fun persistGameEvents(
+        groupId: String,
+        events: List<GameEvent>,
+    ) {
+        if (groupId.isBlank() || events.isEmpty()) return
+        database.groupGameEventDao().insertAll(events.map { it.toEntity(groupId) })
+        val openGroup = _uiState.value.groupState.openGroup
+        val group = groupManager.get(groupId) ?: openGroup?.takeIf { it.id == groupId } ?: return
+        val visibleTimelineItems = events
+            .filter { it.id.isNotBlank() }
+            .toVisibleGameTimelineItems(group, config.language != "en")
+        if (visibleTimelineItems.isEmpty()) return
+        _uiState.update { state ->
+            if (state.groupState.openGroup?.id != groupId) {
+                state
+            } else {
+                state.copy(
+                    groupState = state.groupState.copy(
+                        gameTimeline = (state.groupState.gameTimeline + visibleTimelineItems)
+                            .distinctBy { it.id }
+                            .sortedWith(compareBy<com.mobileclaw.ui.group.GroupGameTimelineItem> { it.createdAt }.thenBy { it.id })
+                            .takeLast(GROUP_GAME_TIMELINE_LIMIT),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun gameEventsForRuntimeTimeline(
+        group: com.mobileclaw.agent.Group,
+        events: List<GameEvent>,
+    ): List<GameEvent> =
+        (group.gameProfile?.runtimeState()?.events.orEmpty() + events)
+            .filter { it.id.isNotBlank() }
+            .distinctBy { it.id }
+            .takeLast(GROUP_GAME_TIMELINE_LIMIT)
+
+    private suspend fun saveGroupGameActionMessages(
+        group: com.mobileclaw.agent.Group,
+        role: Role,
+        actions: List<GameActionDraft>,
+    ) {
+        val current = groupManager.get(group.id) ?: group
+        val actorSeat = current.gameSeatForRole(role.id) ?: return
+        val allowedAbilities = current.availableGameAbilitiesForSeat(actorSeat)
+        val validTargets = current.targetableGameSeatsForSeat(actorSeat)
+        val normalizedActions = actions.mapNotNull { draft ->
+            val ability = allowedAbilities.firstOrNull { it.id == draft.abilityId } ?: return@mapNotNull null
+            val targetSeats = validTargets.filter { seat ->
+                seat.seatId in draft.targetSeatIds ||
+                    seat.actorId in draft.targetActorIds ||
+                    (draft.targetName.isNotBlank() && seat.displayName.equals(draft.targetName, ignoreCase = true))
+            }
+            val cleanVisibility = ability.visibility
+                .trim()
+                .lowercase()
+                .takeIf { it in setOf(GROUP_VISIBILITY_PUBLIC, GROUP_VISIBILITY_TEAM, GROUP_VISIBILITY_PRIVATE, GROUP_VISIBILITY_JUDGE) }
+                ?: GROUP_VISIBILITY_JUDGE
+            draft.copy(
+                abilityId = ability.id,
+                actorSeatId = actorSeat.seatId,
+                actorRoleId = draft.actorRoleId.ifBlank { role.id },
+                actorName = draft.actorName.ifBlank { role.name },
+                targetSeatIds = targetSeats.map { it.seatId },
+                targetActorIds = targetSeats.map { it.actorId }.filter { it.isNotBlank() },
+                targetName = targetSeats.firstOrNull()?.displayName ?: draft.targetName,
+                channelId = current.channelForGameAbility(actorSeat, ability),
+                visibility = cleanVisibility,
+            )
+        }
+        if (normalizedActions.isEmpty()) return
+        val appendResult = appendGameActionsToRuntime(current.id, normalizedActions)
+        val updatedGroup = appendResult?.group
+        val effectiveGroup = updatedGroup ?: current
+        val messageDrafts = appendResult
+            ?.events
+            ?.toGameRuntimeMessageDrafts(effectiveGroup.gameProfile)
+            .orEmpty()
+        persistGameEvents(current.id, appendResult?.events.orEmpty())
+        val savedMessages = saveGameRuntimeMessageDrafts(current.id, messageDrafts)
+        if (savedMessages.isEmpty()) return
+        savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+        val visibleSaved = savedMessages.filter { canUserSeeGroupMessage(effectiveGroup, it) }
+        val onScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT && _uiState.value.groupState.openGroup?.id == current.id
+        _uiState.update { st ->
+            val nextGroups = if (updatedGroup != null) {
+                st.groupState.groups.map { existing -> if (existing.id == updatedGroup.id) updatedGroup else existing }
+            } else {
+                st.groupState.groups
+            }
+            if (st.groupState.openGroup?.id == current.id) {
+                st.copy(groupState = st.groupState.copy(
+                    groups = nextGroups,
+                    openGroup = updatedGroup ?: st.groupState.openGroup,
+                    messages = st.groupState.messages + visibleSaved,
+                    unreadCount = if (onScreen || visibleSaved.isEmpty()) st.groupState.unreadCount else st.groupState.unreadCount + visibleSaved.size,
+                ))
+            } else {
+                st.copy(groupState = st.groupState.copy(
+                    groups = nextGroups,
+                    unreadCount = st.groupState.unreadCount + visibleSaved.size,
+                ))
+            }
+        }
+        loadGroups()
+    }
+
+    private suspend fun saveGroupGameControlMessages(
+        group: com.mobileclaw.agent.Group,
+        role: Role,
+        controls: List<GameRuntimeControlDraft>,
+    ) {
+        if (controls.isEmpty()) return
+        var effectiveGroup = groupManager.get(group.id) ?: group
+        val savedMessages = mutableListOf<GroupMessage>()
+        var lastCalledSeat: GameSeat? = null
+        var lastTriggerText = ""
+        controls.forEach { control ->
+            val resolution = synchronized(groupGameRuntimeLock) {
+                val current = groupManager.get(group.id) ?: return@synchronized null
+                if (current.judgeRoleId.isBlank() || current.judgeRoleId != role.id) {
+                    return@synchronized null
+                }
+                current.applyGameRuntimeControl(control, actorName = role.name)?.also { groupManager.save(it.group) }
+            } ?: return@forEach
+            effectiveGroup = resolution.group
+            lastCalledSeat = resolution.calledSeat ?: lastCalledSeat
+            lastTriggerText = control.note.ifBlank { lastTriggerText }
+            val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+                group = resolution.group,
+                events = resolution.events,
+                fallbackPublicText = resolution.publicText,
+            )
+            persistGameEvents(resolution.group.id, resolution.events)
+            val saved = saveGameRuntimeMessageDrafts(resolution.group.id, messageDrafts)
+            saved.forEach { groupHistoryStore.appendBackup(it) }
+            savedMessages += saved
+        }
+        if (savedMessages.isEmpty()) return
+        updateGroupRuntimeInUi(effectiveGroup, savedMessages)
+        loadGroups()
+        maybeLaunchCalledGameSeat(
+            group = effectiveGroup,
+            calledSeat = lastCalledSeat,
+            triggerText = lastTriggerText.ifBlank { "法官点名你发言或行动。请根据当前阶段和可见信息回应。" },
+        )
+    }
+
+    fun publishGameActionSummary(actionId: String) {
+        val groupId = _uiState.value.groupState.openGroup?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolution = synchronized(groupGameRuntimeLock) {
+                val current = groupManager.get(groupId) ?: return@synchronized null
+                current.resolvePendingGameAction(actionId)?.also { groupManager.save(it.group) }
+            } ?: return@launch
+            val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+                group = resolution.group,
+                events = resolution.events,
+                fallbackPublicText = resolution.publicText,
+                fallbackResultMessages = resolution.resultMessages,
+            )
+            persistGameEvents(resolution.group.id, resolution.events)
+            val savedMessages = saveGameRuntimeMessageDrafts(resolution.group.id, messageDrafts)
+            savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+            updateGroupRuntimeInUi(resolution.group, savedMessages)
+            loadGroups()
+        }
+    }
+
+    fun resolveCurrentGamePhaseActions() {
+        val groupId = _uiState.value.groupState.openGroup?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val resolution = synchronized(groupGameRuntimeLock) {
+                val current = groupManager.get(groupId) ?: return@synchronized null
+                current.resolveCurrentPhaseGameActions()?.also { groupManager.save(it.group) }
+            } ?: return@launch
+            val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+                group = resolution.group,
+                events = resolution.events,
+                fallbackPublicText = resolution.publicText,
+                fallbackResultMessages = resolution.resultMessages,
+            )
+            persistGameEvents(resolution.group.id, resolution.events)
+            val savedMessages = saveGameRuntimeMessageDrafts(resolution.group.id, messageDrafts)
+            savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+            updateGroupRuntimeInUi(resolution.group, savedMessages)
+            loadGroups()
+        }
+    }
+
+    fun ignoreGameAction(actionId: String) {
+        val groupId = _uiState.value.groupState.openGroup?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val (updatedGroup, _) = updateGameActionStatus(groupId, actionId, GameActionStatus.IGNORED)
+                ?: return@launch
+            val ignoredEvents = updatedGroup.gameProfile?.runtimeState()?.events.orEmpty()
+                .filter { it.actionRecordId == actionId }
+                .takeLast(1)
+            persistGameEvents(updatedGroup.id, ignoredEvents)
+            updateGroupRuntimeInUi(updatedGroup)
+            loadGroups()
+        }
+    }
+
+    fun submitUserGameAction(
+        abilityId: String,
+        targetSeatId: String,
+        reason: String,
+    ) {
+        val groupId = _uiState.value.groupState.openGroup?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = groupManager.get(groupId)
+                ?: _uiState.value.groupState.openGroup?.takeIf { it.id == groupId }
+                ?: return@launch
+            val seat = current.userGameSeat() ?: return@launch
+            val ability = current.availableUserGameAbilities().firstOrNull { it.id == abilityId } ?: return@launch
+            val targetSeat = targetSeatId
+                .takeIf { it.isNotBlank() }
+                ?.let { id -> current.targetableGameSeatsForUser().firstOrNull { it.seatId == id } ?: return@launch }
+            val cleanVisibility = ability.visibility
+                .trim()
+                .lowercase()
+                .takeIf { it in setOf(GROUP_VISIBILITY_PUBLIC, GROUP_VISIBILITY_TEAM, GROUP_VISIBILITY_PRIVATE, GROUP_VISIBILITY_JUDGE) }
+                ?: GROUP_VISIBILITY_JUDGE
+            val action = GameActionDraft(
+                abilityId = ability.id,
+                actorSeatId = seat.seatId,
+                actorRoleId = "user",
+                actorName = seat.displayName.ifBlank { str(R.string.group_chat_df1fd9) },
+                targetSeatIds = targetSeat?.seatId?.let(::listOf).orEmpty(),
+                targetActorIds = targetSeat?.actorId?.let(::listOf).orEmpty(),
+                targetName = targetSeat?.displayName.orEmpty(),
+                channelId = current.channelForUserGameAbility(ability),
+                visibility = cleanVisibility,
+                reason = reason.trim(),
+                rawText = reason.trim(),
+            )
+            val appendResult = appendGameActionsToRuntime(current.id, listOf(action))
+            val updatedGroup = appendResult?.group ?: current
+            val messageDrafts = appendResult
+                ?.events
+                ?.toGameRuntimeMessageDrafts(updatedGroup.gameProfile)
+                .orEmpty()
+            persistGameEvents(current.id, appendResult?.events.orEmpty())
+            val savedMessages = saveGameRuntimeMessageDrafts(current.id, messageDrafts)
+            savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+            updateGroupRuntimeInUi(updatedGroup, savedMessages)
+            loadGroups()
+            maybeAutoAdvanceSystemGameFlow(updatedGroup.id)
+        }
+    }
+
+    fun advanceGroupGamePhase() {
+        val groupId = _uiState.value.groupState.openGroup?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val systemResolution = synchronized(groupGameRuntimeLock) {
+                val current = groupManager.get(groupId) ?: return@synchronized null
+                if (!current.usesSystemGameJudge()) return@synchronized null
+                current.advanceSystemGameJudgeFlow()?.also { groupManager.save(it.group) }
+            }
+            if (systemResolution != null) {
+                val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+                    group = systemResolution.group,
+                    events = systemResolution.events,
+                    fallbackPublicText = systemResolution.publicText,
+                    fallbackResultMessages = systemResolution.resultMessages,
+                )
+                persistGameEvents(
+                    systemResolution.group.id,
+                    gameEventsForRuntimeTimeline(systemResolution.group, systemResolution.events),
+                )
+                val savedMessages = saveGameRuntimeMessageDrafts(systemResolution.group.id, messageDrafts)
+                savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+                updateGroupRuntimeInUi(systemResolution.group, savedMessages)
+                loadGroups()
+                maybeLaunchSystemGameFlowAgents(
+                    group = systemResolution.group,
+                    calledSeat = systemResolution.calledSeat,
+                    triggerText = systemResolution.triggerText,
+                )
+                maybeRunSystemGameFinalJudgement(systemResolution.group)
+                return@launch
+            }
+            val (updatedGroup, phaseEvents) = advanceGamePhaseState(groupId) ?: return@launch
+            val messageDrafts = gameRuntimeMessageDraftsFromEvents(
+                group = updatedGroup,
+                events = phaseEvents,
+            )
+            persistGameEvents(updatedGroup.id, phaseEvents)
+            val savedMessages = saveGameRuntimeMessageDrafts(updatedGroup.id, messageDrafts)
+            savedMessages.forEach { groupHistoryStore.appendBackup(it) }
+            updateGroupRuntimeInUi(updatedGroup, savedMessages)
+            loadGroups()
+        }
+    }
+
+    private data class GameActionAppendResult(
+        val group: com.mobileclaw.agent.Group,
+        val records: List<GameActionRecord>,
+        val events: List<GameEvent>,
+    )
+
+    private fun appendGameActionsToRuntime(
+        groupId: String,
+        actions: List<GameActionDraft>,
+    ): GameActionAppendResult? {
+        if (actions.isEmpty()) return null
+        return synchronized(groupGameRuntimeLock) {
+            val current = groupManager.get(groupId) ?: return@synchronized null
+            val profile = current.gameProfile ?: return@synchronized null
+            val state = profile.runtimeState()
+            val now = System.currentTimeMillis()
+            val existingIds = state.actions.map { it.id }.toMutableSet()
+            val phaseId = profile.currentPhaseId.ifBlank {
+                profile.phases.minByOrNull { it.order }?.id.orEmpty()
+            }
+            val records = actions.mapIndexed { index, action ->
+                val createdAt = action.createdAt.takeIf { it > 0L } ?: now
+                var id = "ga_${now}_${index}_${action.actorRoleId.take(8).ifBlank { action.actorSeatId.take(8) }}"
+                var suffix = 1
+                while (id in existingIds) {
+                    id = "ga_${now}_${index}_${suffix++}"
+                }
+                existingIds += id
+                GameActionRecord(
+                    id = id,
+                    phaseId = phaseId,
+                    draft = action.copy(createdAt = createdAt),
+                    status = GameActionStatus.PENDING,
+                    createdAt = createdAt,
+                    updatedAt = now,
+                )
+            }
+            val events = records.map { record ->
+                record.toGameActionSubmittedEvent(profile = profile, now = record.createdAt)
+            }
+            val updatedState = state
+                .copy(actions = (state.actions + records).takeLast(240))
+                .withAppendedGameEvents(events)
+            val updated = current.copy(
+                gameProfile = profile.withRuntimeState(updatedState),
+                updatedAt = now,
+            )
+            groupManager.save(updated)
+            GameActionAppendResult(
+                group = updated,
+                records = records,
+                events = events,
+            )
+        }
+    }
+
+    private fun updateGameActionStatus(
+        groupId: String,
+        actionId: String,
+        status: GameActionStatus,
+    ): Pair<com.mobileclaw.agent.Group, GameActionRecord>? = synchronized(groupGameRuntimeLock) {
+        val current = groupManager.get(groupId) ?: return@synchronized null
+        val profile = current.gameProfile ?: return@synchronized null
+        val state = profile.runtimeState()
+        val now = System.currentTimeMillis()
+        var updatedRecord: GameActionRecord? = null
+        val updatedActions = state.actions.map { record ->
+            if (record.id == actionId) {
+                record.copy(status = status, updatedAt = now).also { updatedRecord = it }
+            } else {
+                record
+            }
+        }
+        val record = updatedRecord ?: return@synchronized null
+        val resultText = when (status) {
+            GameActionStatus.IGNORED -> "行动已忽略"
+            GameActionStatus.REJECTED -> "行动已拒绝"
+            GameActionStatus.RESOLVED -> record.resultText.ifBlank { "行动已处理" }
+            GameActionStatus.PENDING -> "行动恢复待处理"
+        }
+        val event = record.toGameActionResolvedEvent(
+            profile = profile,
+            status = status,
+            resultText = resultText,
+            now = now,
+            index = 0,
+        )
+        val updated = current.copy(
+            gameProfile = profile.withRuntimeState(
+                state
+                    .copy(actions = updatedActions)
+                    .withAppendedGameEvents(listOf(event)),
+            ),
+            updatedAt = now,
+        )
+        groupManager.save(updated)
+        updated to record
+    }
+
+    private fun advanceGamePhaseState(groupId: String): Pair<com.mobileclaw.agent.Group, List<GameEvent>>? = synchronized(groupGameRuntimeLock) {
+        val current = groupManager.get(groupId) ?: return@synchronized null
+        val profile = current.gameProfile ?: return@synchronized null
+        val phases = profile.phases.sortedBy { it.order }
+        if (phases.isEmpty()) return@synchronized null
+        val state = profile.runtimeState()
+        val currentPhase = current.currentGamePhase() ?: phases.first()
+        val currentIndex = phases.indexOfFirst { it.id == currentPhase.id }.takeIf { it >= 0 } ?: 0
+        val nextIndex = (currentIndex + 1) % phases.size
+        val nextPhase = phases[nextIndex]
+        val nextRound = if (nextIndex == 0) {
+            (state.roundIndex.takeIf { it > 0 } ?: 1) + 1
+        } else {
+            state.roundIndex.takeIf { it > 0 } ?: 1
+        }
+        val now = System.currentTimeMillis()
+        val updatedState = state.copy(
+            roundIndex = nextRound,
+            phaseStartedAt = now,
+            flags = profile.runtimeFlagsForPhaseStart(state, nextPhase),
+        )
+        val updated = current.copy(
+            gameProfile = profile.copy(currentPhaseId = nextPhase.id).withRuntimeState(updatedState),
+            updatedAt = now,
+        )
+        val phaseText = formatGamePhaseAdvanceSummary(updated, nextPhase.name, nextRound)
+        val event = gamePhaseAdvancedEvent(
+            group = updated,
+            phase = nextPhase,
+            roundIndex = nextRound,
+            text = phaseText,
+            now = now,
+        )
+        val eventedGroup = updated.withAppendedGameEvents(listOf(event), now)
+        groupManager.save(eventedGroup)
+        eventedGroup to listOf(event)
+    }
+
+    private fun updateGroupRuntimeInUi(
+        updatedGroup: com.mobileclaw.agent.Group,
+        newMessages: List<GroupMessage> = emptyList(),
+    ) {
+        val onScreen = _uiState.value.currentPage == AppPage.GROUP_CHAT && _uiState.value.groupState.openGroup?.id == updatedGroup.id
+        val visibleNewMessages = newMessages.filter { canUserSeeGroupMessage(updatedGroup, it) }
+        _uiState.update { st ->
+            val nextGroups = st.groupState.groups.map { existing ->
+                if (existing.id == updatedGroup.id) updatedGroup else existing
+            }
+            st.copy(
+                groupState = st.groupState.copy(
+                    groups = nextGroups,
+                    openGroup = if (st.groupState.openGroup?.id == updatedGroup.id) updatedGroup else st.groupState.openGroup,
+                    messages = if (visibleNewMessages.isNotEmpty() && st.groupState.openGroup?.id == updatedGroup.id) {
+                        st.groupState.messages + visibleNewMessages
+                    } else {
+                        st.groupState.messages
+                    },
+                    unreadCount = if (visibleNewMessages.isNotEmpty() && !onScreen) {
+                        st.groupState.unreadCount + visibleNewMessages.size
+                    } else {
+                        st.groupState.unreadCount
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun formatGamePhaseAdvanceSummary(
+        group: com.mobileclaw.agent.Group,
+        phaseName: String,
+        roundIndex: Int,
+    ): String = buildString {
+        append("【阶段】进入第 ")
+        append(roundIndex.coerceAtLeast(1))
+        append(" 轮")
+        if (phaseName.isNotBlank()) append(" · ").append(phaseName)
+        val limit = group.roundLimit.coerceIn(1, 8)
+        append("（计划 ")
+        append(limit)
+        append(" 轮）")
+    }
+
     private fun GroupMessage.toEntity() = com.mobileclaw.memory.db.GroupMessageEntity(
         id = id,
         groupId = groupId,
@@ -5142,6 +6204,30 @@ For pure conversational replies, greetings, explanations, and simple factual ans
         senderAvatar = senderAvatar,
         text = text,
         attachmentsJson = serializeAttachments(attachments),
+        channelId = channelId,
+        visibility = visibility,
+        createdAt = createdAt,
+    )
+
+    private fun GameEvent.toEntity(groupId: String) = GroupGameEventEntity(
+        id = id,
+        groupId = groupId,
+        type = type.name,
+        roundIndex = roundIndex.coerceAtLeast(1),
+        phaseId = phaseId,
+        actorSeatId = actorSeatId,
+        actorRoleId = actorRoleId,
+        actorName = actorName,
+        abilityId = abilityId,
+        targetSeatIdsJson = gson.toJson(targetSeatIds),
+        targetActorIdsJson = gson.toJson(targetActorIds),
+        targetName = targetName,
+        actionRecordId = actionRecordId,
+        channelId = channelId,
+        visibility = visibility,
+        text = text,
+        resultText = resultText,
+        metadataJson = metadataJson.ifBlank { "{}" },
         createdAt = createdAt,
     )
 
@@ -5910,6 +6996,35 @@ $foundationalMemory
         }
     }
 
+    fun fetchGatewayModels(gatewayId: String) {
+        if (gatewayId.isBlank()) return
+        if (gatewayId in _uiState.value.gatewayModelsLoadingIds) return
+        _uiState.update { it.copy(gatewayModelsLoadingIds = it.gatewayModelsLoadingIds + gatewayId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val snap = config.snapshot()
+            val gateway = snap.gateways.firstOrNull { it.id == gatewayId }
+            val models = gateway?.let {
+                runCatching {
+                    OpenAiGateway.fetchModels(
+                        it.capabilityEndpoint("chat"),
+                        it.capabilityApiKey("chat"),
+                    )
+                }.getOrDefault(emptyList())
+            }.orEmpty()
+            _uiState.update { state ->
+                val nextModels = if (models.isNotEmpty()) {
+                    state.gatewayModels + (gatewayId to models)
+                } else {
+                    state.gatewayModels
+                }
+                state.copy(
+                    gatewayModels = nextModels,
+                    gatewayModelsLoadingIds = state.gatewayModelsLoadingIds - gatewayId,
+                )
+            }
+        }
+    }
+
     fun testVirtualDisplay() {
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching { app.virtualDisplayManager.testSupport() }
@@ -6601,6 +7716,7 @@ $foundationalMemory
             UserConfigSkill(userConfig, app.semanticMemory),
             switchRoleSkill,
             RoleManagerSkill(roleManager, roleRequests, RolePackageStore(app, roleManager, app.roleWorkspaceStore)),
+            GameRuntimeSkill(),
             RoleWorkspaceSkill(roleManager, app.roleWorkspaceStore, config) { registry.allMetasWithTaxonomy() },
             AiHomeAssetSkill(townStore, roleManager),
             TownBuilderSkill(townStore, roleManager),

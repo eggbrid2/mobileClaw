@@ -77,10 +77,15 @@ class RoleManager(private val context: Context) {
     }
 
     private fun normalize(role: Role): Role {
+        val normalizedBinding = (role.modelBinding ?: RoleModelBinding.fromLegacy(role.modelOverride))
+            ?.normalized()
+            ?.takeUnless { it.isEmpty() }
         return role.copy(
             avatar = normalizeRoleAvatar(role.id, role.avatar),
             systemPromptAddendum = role.systemPromptAddendum ?: "",
             forcedSkillIds = role.forcedSkillIds ?: emptyList(),
+            modelBinding = normalizedBinding,
+            modelOverride = normalizedBinding?.legacyModelOverride() ?: role.modelOverride?.takeIf { it.isNotBlank() },
             preferredTaskTypes = role.preferredTaskTypes ?: emptyList(),
             keywords = role.keywords ?: emptyList(),
             chatBubbleStyle = normalizeBubbleStyle(role.chatBubbleStyle ?: ChatBubbleStyle()),
