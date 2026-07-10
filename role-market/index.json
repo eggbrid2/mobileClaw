@@ -1,0 +1,359 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026.07.10",
+  "updatedAt": 1783681468215,
+  "sources": [
+    {
+      "name": "HomDGCat",
+      "url": "https://github.com/NewbieXvwu/HomDGCat",
+      "note": "Genshin Impact and Honkai: Star Rail public character metadata reference"
+    },
+    {
+      "name": "HSR-Data",
+      "url": "https://github.com/kel-z/HSR-Data",
+      "note": "Honkai: Star Rail public character metadata reference"
+    },
+    {
+      "name": "SillyTavern Cards Skill",
+      "url": "https://github.com/pearyj/sillytavern-cards-skill",
+      "note": "Community character-card workflow reference; prompts are original MobileClaw templates"
+    },
+    {
+      "name": "Character Card Generator",
+      "url": "https://github.com/cosmicdrunk/character-card-generator",
+      "note": "Open character-card structure reference"
+    }
+  ],
+  "roles": [
+    {
+      "id": "market_stock_research_expert",
+      "category": "professional",
+      "name": "股市研究专家",
+      "nameEn": "Stock Research Expert",
+      "description": "基于公开信息进行公司、行业与市场研究，不提供保证收益的投资建议",
+      "descriptionEn": "Researches companies, industries, and markets from public information without promising returns",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_stock_research_expert.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_stock_research_expert.mobileclaw-role",
+      "sha256": "f05f1a8455baa18619706fbb30078781c5fc92735029e80cfd7fbf8eb5977ecb",
+      "requiredSkills": [
+        "web_search",
+        "web_content",
+        "fetch_url",
+        "run_python",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_android_app_code_expert",
+      "category": "professional",
+      "name": "APP 代码专家",
+      "nameEn": "App Code Expert",
+      "description": "专注 Android、Compose、应用架构、调试、构建与发布",
+      "descriptionEn": "Specializes in Android, Compose, app architecture, debugging, builds, and releases",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_android_app_code_expert.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_android_app_code_expert.mobileclaw-role",
+      "sha256": "4e1745551f432d8c022fe03b0e4f4930d3b5b1ff5311c664e1779e690cd7ddc7",
+      "requiredSkills": [
+        "list_files",
+        "read_file",
+        "create_file",
+        "run_python",
+        "app_manager"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_medical_information_assistant",
+      "category": "professional",
+      "name": "医疗信息助手",
+      "nameEn": "Medical Information Assistant",
+      "description": "提供循证健康信息、就医准备与风险分级，不替代医生诊断",
+      "descriptionEn": "Provides evidence-based health information and visit preparation without replacing a clinician",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_medical_information_assistant.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_medical_information_assistant.mobileclaw-role",
+      "sha256": "b655c6c735534b1a8591f76d84c0cb65fc8b2c9b839622083db3bcfe739b338b",
+      "requiredSkills": [
+        "web_search",
+        "web_content",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_legal_research_assistant",
+      "category": "professional",
+      "name": "法律研究助手",
+      "nameEn": "Legal Research Assistant",
+      "description": "帮助检索法规、整理事实与问题清单，不替代执业律师",
+      "descriptionEn": "Researches legal sources and organizes issues without replacing a licensed lawyer",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_legal_research_assistant.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_legal_research_assistant.mobileclaw-role",
+      "sha256": "4f9e67d98e98d334a7bacfefd761c8e30379565cddb4c48e2492040e2ed63341",
+      "requiredSkills": [
+        "web_search",
+        "web_content",
+        "fetch_url",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_travel_planner",
+      "category": "professional",
+      "name": "旅行规划师",
+      "nameEn": "Travel Planner",
+      "description": "结合预算、时间、交通与实时信息制定可执行行程",
+      "descriptionEn": "Builds practical itineraries around budget, time, transport, and current information",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_travel_planner.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_travel_planner.mobileclaw-role",
+      "sha256": "75dfc4bdc1ab9fc462a64b576c710c3610b97365de7b6c7e867c746a400df314",
+      "requiredSkills": [
+        "web_search",
+        "web_browse",
+        "web_content",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_data_analysis_expert",
+      "category": "professional",
+      "name": "数据分析专家",
+      "nameEn": "Data Analysis Expert",
+      "description": "清洗、分析、可视化数据并解释结论、限制和复现步骤",
+      "descriptionEn": "Cleans, analyzes, and visualizes data with reproducible explanations and limitations",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_data_analysis_expert.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_data_analysis_expert.mobileclaw-role",
+      "sha256": "36fcd1717c94571634c54a7e7702bf6a66059bfcc59ab4ef55640962b065d415",
+      "requiredSkills": [
+        "read_file",
+        "list_files",
+        "run_python",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_content_strategy_expert",
+      "category": "professional",
+      "name": "内容策略专家",
+      "nameEn": "Content Strategy Expert",
+      "description": "负责选题研究、内容规划、写作、视觉方向与复盘",
+      "descriptionEn": "Handles topic research, editorial planning, writing, visual direction, and review",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_content_strategy_expert.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_content_strategy_expert.mobileclaw-role",
+      "sha256": "d2c9463b576da2f07c75771e113e77e9e286ea77ffe7a30de0130ef5e47fb1e8",
+      "requiredSkills": [
+        "web_search",
+        "web_content",
+        "generate_image",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_learning_tutor",
+      "category": "professional",
+      "name": "学习导师",
+      "nameEn": "Learning Tutor",
+      "description": "通过诊断、讲解、练习和反馈帮助用户真正掌握知识",
+      "descriptionEn": "Uses diagnosis, explanation, practice, and feedback to build real understanding",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_learning_tutor.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_learning_tutor.mobileclaw-role",
+      "sha256": "eeb0b106ea130033566084d1354fa2501e60a0ceb57ee5389886dd9ef10f7151",
+      "requiredSkills": [
+        "web_search",
+        "read_file",
+        "generate_document"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_defensive_security_analyst",
+      "category": "professional",
+      "name": "防御安全分析师",
+      "nameEn": "Defensive Security Analyst",
+      "description": "面向授权环境开展安全审计、风险分析、加固和事件响应",
+      "descriptionEn": "Supports authorized security review, hardening, risk analysis, and incident response",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_defensive_security_analyst.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_defensive_security_analyst.mobileclaw-role",
+      "sha256": "3398a652698dd41b699a4927d2a1911e2ed03015406c14712d7ef51948690f70",
+      "requiredSkills": [
+        "web_search",
+        "read_file",
+        "list_files",
+        "run_python"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "market_product_manager",
+      "category": "professional",
+      "name": "产品经理",
+      "nameEn": "Product Manager",
+      "description": "从用户问题到需求、原型、优先级、指标和交付计划",
+      "descriptionEn": "Turns user problems into requirements, prototypes, priorities, metrics, and delivery plans",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/market_product_manager.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/market_product_manager.mobileclaw-role",
+      "sha256": "4a9ddcb8458f93cbd9bcd9d76873f9e79efe0d2529cdde1c4c37ea13086b0cff",
+      "requiredSkills": [
+        "web_search",
+        "web_content",
+        "generate_document",
+        "ui_builder"
+      ],
+      "unofficial": false
+    },
+    {
+      "id": "roleplay_hsr_kafka",
+      "category": "roleplay",
+      "name": "卡芙卡",
+      "nameEn": "Kafka",
+      "description": "《崩坏：星穹铁道》卡芙卡非官方角色扮演模板",
+      "descriptionEn": "Unofficial Kafka roleplay template inspired by Honkai: Star Rail",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_hsr_kafka.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_hsr_kafka.mobileclaw-role",
+      "sha256": "7f349ec502b40381d91e97bb5875e6ff0b51ac3a541276a848f411a5efc3cde6",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_hsr_firefly",
+      "category": "roleplay",
+      "name": "流萤",
+      "nameEn": "Firefly",
+      "description": "《崩坏：星穹铁道》流萤非官方角色扮演模板",
+      "descriptionEn": "Unofficial Firefly roleplay template inspired by Honkai: Star Rail",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_hsr_firefly.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_hsr_firefly.mobileclaw-role",
+      "sha256": "108d2b434577d5c251221f9c163d1fdf1e2a68d040812e475e4802329c1d76a6",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_hsr_march7",
+      "category": "roleplay",
+      "name": "三月七",
+      "nameEn": "March 7th",
+      "description": "《崩坏：星穹铁道》三月七非官方角色扮演模板",
+      "descriptionEn": "Unofficial March 7th roleplay template inspired by Honkai: Star Rail",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_hsr_march7.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_hsr_march7.mobileclaw-role",
+      "sha256": "264bb14a08fc5ecfea39641a5d036df50c7987ca35a3734113d6595e1a049b5f",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_genshin_furina",
+      "category": "roleplay",
+      "name": "芙宁娜",
+      "nameEn": "Furina",
+      "description": "《原神》芙宁娜非官方角色扮演模板",
+      "descriptionEn": "Unofficial Furina roleplay template inspired by Genshin Impact",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_genshin_furina.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_genshin_furina.mobileclaw-role",
+      "sha256": "3cfa68e0377c86289f2aedf7126d4068e4c9cd171f9410111b018795d61e5e20",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_genshin_raiden",
+      "category": "roleplay",
+      "name": "雷电将军",
+      "nameEn": "Raiden Shogun",
+      "description": "《原神》雷电将军非官方角色扮演模板",
+      "descriptionEn": "Unofficial Raiden Shogun roleplay template inspired by Genshin Impact",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_genshin_raiden.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_genshin_raiden.mobileclaw-role",
+      "sha256": "bdc6e3befa6f011e1694aa9a7b3f04e0749038466f3922b857943b9d3a0f9db5",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_genshin_zhongli",
+      "category": "roleplay",
+      "name": "钟离",
+      "nameEn": "Zhongli",
+      "description": "《原神》钟离非官方角色扮演模板",
+      "descriptionEn": "Unofficial Zhongli roleplay template inspired by Genshin Impact",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_genshin_zhongli.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_genshin_zhongli.mobileclaw-role",
+      "sha256": "ce7e8432256838b54a50563ac63ac0bfc38f6bc89d2cac371b6483bf6a842598",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_anime_frieren",
+      "category": "roleplay",
+      "name": "芙莉莲",
+      "nameEn": "Frieren",
+      "description": "《葬送的芙莉莲》芙莉莲非官方角色扮演模板",
+      "descriptionEn": "Unofficial Frieren roleplay template inspired by Frieren: Beyond Journey's End",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_anime_frieren.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_anime_frieren.mobileclaw-role",
+      "sha256": "5ea38359ee4d01d9191602ddcf8c3b757a575357e9be5ceb6ad4ef025634ca7c",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_anime_gojo",
+      "category": "roleplay",
+      "name": "五条悟",
+      "nameEn": "Satoru Gojo",
+      "description": "《咒术回战》五条悟非官方角色扮演模板",
+      "descriptionEn": "Unofficial Satoru Gojo roleplay template inspired by Jujutsu Kaisen",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_anime_gojo.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_anime_gojo.mobileclaw-role",
+      "sha256": "482c1c0e766b8cc5d0e3428cd4a3b569d65320b8380d1465b65b0e7b143bcae3",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_anime_yor",
+      "category": "roleplay",
+      "name": "约尔·福杰",
+      "nameEn": "Yor Forger",
+      "description": "《间谍过家家》约尔·福杰非官方角色扮演模板",
+      "descriptionEn": "Unofficial Yor Forger roleplay template inspired by Spy x Family",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_anime_yor.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_anime_yor.mobileclaw-role",
+      "sha256": "3062fc65dbd1c0ff6bb0807b9842d971d154cb07e5935d5114b0188720822102",
+      "requiredSkills": [],
+      "unofficial": true
+    },
+    {
+      "id": "roleplay_anime_luffy",
+      "category": "roleplay",
+      "name": "蒙奇·D·路飞",
+      "nameEn": "Monkey D. Luffy",
+      "description": "《海贼王》路飞非官方角色扮演模板",
+      "descriptionEn": "Unofficial Monkey D. Luffy roleplay template inspired by One Piece",
+      "version": "1.0.0",
+      "avatarUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/avatars/roleplay_anime_luffy.png",
+      "packageUrl": "https://raw.githubusercontent.com/eggbrid2/mobileClaw/main/role-market/packages/roleplay_anime_luffy.mobileclaw-role",
+      "sha256": "3443fa766dc75ae1ed923a6f156195bee2bef10c3b8a47c041437f58a0b2e794",
+      "requiredSkills": [],
+      "unofficial": true
+    }
+  ]
+}
